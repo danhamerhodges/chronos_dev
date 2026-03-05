@@ -54,11 +54,25 @@ resource "google_project_iam_member" "deploy_serviceusage_consumer" {
   member   = "serviceAccount:${each.value}"
 }
 
-resource "google_storage_bucket_iam_member" "deploy_source_bucket_reader" {
-  for_each = local.deploy_bucket_bindings
-  bucket   = each.value.bucket
-  role     = "roles/storage.legacyBucketReader"
-  member   = "serviceAccount:${each.value.service_account}"
+resource "google_project_iam_member" "deploy_storage_bucket_viewer" {
+  for_each = toset(var.deploy_service_accounts)
+  project  = var.project_id
+  role     = "roles/storage.bucketViewer"
+  member   = "serviceAccount:${each.value}"
+}
+
+resource "google_project_iam_member" "deploy_storage_object_viewer" {
+  for_each = toset(var.deploy_service_accounts)
+  project  = var.project_id
+  role     = "roles/storage.objectViewer"
+  member   = "serviceAccount:${each.value}"
+}
+
+resource "google_project_iam_member" "deploy_storage_object_creator" {
+  for_each = toset(var.deploy_service_accounts)
+  project  = var.project_id
+  role     = "roles/storage.objectCreator"
+  member   = "serviceAccount:${each.value}"
 }
 
 resource "google_project_iam_member" "build_source_object_viewer" {
