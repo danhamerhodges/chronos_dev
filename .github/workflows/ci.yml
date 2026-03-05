@@ -35,7 +35,7 @@ jobs:
           pytest -q
 
   integration:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.SUPABASE_URL_DEV != '' && secrets.SUPABASE_ANON_KEY_DEV != '' && secrets.STRIPE_SECRET_KEY != '' && secrets.STRIPE_SUBSCRIPTION_PRODUCT_ID != '' && secrets.STRIPE_SUBSCRIPTION_PRICE_ID != '' && secrets.STRIPE_BILLING_PORTAL_RETURN_URL != '' && secrets.CHRONOS_TEST_EMAIL != '' && secrets.CHRONOS_TEST_PASSWORD != '' && secrets.CHRONOS_TEST_STRIPE_CUSTOMER_ID != ''
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: chronos_dev
     env:
@@ -54,12 +54,34 @@ jobs:
       LOG_LEVEL: INFO
     steps:
       - uses: actions/checkout@v4
+      - id: integration_gate
+        name: Evaluate integration secret readiness
+        run: |
+          missing=0
+          for name in SUPABASE_URL SUPABASE_ANON_KEY STRIPE_SECRET_KEY STRIPE_PRODUCT_ID STRIPE_PRICE_ID STRIPE_BILLING_PORTAL_RETURN_URL CHRONOS_TEST_EMAIL CHRONOS_TEST_PASSWORD CHRONOS_TEST_STRIPE_CUSTOMER_ID; do
+            value="${!name}"
+            if [ -z "$value" ]; then
+              echo "missing:$name"
+              missing=1
+            fi
+          done
+          if [ "$missing" -eq 1 ]; then
+            echo "run_integration=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_integration=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/setup-python@v5
+        if: steps.integration_gate.outputs.run_integration == 'true'
         with:
           python-version: "3.12"
       - name: Install dependencies
+        if: steps.integration_gate.outputs.run_integration == 'true'
         run: |
           python -m pip install --upgrade pip
           pip install -e '.[dev]'
       - name: Run integration-enabled backend tests
+        if: steps.integration_gate.outputs.run_integration == 'true'
         run: pytest tests/database tests/auth tests/billing -q
+      - name: Integration tests skipped (missing secrets)
+        if: steps.integration_gate.outputs.run_integration != 'true'
+        run: echo "Integration secrets missing; skipping integration suite."
