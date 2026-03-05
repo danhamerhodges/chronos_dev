@@ -7,7 +7,6 @@ on:
 
 jobs:
   deploy:
-    if: secrets.GCP_PROJECT_ID != '' && secrets.GCP_WIF_PROVIDER != '' && secrets.GCP_DEPLOY_SERVICE_ACCOUNT != '' && secrets.CLOUD_RUN_SERVICE != ''
     runs-on: ubuntu-latest
     environment: chronos_dev
     permissions:
@@ -17,8 +16,16 @@ jobs:
       GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
       GCP_REGION: ${{ secrets.GCP_REGION }}
       CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
+      GCP_WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
+      GCP_DEPLOY_SERVICE_ACCOUNT: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
     steps:
       - uses: actions/checkout@v4
+      - name: Validate required deploy secrets
+        run: |
+          test -n "${GCP_PROJECT_ID}"
+          test -n "${GCP_WIF_PROVIDER}"
+          test -n "${GCP_DEPLOY_SERVICE_ACCOUNT}"
+          test -n "${CLOUD_RUN_SERVICE}"
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
