@@ -1,0 +1,6 @@
+interface:
+  display_name: "Commit Hygiene Guard"
+  short_description: "Recommend commit size and timing"
+  default_prompt: "Assess staged changes for commit sizing and timing. Recommend whether to split or commit now."
+policy:
+  allow_implicit_invocation: true

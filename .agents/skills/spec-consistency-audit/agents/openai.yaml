@@ -1,0 +1,6 @@
+interface:
+  display_name: "Spec Consistency Audit"
+  short_description: "Audit ChronosRefine specs for drift and stale links"
+  default_prompt: "Audit docs/specs for requirement drift, phase inconsistencies, and stale references. Report findings with file and line references and propose exact fixes."
+policy:
+  allow_implicit_invocation: true

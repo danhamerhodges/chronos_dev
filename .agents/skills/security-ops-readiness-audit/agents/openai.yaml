@@ -1,0 +1,6 @@
+interface:
+  display_name: "Security & Ops Readiness Audit"
+  short_description: "Audit SEC/OPS requirement readiness and control gaps"
+  default_prompt: "Audit security and operations readiness against SEC/OPS requirements, report prioritized gaps with evidence, and propose minimal remediations."
+policy:
+  allow_implicit_invocation: true

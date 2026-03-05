@@ -1,0 +1,6 @@
+interface:
+  display_name: "Requirement Implementation Planner"
+  short_description: "Plan ChronosRefine requirement implementation and tests"
+  default_prompt: "Given requirement IDs, build an implementation packet: dependencies, phase alignment, impacted files, tests, verification commands, and minimal scope patch plan."
+policy:
+  allow_implicit_invocation: true

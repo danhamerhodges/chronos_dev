@@ -1,0 +1,199 @@
+version: "1.0"
+status: "active"
+last_updated: "2026-03-04"
+
+project:
+  name: "ChronosRefine"
+  repository_root: "/Users/geekboy/Projects/chronos"
+  model_family_default: "gpt-5.3-codex"
+
+governance:
+  canonical_docs:
+    - "docs/standards/codex_multi_agent_skills_standard.md"
+    - "docs/standards/codex_multi_agent_skills_runbook.md"
+  required_controls:
+    - "single-writer-overlapping-files"
+    - "fan-out-fan-in-output-contract"
+    - "skills-risk-tier-invocation-policy"
+    - "validator-gated-setup-changes"
+
+agents:
+  runtime:
+    multi_agent_enabled: true
+    max_threads: 4
+    max_depth: 1
+  roles:
+    - name: "default"
+      reasoning_policy: "inherit-global-ui"
+      sandbox_mode: "inherit"
+      primary_responsibility: "fallback synthesis and routing"
+      edit_authority: "conditional"
+      invoked_by:
+        - "automatic fallback"
+        - "explicit agent_type=default"
+    - name: "explorer"
+      reasoning_policy: "medium"
+      sandbox_mode: "read-only"
+      primary_responsibility: "discovery, scans, and evidence gathering"
+      edit_authority: "none"
+      invoked_by:
+        - "fan-out read-heavy tasks"
+        - "dependency mapping"
+        - "traceability audits"
+    - name: "reviewer"
+      reasoning_policy: "high"
+      sandbox_mode: "read-only"
+      primary_responsibility: "correctness, security, and regression challenge"
+      edit_authority: "none"
+      invoked_by:
+        - "risk review"
+        - "pre-implementation challenge pass"
+    - name: "monitor"
+      reasoning_policy: "low"
+      sandbox_mode: "read-only"
+      primary_responsibility: "long-running waits and status polling"
+      edit_authority: "none"
+      invoked_by:
+        - "polling workflows"
+        - "background status checks"
+    - name: "worker"
+      reasoning_policy: "medium"
+      sandbox_mode: "workspace-write"
+      primary_responsibility: "approved implementation and validation"
+      edit_authority: "full-within-scope"
+      invoked_by:
+        - "post-approval edits"
+        - "targeted remediations"
+
+orchestration:
+  strategy: "fan-out-fan-in"
+  constraints:
+    single_writer_on_overlapping_file_sets: true
+    concurrent_worker_edits_on_same_scope_forbidden: true
+    sub_agent_output_contract_required: true
+  required_sub_agent_fields:
+    - "scope"
+    - "findings"
+    - "evidence"
+    - "open_risks"
+    - "recommended_next_action"
+
+skills:
+  location: ".agents/skills"
+  required_files:
+    - "SKILL.md"
+    - "agents/openai.yaml"
+  inventory:
+    - name: "spec-consistency-audit"
+      path: ".agents/skills/spec-consistency-audit"
+      category: "read-only-audit"
+      allow_implicit_invocation: true
+    - name: "requirement-implementation-planner"
+      path: ".agents/skills/requirement-implementation-planner"
+      category: "read-only-planning"
+      allow_implicit_invocation: true
+    - name: "requirement-implementation-executor"
+      path: ".agents/skills/requirement-implementation-executor"
+      category: "state-changing-implementation"
+      allow_implicit_invocation: false
+    - name: "test-traceability-enforcer"
+      path: ".agents/skills/test-traceability-enforcer"
+      category: "read-mostly-governance"
+      allow_implicit_invocation: true
+    - name: "gh-address-comments"
+      path: ".agents/skills/gh-address-comments"
+      category: "state-changing-remediation"
+      allow_implicit_invocation: false
+    - name: "gh-fix-ci"
+      path: ".agents/skills/gh-fix-ci"
+      category: "state-changing-remediation"
+      allow_implicit_invocation: false
+    - name: "security-ops-readiness-audit"
+      path: ".agents/skills/security-ops-readiness-audit"
+      category: "read-only-audit"
+      allow_implicit_invocation: true
+    - name: "integration-bootstrap-readiness"
+      path: ".agents/skills/integration-bootstrap-readiness"
+      category: "read-only-readiness"
+      allow_implicit_invocation: true
+    - name: "release-gate-readiness"
+      path: ".agents/skills/release-gate-readiness"
+      category: "read-only-release-governance"
+      allow_implicit_invocation: true
+    - name: "changelog-generator"
+      path: ".agents/skills/changelog-generator"
+      category: "read-only-reporting"
+      allow_implicit_invocation: true
+    - name: "commit-hygiene-guard"
+      path: ".agents/skills/commit-hygiene-guard"
+      category: "read-only-commit-governance"
+      allow_implicit_invocation: true
+    - name: "push-readiness-gate"
+      path: ".agents/skills/push-readiness-gate"
+      category: "state-changing-remediation"
+      allow_implicit_invocation: false
+    - name: "pr-validation-orchestrator"
+      path: ".agents/skills/pr-validation-orchestrator"
+      category: "read-mostly-ci-governance"
+      allow_implicit_invocation: true
+
+workflow_mapping:
+  - workflow: "spec consistency and drift audit"
+    primary_role: "explorer"
+    secondary_role: "reviewer"
+    skill: "spec-consistency-audit"
+  - workflow: "requirement packet planning"
+    primary_role: "explorer"
+    secondary_role: "reviewer"
+    skill: "requirement-implementation-planner"
+  - workflow: "requirement implementation execution"
+    primary_role: "worker"
+    secondary_role: "reviewer"
+    skill: "requirement-implementation-executor"
+  - workflow: "test traceability and gating"
+    primary_role: "explorer"
+    secondary_role: "worker"
+    skill: "test-traceability-enforcer"
+  - workflow: "pr review comment processing"
+    primary_role: "explorer"
+    secondary_role: "worker"
+    skill: "gh-address-comments"
+  - workflow: "ci failure triage and repair"
+    primary_role: "explorer"
+    secondary_role: "worker"
+    skill: "gh-fix-ci"
+  - workflow: "security and operations readiness audit"
+    primary_role: "reviewer"
+    secondary_role: "explorer"
+    skill: "security-ops-readiness-audit"
+  - workflow: "integration/bootstrap readiness"
+    primary_role: "explorer"
+    secondary_role: "reviewer"
+    skill: "integration-bootstrap-readiness"
+  - workflow: "beta/ga gate readiness"
+    primary_role: "reviewer"
+    secondary_role: "monitor"
+    skill: "release-gate-readiness"
+  - workflow: "changelog/release notes"
+    primary_role: "explorer"
+    secondary_role: "reviewer"
+    skill: "changelog-generator"
+  - workflow: "commit sizing and timing guard"
+    primary_role: "explorer"
+    secondary_role: "reviewer"
+    skill: "commit-hygiene-guard"
+  - workflow: "push initiation gate"
+    primary_role: "worker"
+    secondary_role: "reviewer"
+    skill: "push-readiness-gate"
+  - workflow: "pr validation orchestration"
+    primary_role: "explorer"
+    secondary_role: "monitor"
+    skill: "pr-validation-orchestrator"
+
+hygiene:
+  forbidden_reference_patterns:
+    - "\\.cursor/"
+  forbidden_generated_artifacts:
+    - "__pycache__/"
+    - "*.pyc"

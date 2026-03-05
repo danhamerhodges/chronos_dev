@@ -1,0 +1,6 @@
+interface:
+  display_name: "Changelog Generator"
+  short_description: "Generate Chronos changelogs from git history"
+  default_prompt: "Generate a concise markdown changelog from a defined commit range, grouped by Added/Changed/Fixed/Security/Docs/Tests/Skills and include requirement-ID traceability when available."
+policy:
+  allow_implicit_invocation: true

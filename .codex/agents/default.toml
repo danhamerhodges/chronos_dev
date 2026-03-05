@@ -1,0 +1,2 @@
+model = "gpt-5.3-codex"
+developer_instructions = "General fallback role. Follow AGENTS.md, keep scope minimal, and avoid unnecessary tool calls."

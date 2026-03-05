@@ -1,0 +1,24 @@
+:root {
+  --color-brand-primary: #0f4c81;
+  --color-brand-secondary: #1677b3;
+  --color-surface-primary: #f7f9fc;
+  --color-surface-elevated: #ffffff;
+  --color-text-primary: #12263a;
+  --color-text-muted: #4f6478;
+
+  --font-family-base: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
+
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+
+  --breakpoint-sm: 640px;
+  --breakpoint-md: 768px;
+  --breakpoint-lg: 1024px;
+}

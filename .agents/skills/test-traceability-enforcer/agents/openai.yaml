@@ -1,0 +1,6 @@
+interface:
+  display_name: "Test Traceability Enforcer"
+  short_description: "Enforce test mapping and test-mode governance rules"
+  default_prompt: "Audit test traceability (`Maps to:` headers and requirement mappings), apply minimal fixes, and report exact verification evidence."
+policy:
+  allow_implicit_invocation: true

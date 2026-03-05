@@ -1,0 +1,6 @@
+interface:
+  display_name: "Requirement Implementation Executor"
+  short_description: "Implement approved requirement packets with minimal diffs"
+  default_prompt: "Implement the approved requirement packet with minimal diffs, mapped tests, and explicit verification evidence."
+policy:
+  allow_implicit_invocation: false

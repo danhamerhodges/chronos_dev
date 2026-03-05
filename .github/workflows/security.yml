@@ -1,0 +1,16 @@
+name: security
+
+on:
+  pull_request:
+  schedule:
+    - cron: "0 7 * * 1"
+
+jobs:
+  security-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Basic secret and policy scan
+        run: |
+          ! rg -n "SUPABASE_SERVICE_ROLE_KEY\s*=\s*[^r]" . || (echo "Potential hardcoded secret" && exit 1)
+          ! rg -n "\.cursor/" AGENTS.md docs/specs || (echo "Deprecated reference found" && exit 1)

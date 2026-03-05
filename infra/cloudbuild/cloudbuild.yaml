@@ -1,0 +1,4 @@
+steps:
+  - name: "python:3.12"
+    entrypoint: "bash"
+    args: ["-lc", "python3 scripts/validate_test_traceability.py"]

@@ -1,0 +1,26 @@
+[features]
+multi_agent = true
+
+[agents]
+max_threads = 4
+max_depth = 1
+
+[agents.default]
+description = "General-purpose fallback role."
+config_file = ".codex/agents/default.toml"
+
+[agents.worker]
+description = "Execution-focused role for implementation and fixes."
+config_file = ".codex/agents/worker.toml"
+
+[agents.explorer]
+description = "Read-heavy explorer for scans, audits, and traceability."
+config_file = ".codex/agents/explorer.toml"
+
+[agents.reviewer]
+description = "Adversarial reviewer for risks, correctness, and validation gaps."
+config_file = ".codex/agents/reviewer.toml"
+
+[agents.monitor]
+description = "Long-running monitor for CI and polling workflows."
+config_file = ".codex/agents/monitor.toml"

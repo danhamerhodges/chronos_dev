@@ -1,0 +1,15 @@
+Metadata-Version: 2.4
+Name: chronos
+Version: 0.1.0
+Summary: ChronosRefine Phase 1 baseline
+Requires-Python: >=3.11
+Requires-Dist: fastapi>=0.115.0
+Requires-Dist: uvicorn>=0.30.0
+Requires-Dist: pydantic>=2.8.0
+Requires-Dist: httpx>=0.27.0
+Requires-Dist: python-dotenv>=1.0.1
+Requires-Dist: stripe>=9.0.0
+Requires-Dist: supabase>=2.0.0
+Provides-Extra: dev
+Requires-Dist: pytest>=8.2.0; extra == "dev"
+Requires-Dist: pytest-cov>=5.0.0; extra == "dev"

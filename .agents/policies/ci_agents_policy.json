@@ -1,0 +1,50 @@
+{
+  "mode": "advisory",
+  "commit_sizer": {
+    "soft_max_changed_lines": 250,
+    "hard_max_changed_lines": 500,
+    "soft_max_files": 12,
+    "hard_max_files": 20,
+    "high_risk_paths": [
+      "app/auth/",
+      "app/billing/",
+      "supabase/",
+      "infra/terraform/",
+      ".github/workflows/"
+    ]
+  },
+  "commit_timing": {
+    "target_commit_interval_minutes": 120,
+    "max_uncommitted_lines": 220,
+    "recommended_min_lines": 40
+  },
+  "push_gate": {
+    "block_direct_push_branches": ["main"],
+    "allow_direct_push_env": "CHRONOS_ALLOW_MAIN_PUSH",
+    "checks": {
+      "always": [
+        "python3 scripts/validate_test_traceability.py"
+      ],
+      "backend": [
+        "python3 -m pytest tests/infrastructure tests/database tests/auth tests/billing tests/ops -q"
+      ],
+      "frontend": [
+        "pnpm -C web test",
+        "pnpm -C web storybook:test"
+      ],
+      "design": [
+        "python3 -m pytest tests/design_system tests/visual_regression -q"
+      ],
+      "security": [
+        "! rg -n \"SUPABASE_SERVICE_ROLE_KEY\\s*=\\s*[^r]\" . || (echo \"Potential hardcoded secret\" && exit 1)",
+        "! rg -n \"\\.cursor/\" AGENTS.md docs/specs || (echo \"Deprecated reference found\" && exit 1)"
+      ]
+    },
+    "path_groups": {
+      "backend": ["app/", "tests/", "scripts/", "supabase/", "pyproject.toml"],
+      "frontend": ["web/", "package.json", "pnpm-workspace.yaml"],
+      "design": ["web/", "tests/design_system/", "tests/visual_regression/"],
+      "security": ["AGENTS.md", "docs/specs/", ".github/workflows/", ".agents/"]
+    }
+  }
+}

@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+python3 scripts/agents/recommend_commit_timing.py

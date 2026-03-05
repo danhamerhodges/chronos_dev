@@ -1,0 +1,6 @@
+interface:
+  display_name: "Integration Bootstrap Readiness"
+  short_description: "Preflight audit for required third-party integrations"
+  default_prompt: "Run an integration bootstrap preflight, identify blockers, and return a pass/fail checklist with exact next actions."
+policy:
+  allow_implicit_invocation: true

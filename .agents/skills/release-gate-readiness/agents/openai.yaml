@@ -1,0 +1,6 @@
+interface:
+  display_name: "Release Gate Readiness"
+  short_description: "Evaluate Beta/GA gate and rollback readiness"
+  default_prompt: "Assess release gate readiness against Beta/GA criteria, produce a gate matrix, and identify blockers with recommended actions."
+policy:
+  allow_implicit_invocation: true

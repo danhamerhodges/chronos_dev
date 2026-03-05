@@ -1,0 +1,6 @@
+interface:
+  display_name: "GH Address Comments"
+  short_description: "Summarize and resolve selected GitHub PR review threads"
+  default_prompt: "Inspect the active PR review threads, summarize each thread with likely fix scope, ask which thread numbers to address, then implement only selected fixes."
+policy:
+  allow_implicit_invocation: false

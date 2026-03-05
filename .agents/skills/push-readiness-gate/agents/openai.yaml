@@ -1,0 +1,6 @@
+interface:
+  display_name: "Push Readiness Gate"
+  short_description: "Run branch and check gating before push"
+  default_prompt: "Evaluate whether this branch is safe to push and run required path-aware checks."
+policy:
+  allow_implicit_invocation: false

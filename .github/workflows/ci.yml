@@ -1,0 +1,63 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    env:
+      CHRONOS_RUN_SUPABASE_INTEGRATION: "0"
+      CHRONOS_RUN_STRIPE_INTEGRATION: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+          npm ci
+          npm --prefix web ci
+      - name: Validate traceability and structure
+        run: |
+          python3 scripts/validate_test_traceability.py
+          pytest tests/infrastructure tests/database tests/auth tests/billing tests/ops -q
+          ./node_modules/.bin/pnpm -C web test
+          ./node_modules/.bin/pnpm -C web storybook:test
+          pytest tests/design_system tests/visual_regression -q
+          pytest -q
+
+  integration:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.SUPABASE_URL_DEV != '' && secrets.SUPABASE_ANON_KEY_DEV != '' && secrets.STRIPE_SECRET_KEY != '' && secrets.STRIPE_SUBSCRIPTION_PRODUCT_ID != '' && secrets.STRIPE_SUBSCRIPTION_PRICE_ID != ''
+    runs-on: ubuntu-latest
+    environment: chronos_dev
+    env:
+      CHRONOS_RUN_SUPABASE_INTEGRATION: "1"
+      CHRONOS_RUN_STRIPE_INTEGRATION: "1"
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL_DEV }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY_DEV }}
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+      STRIPE_PRODUCT_ID: ${{ secrets.STRIPE_SUBSCRIPTION_PRODUCT_ID }}
+      STRIPE_PRICE_ID: ${{ secrets.STRIPE_SUBSCRIPTION_PRICE_ID }}
+      CHRONOS_TEST_EMAIL: ${{ secrets.CHRONOS_TEST_EMAIL }}
+      CHRONOS_TEST_PASSWORD: ${{ secrets.CHRONOS_TEST_PASSWORD }}
+      CHRONOS_TEST_STRIPE_CUSTOMER_ID: ${{ secrets.CHRONOS_TEST_STRIPE_CUSTOMER_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e '.[dev]'
+      - name: Run integration-enabled backend tests
+        run: pytest tests/database tests/auth tests/billing -q
