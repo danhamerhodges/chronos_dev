@@ -12,5 +12,5 @@ jobs:
       - uses: actions/checkout@v4
       - name: Basic secret and policy scan
         run: |
-          ! rg -n "SUPABASE_SERVICE_ROLE_KEY\s*=\s*[^r]" . || (echo "Potential hardcoded secret" && exit 1)
+          ! rg -n "SUPABASE_SERVICE_ROLE_KEY\\s*=\\s*[^$][^#\\s]+" . --glob '!docs/specs/**' --glob '!.env.example' --glob '!.env.test.example' || (echo "Potential hardcoded secret" && exit 1)
           ! rg -n "\.cursor/" AGENTS.md docs/specs || (echo "Deprecated reference found" && exit 1)

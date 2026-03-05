@@ -1,12 +1,42 @@
 name: deploy-staging
 
 on:
+  push:
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
   deploy:
+    if: secrets.GCP_PROJECT_ID != '' && secrets.GCP_WIF_PROVIDER != '' && secrets.GCP_DEPLOY_SERVICE_ACCOUNT != '' && secrets.CLOUD_RUN_SERVICE != ''
     runs-on: ubuntu-latest
+    environment: chronos_dev
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      GCP_REGION: ${{ secrets.GCP_REGION }}
+      CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
     steps:
       - uses: actions/checkout@v4
-      - name: Staging deploy placeholder
-        run: echo "Deploy staging pipeline placeholder for Phase 1"
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - name: Set up gcloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+      - name: Deploy to Cloud Run staging
+        run: |
+          gcloud run deploy "${CLOUD_RUN_SERVICE}" \
+            --project "${GCP_PROJECT_ID}" \
+            --region "${GCP_REGION:-us-central1}" \
+            --source . \
+            --allow-unauthenticated \
+            --quiet
+      - name: Smoke check staging health endpoint
+        run: |
+          SERVICE_URL="$(gcloud run services describe "${CLOUD_RUN_SERVICE}" --project "${GCP_PROJECT_ID}" --region "${GCP_REGION:-us-central1}" --format='value(status.url)')"
+          curl --fail --silent --show-error "${SERVICE_URL}/health"

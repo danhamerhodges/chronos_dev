@@ -23,3 +23,14 @@ def test_agent_hook_and_script_baseline_exists() -> None:
     assert (root / "scripts/agents/recommend_commit_timing.py").exists()
     assert (root / "scripts/agents/push_gate.py").exists()
     assert (root / "scripts/agents/pr_validation_orchestrator.py").exists()
+
+
+def test_staging_deploy_workflow_is_non_placeholder() -> None:
+    root = Path(__file__).resolve().parents[2]
+    workflow = (root / ".github/workflows/deploy-staging.yml").read_text(encoding="utf-8")
+
+    assert "push:" in workflow
+    assert "branches: [ main ]" in workflow
+    assert "gcloud run deploy" in workflow
+    assert "workload_identity_provider" in workflow
+    assert "placeholder" not in workflow.lower()
