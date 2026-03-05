@@ -51,12 +51,19 @@ jobs:
       CHRONOS_TEST_EMAIL: ${{ secrets.CHRONOS_TEST_EMAIL }}
       CHRONOS_TEST_PASSWORD: ${{ secrets.CHRONOS_TEST_PASSWORD }}
       CHRONOS_TEST_STRIPE_CUSTOMER_ID: ${{ secrets.CHRONOS_TEST_STRIPE_CUSTOMER_ID }}
+      CHRONOS_ENABLE_INTEGRATION_CI: ${{ secrets.CHRONOS_ENABLE_INTEGRATION_CI }}
       LOG_LEVEL: INFO
     steps:
       - uses: actions/checkout@v4
       - id: integration_gate
         name: Evaluate integration secret readiness
         run: |
+          if [ "${CHRONOS_ENABLE_INTEGRATION_CI}" != "1" ]; then
+            echo "run_integration=false" >> "$GITHUB_OUTPUT"
+            echo "Integration suite disabled (set CHRONOS_ENABLE_INTEGRATION_CI=1 to enable)."
+            exit 0
+          fi
+
           missing=0
           for name in SUPABASE_URL SUPABASE_ANON_KEY STRIPE_SECRET_KEY STRIPE_PRODUCT_ID STRIPE_PRICE_ID STRIPE_BILLING_PORTAL_RETURN_URL CHRONOS_TEST_EMAIL CHRONOS_TEST_PASSWORD CHRONOS_TEST_STRIPE_CUSTOMER_ID; do
             value="${!name}"
