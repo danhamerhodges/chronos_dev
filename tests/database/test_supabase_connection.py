@@ -7,7 +7,9 @@ import pytest
 from app.db.client import SupabaseClient
 
 
-def test_supabase_client_requires_config() -> None:
+def test_supabase_client_requires_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    for key in ("SUPABASE_URL", "SUPABASE_URL_DEV", "SUPABASE_ANON_KEY", "SUPABASE_ANON_KEY_DEV"):
+        monkeypatch.delenv(key, raising=False)
     client = SupabaseClient(base_url="", anon_key="")
     assert client.is_configured() is False
 
@@ -24,5 +26,6 @@ def test_pooling_and_backup_profiles_declared() -> None:
 )
 def test_supabase_sdk_query_smoke() -> None:
     client = SupabaseClient()
-    data = client.query_table("user_profiles", columns="id", limit=1)
-    assert isinstance(data, list)
+    ok, detail = client.healthcheck()
+    assert ok is True
+    assert detail.startswith("status=")

@@ -63,6 +63,8 @@ jobs:
             echo "Integration suite disabled (set CHRONOS_ENABLE_INTEGRATION_CI=1 to enable)."
             exit 0
           fi
+          echo "Integration suite enabled; validating external service configuration."
+          echo "Note: table-level Supabase integration checks require bootstrapped schema in target project."
 
           missing=0
           for name in SUPABASE_URL SUPABASE_ANON_KEY STRIPE_SECRET_KEY STRIPE_PRODUCT_ID STRIPE_PRICE_ID STRIPE_BILLING_PORTAL_RETURN_URL CHRONOS_TEST_EMAIL CHRONOS_TEST_PASSWORD CHRONOS_TEST_STRIPE_CUSTOMER_ID; do
