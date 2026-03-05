@@ -47,18 +47,18 @@ resource "google_project_iam_member" "deploy_artifactregistry_reader" {
   member   = "serviceAccount:${each.value}"
 }
 
-resource "google_project_iam_member" "deploy_storage_admin" {
-  for_each = toset(var.deploy_service_accounts)
-  project  = var.project_id
-  role     = "roles/storage.admin"
-  member   = "serviceAccount:${each.value}"
-}
-
 resource "google_project_iam_member" "deploy_serviceusage_consumer" {
   for_each = toset(var.deploy_service_accounts)
   project  = var.project_id
   role     = "roles/serviceusage.serviceUsageConsumer"
   member   = "serviceAccount:${each.value}"
+}
+
+resource "google_storage_bucket_iam_member" "deploy_source_bucket_reader" {
+  for_each = local.deploy_bucket_bindings
+  bucket   = each.value.bucket
+  role     = "roles/storage.legacyBucketReader"
+  member   = "serviceAccount:${each.value.service_account}"
 }
 
 resource "google_project_iam_member" "build_source_object_viewer" {

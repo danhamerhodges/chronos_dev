@@ -25,6 +25,12 @@ variable "deploy_service_accounts" {
   default     = []
 }
 
+variable "deploy_source_buckets" {
+  description = "Optional source upload buckets for Cloud Run source deploys. Defaults to run-sources-<project>-<region>."
+  type        = list(string)
+  default     = []
+}
+
 variable "build_service_accounts" {
   description = "Service accounts used by Cloud Build source deploys."
   type        = list(string)

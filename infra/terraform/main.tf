@@ -15,5 +15,13 @@ provider "google" {
 }
 
 locals {
-  project_name = "chronosrefine"
+  project_name          = "chronosrefine"
+  source_deploy_buckets = length(var.deploy_source_buckets) > 0 ? var.deploy_source_buckets : ["run-sources-${var.project_id}-${var.region}"]
+  deploy_bucket_bindings = {
+    for pair in setproduct(toset(var.deploy_service_accounts), toset(local.source_deploy_buckets)) :
+    "${pair[0]}|${pair[1]}" => {
+      service_account = pair[0]
+      bucket          = pair[1]
+    }
+  }
 }

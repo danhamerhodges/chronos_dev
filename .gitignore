@@ -18,3 +18,9 @@ web/node_modules/
 
 # OS noise
 .DS_Store
+
+# Terraform local state/artifacts
+infra/terraform/.terraform/
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.backup
+infra/terraform/tfplan

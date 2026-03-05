@@ -1,4 +1,10 @@
 resource "google_monitoring_dashboard" "chronos_phase1" {
+  # Cloud Monitoring API normalizes dashboard JSON (adds/removes implicit fields),
+  # which otherwise causes perpetual no-op drift in plan output.
+  lifecycle {
+    ignore_changes = [dashboard_json]
+  }
+
   dashboard_json = jsonencode({
     displayName = "ChronosRefine Phase 1 - Service Health"
     mosaicLayout = {
