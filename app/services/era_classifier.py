@@ -1,0 +1,166 @@
+"""Era-classifier interfaces, canonical era helpers, and deterministic fallback logic."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Protocol
+
+
+UNKNOWN_ERA = "Unknown Era"
+ERA_CATALOG = [
+    "1840s Daguerreotype Plate",
+    "1860s Albumen Print",
+    "1930s 16mm Film",
+    "1950s Kodachrome Film",
+    "1960s Kodachrome Film",
+    "1970s Super 8 Film",
+    "1980s VHS Tape",
+    "1990s VHS Tape",
+]
+_CANONICAL_ERA_BY_KEY = {era.casefold(): era for era in ERA_CATALOG}
+_ERA_ALIASES = {
+    "daguerreotype": "1840s Daguerreotype Plate",
+    "daguerreotype plate": "1840s Daguerreotype Plate",
+    "albumen": "1860s Albumen Print",
+    "albumen print": "1860s Albumen Print",
+    "16mm": "1930s 16mm Film",
+    "16mm film": "1930s 16mm Film",
+    "1930s 16mm": "1930s 16mm Film",
+    "1930s 16mm film": "1930s 16mm Film",
+    "1950s kodachrome": "1950s Kodachrome Film",
+    "1950s kodachrome film": "1950s Kodachrome Film",
+    "1960s kodachrome": "1960s Kodachrome Film",
+    "1960s kodachrome film": "1960s Kodachrome Film",
+    "super 8": "1970s Super 8 Film",
+    "super 8 film": "1970s Super 8 Film",
+    "super 8mm": "1970s Super 8 Film",
+    "super 8mm film": "1970s Super 8 Film",
+    "1970s super 8": "1970s Super 8 Film",
+    "1970s super 8 film": "1970s Super 8 Film",
+    "1980s vhs": "1980s VHS Tape",
+    "1980s vhs tape": "1980s VHS Tape",
+    "1990s vhs": "1990s VHS Tape",
+    "1990s vhs tape": "1990s VHS Tape",
+    "vhs": "1980s VHS Tape",
+    "vhs tape": "1980s VHS Tape",
+}
+
+_MEDIUM_DEFAULTS = {
+    "daguerreotype": ("1840s Daguerreotype Plate", 0.94, "fine silver mirroring", ["plate_edges", "tonal_falloff"]),
+    "albumen": ("1860s Albumen Print", 0.92, "paper fiber bloom", ["sepia_cast", "albumen_sheen"]),
+    "16mm": ("1930s 16mm Film", 0.81, "coarse film grain", ["gate_weave", "flicker"]),
+    "super_8": ("1970s Super 8 Film", 0.79, "consumer film grain", ["splices", "frame_jitter"]),
+    "kodachrome": ("1960s Kodachrome Film", 0.88, "dense color grain", ["saturated_reds", "dye_stability"]),
+    "vhs": ("1980s VHS Tape", 0.76, "magnetic noise smear", ["head_switching_noise", "chroma_bleed"]),
+}
+
+
+@dataclass(frozen=True)
+class EraClassifierUsage:
+    prompt_token_count: int = 0
+    candidates_token_count: int = 0
+    total_token_count: int = 0
+    api_call_count: int = 0
+
+
+@dataclass(frozen=True)
+class EraClassification:
+    era: str
+    confidence: float
+    forensic_markers: dict[str, Any]
+    top_candidates: list[dict[str, Any]]
+    model_version: str
+    prompt_version: str
+    raw_response: dict[str, Any] | None = None
+    raw_response_gcs_uri: str | None = None
+    usage: EraClassifierUsage = field(default_factory=EraClassifierUsage)
+    provider_error: str | None = None
+
+
+class EraClassifier(Protocol):
+    def classify(
+        self,
+        *,
+        job_id: str,
+        media_uri: str,
+        original_filename: str,
+        mime_type: str,
+        era_profile: dict[str, Any],
+    ) -> EraClassification: ...
+
+
+def canonicalize_era_label(label: str | None) -> str | None:
+    normalized = str(label or "").strip()
+    if not normalized:
+        return None
+    direct_match = _CANONICAL_ERA_BY_KEY.get(normalized.casefold())
+    if direct_match:
+        return direct_match
+    return _ERA_ALIASES.get(normalized.casefold())
+
+
+def is_supported_era(label: str | None) -> bool:
+    return canonicalize_era_label(label) in ERA_CATALOG
+
+
+def normalize_top_candidates(
+    candidates: list[dict[str, Any]],
+    *,
+    include_unknown: bool = False,
+) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in candidates:
+        era = canonicalize_era_label(item.get("era"))
+        if era is None:
+            continue
+        if era == UNKNOWN_ERA and not include_unknown:
+            continue
+        if era in seen:
+            continue
+        seen.add(era)
+        try:
+            confidence = float(item.get("confidence", 0.0))
+        except (TypeError, ValueError):
+            confidence = 0.0
+        normalized.append({"era": era, "confidence": max(0.0, min(confidence, 1.0))})
+    return normalized
+
+
+class DeterministicFallbackEraClassifier:
+    def classify(
+        self,
+        *,
+        job_id: str,
+        media_uri: str,
+        original_filename: str,
+        mime_type: str,
+        era_profile: dict[str, Any],
+    ) -> EraClassification:
+        capture_medium = str(era_profile["capture_medium"])
+        era, confidence, grain_structure, artifacts = _MEDIUM_DEFAULTS.get(
+            capture_medium,
+            (UNKNOWN_ERA, 0.55, "unknown grain signature", ["insufficient_signal"]),
+        )
+        if "mystery" in f"{media_uri} {original_filename}".lower():
+            confidence = min(confidence, 0.61)
+        top_candidates = [
+            {"era": era, "confidence": round(confidence, 2)},
+            {
+                "era": ERA_CATALOG[(ERA_CATALOG.index(era) + 1) % len(ERA_CATALOG)] if era in ERA_CATALOG else "1970s Super 8 Film",
+                "confidence": 0.52,
+            },
+            {"era": "1980s VHS Tape", "confidence": 0.41},
+        ]
+        return EraClassification(
+            era=era,
+            confidence=round(confidence, 2),
+            forensic_markers={
+                "grain_structure": grain_structure,
+                "color_saturation": 0.82 if capture_medium == "kodachrome" else 0.58,
+                "format_artifacts": artifacts,
+            },
+            top_candidates=top_candidates,
+            model_version="deterministic-fallback-v1",
+            prompt_version="phase2-era-detection-fallback-v1",
+        )
