@@ -16,9 +16,31 @@ MEMBER = Role(name="member")
 
 
 ROLE_PERMISSIONS: dict[str, set[str]] = {
-    ADMIN.name: {"jobs:read", "jobs:write", "billing:read", "billing:write"},
-    ANALYST.name: {"jobs:read", "jobs:write", "billing:read"},
-    MEMBER.name: {"jobs:read"},
+    ADMIN.name: {
+        "jobs:read",
+        "jobs:write",
+        "billing:read",
+        "billing:write",
+        "users:read",
+        "users:write",
+        "logs:read",
+        "logs:write",
+        "compliance:write",
+    },
+    ANALYST.name: {
+        "jobs:read",
+        "jobs:write",
+        "billing:read",
+        "users:read",
+        "logs:read",
+    },
+    MEMBER.name: {
+        "jobs:read",
+        "billing:read",
+        "billing:write",
+        "users:read",
+        "users:write",
+    },
 }
 
 
