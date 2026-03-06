@@ -2,6 +2,8 @@
 
 from types import SimpleNamespace
 
+import pytest
+
 from app.db.phase2_store import UserProfileRepository, phase2_backend_name
 
 
@@ -65,12 +67,11 @@ def test_phase2_backend_requires_direct_db_configuration_in_production(monkeypat
     )
     monkeypatch.delenv("CHRONOS_RUN_SUPABASE_INTEGRATION", raising=False)
 
-    try:
+    with pytest.raises(
+        RuntimeError,
+        match="Production environment requires direct Supabase database configuration.",
+    ):
         phase2_backend_name()
-    except RuntimeError as exc:
-        assert str(exc) == "Production environment requires direct Supabase database configuration."
-    else:
-        raise AssertionError("Expected production backend selection to require direct DB configuration.")
 
 
 def test_memory_backed_user_profile_repository_round_trips() -> None:
@@ -175,6 +176,137 @@ def test_supabase_profile_update_omits_null_request_fields(monkeypatch) -> None:
     }
     assert updated["display_name"] == "Archivist"
     assert updated["preferences"] == {"theme": "sepia"}
+
+
+def test_supabase_profile_get_or_create_uses_atomic_upsert(monkeypatch) -> None:
+    import app.db.phase2_store as phase2_store
+
+    captured: dict[str, object] = {}
+
+    class StubClient:
+        def user_scoped_headers(self, access_token: str) -> dict[str, str]:
+            return {"Authorization": f"Bearer {access_token}"}
+
+        def rest_upsert(
+            self,
+            table_name: str,
+            *,
+            payload: dict[str, object],
+            on_conflict: str,
+            headers: dict[str, str],
+        ):
+            captured["table_name"] = table_name
+            captured["payload"] = payload
+            captured["on_conflict"] = on_conflict
+            captured["headers"] = headers
+            return [
+                {
+                    "external_user_id": "user-phase2",
+                    "email": "archivist@example.com",
+                    "role": "member",
+                    "plan_tier": "pro",
+                    "org_id": "org-7",
+                    "display_name": None,
+                    "avatar_url": None,
+                    "preferences": {},
+                }
+            ]
+
+    repo = phase2_store._SupabaseUserProfileRepository()
+    monkeypatch.setattr(repo, "_client", StubClient())
+
+    profile = repo.get_or_create(
+        user_id="user-phase2",
+        role="member",
+        plan_tier="pro",
+        org_id="org-7",
+        email="archivist@example.com",
+        access_token="jwt-token",
+    )
+
+    assert captured["table_name"] == "user_profiles"
+    assert captured["on_conflict"] == "id"
+    assert captured["headers"] == {"Authorization": "Bearer jwt-token"}
+    assert profile["user_id"] == "user-phase2"
+
+
+def test_supabase_usage_update_can_clear_single_job_approval_scope(monkeypatch) -> None:
+    import app.db.phase2_store as phase2_store
+
+    captured: dict[str, object] = {}
+
+    class StubClient:
+        def user_scoped_headers(self, access_token: str) -> dict[str, str]:
+            return {"Authorization": f"Bearer {access_token}"}
+
+        def rest_update(self, table_name: str, *, payload: dict[str, object], params: dict[str, str], headers: dict[str, str]):
+            captured["table_name"] = table_name
+            captured["payload"] = payload
+            return [
+                {
+                    "external_user_id": "user-phase2",
+                    "plan_tier": "pro",
+                    "used_minutes": 121,
+                    "monthly_limit_minutes": 120,
+                    "estimated_next_job_minutes": 0,
+                    "approved_overage_minutes": 5,
+                    "approval_scope": None,
+                    "threshold_alerts": [100],
+                }
+            ]
+
+    repo = phase2_store._SupabaseUsageRepository()
+    monkeypatch.setattr(repo, "_client", StubClient())
+
+    updated = repo.update(
+        "user-phase2",
+        {"overage_approval_scope": None, "estimated_next_job_minutes": 0},
+        access_token="jwt-token",
+    )
+
+    assert captured["table_name"] == "user_usage_monthly"
+    assert "approval_scope" in captured["payload"]
+    assert captured["payload"]["approval_scope"] is None
+    assert updated["overage_approval_scope"] is None
+
+
+def test_supabase_compliance_rolls_back_request_when_proof_insert_fails(monkeypatch) -> None:
+    import app.db.phase2_store as phase2_store
+
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    class StubClient:
+        def user_scoped_headers(self, access_token: str) -> dict[str, str]:
+            return {"Authorization": f"Bearer {access_token}"}
+
+        def rest_insert(self, table_name: str, *, payload: dict[str, object], headers: dict[str, str]):
+            calls.append((table_name, payload))
+            if table_name == "log_deletion_proofs":
+                raise RuntimeError("proof insert failed")
+            return [payload]
+
+        def rest_delete(self, table_name: str, *, params: dict[str, str], headers: dict[str, str]) -> None:
+            calls.append((table_name, params))
+
+    repo = phase2_store._SupabaseComplianceRepository()
+    monkeypatch.setattr(repo, "_client", StubClient())
+
+    with pytest.raises(RuntimeError, match="proof insert failed"):
+        repo.create_deletion_request(
+            user_id="user-phase2",
+            payload={
+                "categories": ["application_logs"],
+                "date_from": "2026-03-01",
+                "date_to": "2026-03-06",
+                "reason": "GDPR request",
+            },
+            access_token="jwt-token",
+        )
+
+    assert calls[0][0] == "log_deletion_requests"
+    assert calls[1][0] == "log_deletion_proofs"
+    assert calls[2][0] == "log_deletion_requests"
+    assert calls[2][1]["id"].startswith("eq.")
 
 
 def test_supabase_detection_insert_returns_manual_confirmation_flag(monkeypatch) -> None:

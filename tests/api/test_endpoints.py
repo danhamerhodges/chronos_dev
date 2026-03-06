@@ -33,6 +33,27 @@ def test_user_route_requires_bearer_token() -> None:
     assert payload["status"] == 401
 
 
+def test_partial_profile_update_preserves_existing_preferences() -> None:
+    headers = fake_auth_header("user-profile-preserve")
+    seed = client.patch(
+        "/v1/users/me",
+        headers=headers,
+        json={"preferences": {"theme": "sepia"}},
+    )
+    assert seed.status_code == 200
+
+    response = client.patch(
+        "/v1/users/me",
+        headers=headers,
+        json={"display_name": "Archivist"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["display_name"] == "Archivist"
+    assert payload["preferences"] == {"theme": "sepia"}
+
+
 def test_testing_reset_rate_limits_endpoint_is_available_in_test_mode() -> None:
     response = client.post("/v1/testing/reset-rate-limits", headers=fake_auth_header("user-1"))
     assert response.status_code == 200

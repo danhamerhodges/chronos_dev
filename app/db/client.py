@@ -131,6 +131,23 @@ class SupabaseClient:
             response.raise_for_status()
             return response.json()
 
+    def rest_delete(
+        self,
+        table_name: str,
+        *,
+        params: dict[str, str],
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        request_headers = dict(headers or self.service_role_headers())
+        request_headers["Prefer"] = "return=minimal"
+        with httpx.Client(timeout=10.0) as client:
+            response = client.delete(
+                self.rest_url(table_name),
+                headers=request_headers,
+                params=params,
+            )
+            response.raise_for_status()
+
     def auth_user(self, access_token: str) -> dict[str, Any]:
         if not self.is_configured():
             raise ValueError("Supabase configuration is required")

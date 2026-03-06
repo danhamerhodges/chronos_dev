@@ -55,6 +55,27 @@ _MEDIUM_DEFAULTS = {
 }
 
 
+def _fallback_top_candidates(primary_era: str, *, default_era: str) -> list[dict[str, Any]]:
+    if primary_era in ERA_CATALOG:
+        start_index = (ERA_CATALOG.index(primary_era) + 1) % len(ERA_CATALOG)
+        ordered_eras = [ERA_CATALOG[(start_index + offset) % len(ERA_CATALOG)] for offset in range(len(ERA_CATALOG))]
+    else:
+        default_index = ERA_CATALOG.index(default_era) if default_era in ERA_CATALOG else 0
+        ordered_eras = [default_era]
+        ordered_eras.extend(
+            ERA_CATALOG[(default_index + offset) % len(ERA_CATALOG)]
+            for offset in range(1, len(ERA_CATALOG))
+        )
+    ordered_eras = [era for era in ordered_eras if era != primary_era]
+    fallback_eras = ordered_eras[:2]
+    while len(fallback_eras) < 2:
+        fallback_eras.append(default_era)
+    return [
+        {"era": fallback_eras[0], "confidence": 0.52},
+        {"era": fallback_eras[1], "confidence": 0.41},
+    ]
+
+
 @dataclass(frozen=True)
 class EraClassifierUsage:
     prompt_token_count: int = 0
@@ -148,14 +169,8 @@ class DeterministicFallbackEraClassifier:
         )
         if "mystery" in f"{media_uri} {original_filename}".lower():
             confidence = min(confidence, 0.61)
-        top_candidates = [
-            {"era": era, "confidence": round(confidence, 2)},
-            {
-                "era": ERA_CATALOG[(ERA_CATALOG.index(era) + 1) % len(ERA_CATALOG)] if era in ERA_CATALOG else "1970s Super 8 Film",
-                "confidence": 0.52,
-            },
-            {"era": "1980s VHS Tape", "confidence": 0.41},
-        ]
+        top_candidates = [{"era": era, "confidence": round(confidence, 2)}]
+        top_candidates.extend(_fallback_top_candidates(era, default_era="1970s Super 8 Film"))
         return EraClassification(
             era=era,
             confidence=round(confidence, 2),

@@ -25,8 +25,13 @@ def _billing_month() -> str:
     return today.replace(day=1).isoformat()
 
 
-def _request_patch(payload: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in payload.items() if value is not None}
+def _request_patch(payload: dict[str, Any], *, nullable_keys: set[str] | None = None) -> dict[str, Any]:
+    allowed_nulls = nullable_keys or set()
+    return {
+        key: value
+        for key, value in payload.items()
+        if value is not None or key in allowed_nulls
+    }
 
 
 def phase2_backend_name() -> str:
@@ -261,14 +266,7 @@ class _SupabaseUserProfileRepository(_SupabaseRepositoryBase):
     ) -> dict[str, Any]:
         if access_token:
             headers = self._client.user_scoped_headers(access_token)
-            rows = self._client.rest_select(
-                "user_profiles",
-                params={"select": "*", "id": f"eq.{user_id}", "limit": "1"},
-                headers=headers,
-            )
-            if rows:
-                return self._row_to_profile(rows[0])
-            row = self._client.rest_insert(
+            row = self._client.rest_upsert(
                 "user_profiles",
                 payload={
                     "id": user_id,
@@ -282,6 +280,7 @@ class _SupabaseUserProfileRepository(_SupabaseRepositoryBase):
                     "preferences": {},
                     "updated_at": _utc_now(),
                 },
+                on_conflict="id",
                 headers=headers,
             )[0]
             return self._row_to_profile(row)
@@ -343,16 +342,19 @@ class _SupabaseUserProfileRepository(_SupabaseRepositoryBase):
             cur.execute(
                 """
                 update public.user_profiles
-                set display_name = coalesce(%s, display_name),
-                    avatar_url = coalesce(%s, avatar_url),
-                    preferences = %s,
+                set display_name = case when %s then %s else display_name end,
+                    avatar_url = case when %s then %s else avatar_url end,
+                    preferences = case when %s then %s else preferences end,
                     updated_at = now()
                 where external_user_id = %s
                 returning *
                 """,
                 (
+                    "display_name" in patch,
                     patch.get("display_name"),
+                    "avatar_url" in patch,
                     patch.get("avatar_url"),
+                    "preferences" in patch,
                     Jsonb(patch.get("preferences", {})),
                     user_id,
                 ),
@@ -452,16 +454,19 @@ class _SupabaseUsageRepository(_SupabaseRepositoryBase):
         month = _billing_month()
         if access_token:
             headers = self._client.user_scoped_headers(access_token)
-            request_payload = _request_patch(
-                {
-                    "used_minutes": payload.get("used_minutes"),
-                    "estimated_next_job_minutes": payload.get("estimated_next_job_minutes"),
-                    "approved_overage_minutes": payload.get("approved_for_minutes"),
-                    "approval_scope": payload.get("overage_approval_scope"),
-                    "threshold_alerts": payload.get("threshold_alerts"),
-                    "updated_at": _utc_now(),
-                }
-            )
+            request_payload = {
+                "updated_at": _utc_now(),
+            }
+            if "used_minutes" in payload:
+                request_payload["used_minutes"] = payload.get("used_minutes")
+            if "estimated_next_job_minutes" in payload:
+                request_payload["estimated_next_job_minutes"] = payload.get("estimated_next_job_minutes")
+            if "approved_for_minutes" in payload:
+                request_payload["approved_overage_minutes"] = payload.get("approved_for_minutes")
+            if "overage_approval_scope" in payload:
+                request_payload["approval_scope"] = payload.get("overage_approval_scope")
+            if "threshold_alerts" in payload:
+                request_payload["threshold_alerts"] = payload.get("threshold_alerts")
             row = self._client.rest_update(
                 "user_usage_monthly",
                 payload=request_payload,
@@ -477,20 +482,25 @@ class _SupabaseUsageRepository(_SupabaseRepositoryBase):
             cur.execute(
                 """
                 update public.user_usage_monthly
-                set used_minutes = coalesce(%s, used_minutes),
-                    estimated_next_job_minutes = coalesce(%s, estimated_next_job_minutes),
-                    approved_overage_minutes = coalesce(%s, approved_overage_minutes),
-                    approval_scope = coalesce(%s, approval_scope),
-                    threshold_alerts = coalesce(%s, threshold_alerts),
+                set used_minutes = case when %s then %s else used_minutes end,
+                    estimated_next_job_minutes = case when %s then %s else estimated_next_job_minutes end,
+                    approved_overage_minutes = case when %s then %s else approved_overage_minutes end,
+                    approval_scope = case when %s then %s else approval_scope end,
+                    threshold_alerts = case when %s then %s else threshold_alerts end,
                     updated_at = now()
                 where external_user_id = %s and billing_month = %s
                 returning *
                 """,
                 (
+                    "used_minutes" in payload,
                     payload.get("used_minutes"),
+                    "estimated_next_job_minutes" in payload,
                     payload.get("estimated_next_job_minutes"),
+                    "approved_for_minutes" in payload,
                     payload.get("approved_for_minutes"),
+                    "overage_approval_scope" in payload,
                     payload.get("overage_approval_scope"),
+                    "threshold_alerts" in payload,
                     payload.get("threshold_alerts"),
                     user_id,
                     month,
@@ -838,33 +848,43 @@ class _SupabaseComplianceRepository(_SupabaseRepositoryBase):
             deletion_request_id = str(uuid4())
             deletion_proof_id = str(uuid4())
             deleted_entries = max(len(payload["categories"]), 1) * 12
+            request_payload = {
+                "id": deletion_request_id,
+                "owner_user_id": user_id,
+                "external_user_id": user_id,
+                "categories": payload["categories"],
+                "date_from": payload["date_from"],
+                "date_to": payload["date_to"],
+                "reason": payload.get("reason"),
+                "status": "completed",
+                "deletion_proof_id": deletion_proof_id,
+            }
+            proof_payload = {
+                "id": deletion_proof_id,
+                "deletion_request_id": deletion_request_id,
+                "owner_user_id": user_id,
+                "external_user_id": user_id,
+                "deleted_entries": deleted_entries,
+                "deleted_categories": payload["categories"],
+            }
             self._client.rest_insert(
                 "log_deletion_requests",
-                payload={
-                    "id": deletion_request_id,
-                    "owner_user_id": user_id,
-                    "external_user_id": user_id,
-                    "categories": payload["categories"],
-                    "date_from": payload["date_from"],
-                    "date_to": payload["date_to"],
-                    "reason": payload.get("reason"),
-                    "status": "completed",
-                    "deletion_proof_id": deletion_proof_id,
-                },
+                payload=request_payload,
                 headers=headers,
             )
-            self._client.rest_insert(
-                "log_deletion_proofs",
-                payload={
-                    "id": deletion_proof_id,
-                    "deletion_request_id": deletion_request_id,
-                    "owner_user_id": user_id,
-                    "external_user_id": user_id,
-                    "deleted_entries": deleted_entries,
-                    "deleted_categories": payload["categories"],
-                },
-                headers=headers,
-            )
+            try:
+                self._client.rest_insert(
+                    "log_deletion_proofs",
+                    payload=proof_payload,
+                    headers=headers,
+                )
+            except Exception:
+                self._client.rest_delete(
+                    "log_deletion_requests",
+                    params={"id": f"eq.{deletion_request_id}"},
+                    headers=headers,
+                )
+                raise
             return {
                 "deletion_request_id": deletion_request_id,
                 "deletion_proof_id": deletion_proof_id,

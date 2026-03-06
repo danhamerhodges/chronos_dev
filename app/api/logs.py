@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends
 
 from app.api.contracts import DeleteLogsRequest, DeleteLogsResponse, LogSettingsResponse, LogSettingsUpdateRequest
 from app.api.dependencies import AuthenticatedUser, apply_rate_limit, get_current_user, require_permission
+from app.api.problem_details import ProblemException
 from app.services.security_service import SecurityService
 
 router = APIRouter()
@@ -19,6 +20,12 @@ def patch_log_settings(
     user: AuthenticatedUser = Depends(require_permission("logs:write")),
 ) -> LogSettingsResponse:
     apply_rate_limit(user, "/v1/orgs/{org_id}/settings/logs")
+    if org_id != user.org_id:
+        raise ProblemException(
+            title="Forbidden",
+            detail="You do not have permission to modify this organization's log settings.",
+            status_code=403,
+        )
     record = _security_service.update_log_settings(
         org_id=org_id,
         user_id=user.user_id,

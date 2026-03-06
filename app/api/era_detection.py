@@ -46,6 +46,29 @@ def detect_era(request: DetectEraRequest, user: AuthenticatedUser = Depends(get_
             ],
         )
 
+    estimated_usage_minutes = billable_minutes_for_duration(
+        duration_seconds=request.estimated_duration_seconds,
+        mode=request.era_profile.mode,
+    )
+    billing_snapshot = _billing_service.record_estimate(
+        user_id=user.user_id,
+        plan_tier=user.plan_tier,
+        estimated_minutes=estimated_usage_minutes,
+        access_token=user.access_token,
+    )
+    if billing_snapshot.hard_stop:
+        raise ProblemException(
+            title="Overage Approval Required",
+            detail="This request exceeds the available monthly processing budget. Approve overage or upgrade before retrying.",
+            status_code=403,
+            errors=[
+                {
+                    "field": "estimated_duration_seconds",
+                    "message": "The projected usage exceeds the available monthly processing budget.",
+                    "rule_id": "NFR-007",
+                }
+            ],
+        )
     detection = _era_detection_service.detect(
         job_id=request.job_id,
         user_id=user.user_id,
@@ -54,16 +77,6 @@ def detect_era(request: DetectEraRequest, user: AuthenticatedUser = Depends(get_
         original_filename=request.original_filename,
         mime_type=request.mime_type,
         payload=request.model_dump(),
-        access_token=user.access_token,
-    )
-    estimated_usage_minutes = billable_minutes_for_duration(
-        duration_seconds=request.estimated_duration_seconds,
-        mode=request.era_profile.mode,
-    )
-    _billing_service.record_estimate(
-        user_id=user.user_id,
-        plan_tier=user.plan_tier,
-        estimated_minutes=estimated_usage_minutes,
         access_token=user.access_token,
     )
     detection["estimated_usage_minutes"] = estimated_usage_minutes

@@ -37,9 +37,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
     MEMBER.name: {
         "jobs:read",
         "billing:read",
-        "billing:write",
         "users:read",
-        "users:write",
     },
 }
 

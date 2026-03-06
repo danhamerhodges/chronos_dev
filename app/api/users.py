@@ -48,7 +48,11 @@ def patch_me(
         org_id=user.org_id,
         access_token=user.access_token,
     )
-    profile = _user_repo.update(user.user_id, payload.model_dump(), access_token=user.access_token)
+    profile = _user_repo.update(
+        user.user_id,
+        payload.model_dump(exclude_unset=True),
+        access_token=user.access_token,
+    )
     return UserProfileResponse.model_validate(profile)
 
 

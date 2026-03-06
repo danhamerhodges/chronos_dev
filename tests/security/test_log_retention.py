@@ -41,3 +41,19 @@ def test_hobbyist_cannot_enable_strict_redaction() -> None:
 
     assert response.status_code == 400
     assert response.json()["title"] == "Invalid Log Settings"
+
+
+def test_cross_org_log_settings_write_is_forbidden() -> None:
+    response = client.patch(
+        "/v1/orgs/org-2/settings/logs",
+        headers=fake_auth_header("admin-1", role="admin", tier="museum", org_id="org-1"),
+        json={
+            "retention_days": 365,
+            "redaction_mode": "strict",
+            "categories": ["application_logs", "audit_logs"],
+            "export_targets": ["cloud_logging"],
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["title"] == "Forbidden"

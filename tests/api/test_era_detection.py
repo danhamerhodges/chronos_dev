@@ -2,6 +2,7 @@
 
 from fastapi.testclient import TestClient
 
+import app.api.era_detection as era_detection_module
 from app.main import app
 from tests.helpers.auth import fake_auth_header
 from tests.helpers.phase2 import valid_detect_request, valid_era_profile
@@ -78,3 +79,32 @@ def test_detect_era_rejects_unsupported_manual_override() -> None:
             "rule_id": "FR-002",
         }
     ]
+
+
+def test_detect_era_blocks_before_detection_when_budget_requires_overage(monkeypatch) -> None:
+    calls = {"detect": 0}
+
+    class StubDetectionService:
+        def detect(self, **kwargs):
+            calls["detect"] += 1
+            raise AssertionError("Detection should not run when hard-stop is active.")
+
+    monkeypatch.setattr(era_detection_module, "_era_detection_service", StubDetectionService())
+
+    response = client.post(
+        "/v1/detect-era",
+        headers=fake_auth_header("user-budget-stop", tier="hobbyist"),
+        json=valid_detect_request(estimated_duration_seconds=60 * 300),
+    )
+
+    assert response.status_code == 403
+    payload = response.json()
+    assert payload["title"] == "Overage Approval Required"
+    assert payload["errors"] == [
+        {
+            "field": "estimated_duration_seconds",
+            "message": "The projected usage exceeds the available monthly processing budget.",
+            "rule_id": "NFR-007",
+        }
+    ]
+    assert calls["detect"] == 0

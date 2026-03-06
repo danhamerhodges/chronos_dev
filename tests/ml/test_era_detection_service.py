@@ -116,6 +116,7 @@ def test_provider_failure_returns_unknown_and_requires_manual_confirmation() -> 
     assert response["source"] == "system"
     assert len(response["top_candidates"]) == 3
     assert any("Manual confirmation required" in warning for warning in response["warnings"])
+    assert len({candidate["era"] for candidate in response["top_candidates"]}) == 3
 
 
 def test_unexpected_runtime_error_is_not_swallowed_by_fallback() -> None:
@@ -170,8 +171,19 @@ def test_manual_override_persists_system_and_override_records() -> None:
     captured_calls: list[dict[str, object]] = []
 
     class FakeRepo:
-        def save_job(self, **kwargs):
-            return {"job_id": kwargs["job_id"]}
+        def save_job(
+            self,
+            *,
+            job_id,
+            owner_user_id,
+            org_id,
+            media_uri,
+            original_filename,
+            mime_type,
+            era_profile,
+            access_token=None,
+        ):
+            return {"job_id": job_id}
 
         def save_detection(self, *, job_id, detection, access_token=None):
             captured_calls.append(detection)
