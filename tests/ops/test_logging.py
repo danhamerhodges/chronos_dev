@@ -21,3 +21,13 @@ def test_phase1_slo_definitions_exist() -> None:
     assert error_budget(99.9) == pytest.approx(0.1)
     assert SLO_REPORTING_RETENTION_DAYS == 90
     assert "availability" in SLA_LINKAGE
+
+
+def test_json_formatter_redacts_sensitive_tokens() -> None:
+    formatter = JsonFormatter()
+    msg = "authorization header: Bearer sb_publishable_abc123 apikey=sb_publishable_abc123"
+    record = logging.LogRecord("test", logging.INFO, __file__, 1, msg, args=(), exc_info=None)
+    payload = json.loads(formatter.format(record))
+
+    assert "sb_publishable_abc123" not in payload["message"]
+    assert "[REDACTED]" in payload["message"]
