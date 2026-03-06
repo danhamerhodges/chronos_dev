@@ -12,8 +12,11 @@ from app.config import settings
 
 class SupabaseClient:
     def __init__(self, base_url: str | None = None, anon_key: str | None = None) -> None:
-        self.base_url = (base_url or settings.supabase_url).rstrip("/")
-        self.anon_key = anon_key or settings.supabase_anon_key
+        resolved_base_url = settings.supabase_url if base_url is None else base_url
+        resolved_anon_key = settings.supabase_anon_key if anon_key is None else anon_key
+
+        self.base_url = resolved_base_url.rstrip("/") if resolved_base_url else ""
+        self.anon_key = resolved_anon_key or ""
 
     def is_configured(self) -> bool:
         return bool(self.base_url and self.anon_key)

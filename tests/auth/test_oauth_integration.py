@@ -3,6 +3,7 @@
 import os
 
 import pytest
+from supabase_auth.errors import AuthApiError
 
 from app.auth.supabase_auth import AuthProviderConfig, SupabaseAuthService
 
@@ -28,5 +29,10 @@ def test_magic_link_smoke() -> None:
     email = os.getenv("CHRONOS_TEST_EMAIL", "")
     if not email:
         pytest.skip("Missing CHRONOS_TEST_EMAIL for magic-link integration")
-    response = SupabaseAuthService().send_magic_link(email=email)
+    try:
+        response = SupabaseAuthService().send_magic_link(email=email)
+    except AuthApiError as exc:
+        if "security purposes" in str(exc).lower() or "too many requests" in str(exc).lower():
+            pytest.skip(f"Supabase magic-link rate limit hit: {exc}")
+        raise
     assert response is not None
