@@ -41,6 +41,8 @@ def phase2_backend_name() -> str:
             and settings.supabase_db_password
         )
     )
+    if settings.environment == "production" and not has_direct_db:
+        raise RuntimeError("Production environment requires direct Supabase database configuration.")
     if has_direct_db and (settings.environment != "test" or integration_enabled):
         return "supabase"
     return "memory"

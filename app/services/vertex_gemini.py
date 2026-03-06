@@ -12,6 +12,7 @@ import httpx
 
 from app.config import settings
 from app.services.era_classifier import (
+    ClassifierError,
     UNKNOWN_ERA,
     EraClassification,
     EraClassifierUsage,
@@ -122,7 +123,7 @@ class VertexGeminiEraClassifier:
     ) -> EraClassification:
         access_token = self._token_provider.access_token()
         if not access_token:
-            raise RuntimeError("Google access token is not available for Vertex Gemini requests.")
+            raise ClassifierError("Google access token is not available for Vertex Gemini requests.")
         response_payload = self._generate_content(
             access_token=access_token,
             media_uri=media_uri,
@@ -222,17 +223,17 @@ class VertexGeminiEraClassifier:
     def _parse_candidate_payload(self, response_payload: dict[str, Any]) -> dict[str, Any]:
         candidates = response_payload.get("candidates") or []
         if not candidates:
-            raise RuntimeError("Vertex Gemini response did not contain candidates.")
+            raise ClassifierError("Vertex Gemini response did not contain candidates.")
         parts = (candidates[0].get("content") or {}).get("parts") or []
         text_part = next((part.get("text") for part in parts if part.get("text")), "")
         if not text_part:
-            raise RuntimeError("Vertex Gemini response did not contain JSON text output.")
+            raise ClassifierError("Vertex Gemini response did not contain JSON text output.")
         try:
             parsed = json.loads(text_part)
         except json.JSONDecodeError as exc:
-            raise RuntimeError("Vertex Gemini response did not contain valid JSON output.") from exc
+            raise ClassifierError("Vertex Gemini response did not contain valid JSON output.") from exc
         if not isinstance(parsed, dict):
-            raise RuntimeError("Vertex Gemini JSON output must be an object.")
+            raise ClassifierError("Vertex Gemini JSON output must be an object.")
         return parsed
 
 
@@ -240,7 +241,7 @@ def _clamp_confidence(value: Any) -> float:
     try:
         confidence = float(value)
     except (TypeError, ValueError) as exc:
-        raise RuntimeError("Vertex Gemini response omitted a valid confidence value.") from exc
+        raise ClassifierError("Vertex Gemini response omitted a valid confidence value.") from exc
     return max(0.0, min(confidence, 1.0))
 
 

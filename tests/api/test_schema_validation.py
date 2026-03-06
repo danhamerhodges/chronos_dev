@@ -44,3 +44,10 @@ def test_validate_era_profile_enforces_low_confidence_confirmation() -> None:
     )
     assert result.is_valid is False
     assert any(issue.rule_id == "VR-003" for issue in result.errors)
+
+
+def test_validate_era_profile_does_not_duplicate_type_error_for_missing_era_range_fields() -> None:
+    result = validate_era_profile(valid_era_profile(era_range={"start_year": None, "end_year": 1969}))
+
+    assert result.is_valid is False
+    assert not any(issue.rule_id == "VR-TYPE" and issue.field == "era_range" for issue in result.errors)

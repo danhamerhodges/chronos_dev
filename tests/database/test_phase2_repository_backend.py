@@ -47,6 +47,32 @@ def test_phase2_backend_can_enable_supabase_integration(monkeypatch) -> None:
     assert phase2_backend_name() == "supabase"
 
 
+def test_phase2_backend_requires_direct_db_configuration_in_production(monkeypatch) -> None:
+    import app.db.phase2_store as phase2_store
+
+    monkeypatch.setattr(
+        phase2_store,
+        "settings",
+        SimpleNamespace(
+            supabase_db_url="",
+            supabase_db_host="",
+            supabase_db_port=5432,
+            supabase_db_name="postgres",
+            supabase_db_user="postgres",
+            supabase_db_password="",
+            environment="production",
+        ),
+    )
+    monkeypatch.delenv("CHRONOS_RUN_SUPABASE_INTEGRATION", raising=False)
+
+    try:
+        phase2_backend_name()
+    except RuntimeError as exc:
+        assert str(exc) == "Production environment requires direct Supabase database configuration."
+    else:
+        raise AssertionError("Expected production backend selection to require direct DB configuration.")
+
+
 def test_memory_backed_user_profile_repository_round_trips() -> None:
     repo = UserProfileRepository()
     profile = repo.get_or_create(user_id="user-phase2", role="member", plan_tier="pro", org_id="org-7")

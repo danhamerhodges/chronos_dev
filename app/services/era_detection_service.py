@@ -14,6 +14,7 @@ from app.config import settings
 from app.db.phase2_store import EraDetectionRepository
 from app.observability.monitoring import record_era_detection
 from app.services.era_classifier import (
+    ClassifierError,
     ERA_CATALOG,
     UNKNOWN_ERA,
     DeterministicFallbackEraClassifier,
@@ -168,7 +169,7 @@ class EraDetectionService:
                 mime_type=mime_type,
                 era_profile=era_profile,
             )
-        except (RuntimeError, httpx.HTTPError) as exc:
+        except (ClassifierError, httpx.HTTPError) as exc:
             fallback = self._fallback_classifier.classify(
                 job_id=job_id,
                 media_uri=media_uri,
@@ -256,6 +257,7 @@ class EraDetectionService:
         provider_warning: str | None,
         access_token: str | None,
     ) -> dict[str, object]:
+        _ = user_id
         low_confidence = classification.confidence < 0.70
         warnings: list[str] = []
         if provider_warning:

@@ -134,22 +134,25 @@ def validate_era_profile(payload: Mapping[str, Any]) -> ValidationResult:
     gemini_confidence = _float_value(payload.get("gemini_confidence", 1.0), "gemini_confidence", result)
     manual_confirmation_required = bool(payload.get("manual_confirmation_required", False))
 
-    try:
-        start_year = int(era_range.get("start_year"))
-        end_year = int(era_range.get("end_year"))
-        if start_year > end_year:
-            result.errors.append(
-                _issue(
-                    "VR-008",
-                    "error",
-                    "era_range",
-                    f"Era start_year ({start_year}) cannot be later than end_year ({end_year}).",
+    start_year_raw = era_range.get("start_year")
+    end_year_raw = era_range.get("end_year")
+    if start_year_raw is not None and end_year_raw is not None:
+        try:
+            start_year = int(start_year_raw)
+            end_year = int(end_year_raw)
+            if start_year > end_year:
+                result.errors.append(
+                    _issue(
+                        "VR-008",
+                        "error",
+                        "era_range",
+                        f"Era start_year ({start_year}) cannot be later than end_year ({end_year}).",
+                    )
                 )
+        except (TypeError, ValueError):
+            result.errors.append(
+                _issue("VR-TYPE", "error", "era_range", "era_range must contain integer start_year and end_year.")
             )
-    except (TypeError, ValueError):
-        result.errors.append(
-            _issue("VR-TYPE", "error", "era_range", "era_range must contain integer start_year and end_year.")
-        )
 
     if payload.get("capture_medium") == "vhs" and artifact_policy.get("deinterlace") is not True:
         result.errors.append(

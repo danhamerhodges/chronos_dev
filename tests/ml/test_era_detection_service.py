@@ -1,7 +1,7 @@
 """Maps to: ENG-004, FR-002"""
 
 from app.db.phase2_store import EraDetectionRepository
-from app.services.era_classifier import EraClassification, EraClassifierUsage
+from app.services.era_classifier import ClassifierError, EraClassification, EraClassifierUsage
 from app.services.era_detection_service import EraDetectionService
 from tests.helpers.phase2 import valid_detect_request
 
@@ -35,7 +35,12 @@ class StubClassifier:
 
 class RaisingClassifier:
     def classify(self, *, job_id, media_uri, original_filename, mime_type, era_profile):
-        raise RuntimeError("vertex unavailable")
+        raise ClassifierError("vertex unavailable")
+
+
+class UnexpectedRuntimeErrorClassifier:
+    def classify(self, *, job_id, media_uri, original_filename, mime_type, era_profile):
+        raise RuntimeError("unexpected classifier bug")
 
 
 class UnsupportedEraClassifier:
@@ -111,6 +116,27 @@ def test_provider_failure_returns_unknown_and_requires_manual_confirmation() -> 
     assert response["source"] == "system"
     assert len(response["top_candidates"]) == 3
     assert any("Manual confirmation required" in warning for warning in response["warnings"])
+
+
+def test_unexpected_runtime_error_is_not_swallowed_by_fallback() -> None:
+    service = EraDetectionService()
+    service._classifier = UnexpectedRuntimeErrorClassifier()
+    request = valid_detect_request()
+
+    try:
+        service.detect(
+            job_id=request["job_id"],
+            user_id="user-1",
+            org_id="org-default",
+            media_uri=request["media_uri"],
+            original_filename=request["original_filename"],
+            mime_type=request["mime_type"],
+            payload=request,
+        )
+    except RuntimeError as exc:
+        assert str(exc) == "unexpected classifier bug"
+    else:
+        raise AssertionError("Expected unexpected RuntimeError to propagate without fallback.")
 
 
 def test_unsupported_provider_era_returns_unknown_with_canonical_candidates() -> None:

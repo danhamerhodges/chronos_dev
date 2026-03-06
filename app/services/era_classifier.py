@@ -89,6 +89,10 @@ class EraClassifier(Protocol):
     ) -> EraClassification: ...
 
 
+class ClassifierError(RuntimeError):
+    """Expected classifier/provider failure that should trigger fallback handling."""
+
+
 def canonicalize_era_label(label: str | None) -> str | None:
     normalized = str(label or "").strip()
     if not normalized:
