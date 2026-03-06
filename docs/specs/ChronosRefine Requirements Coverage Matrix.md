@@ -96,7 +96,7 @@ If an ID/title conflicts with the above, this matrix must be updated immediately
 | **ENG-002** | API Endpoint Implementation | ENG-001, SEC-013, ENG-016 | `tests/api/test_endpoints.py` | Automated | Medium |
 | **ENG-004** | Era Detection Model | ENG-001 | `tests/ml/test_era_detection.py`, `tests/ml/test_gemini_integration.py` | Automated | High |
 | **FR-002** | Era Detection | ENG-001, ENG-004 | `tests/api/test_era_detection.py`, `tests/integration/test_era_detection_e2e.py` | Automated | High |
-| **SEC-008** | VPC Service Controls | ENG-016, OPS-002 | `tests/security/test_vpc_controls.py`, `tests/security/test_network_isolation.py` | Automated | Medium |
+| **SEC-009** | Log Retention & PII Redaction | SEC-013, OPS-001, OPS-002, ENG-016 | `tests/security/test_log_retention.py`, `tests/security/test_pii_redaction.py`, `tests/compliance/test_gdpr_log_deletion.py` | Automated + Manual | High |
 | **NFR-007** | Cost Control Requirements | ENG-001, NFR-012 | `tests/billing/test_cost_control.py`, `tests/billing/test_budget_alerts.py` | Manual | Medium |
 
 **Phase Goal:** Implement REST API foundation, schema validation, era detection, and compliance
@@ -116,11 +116,11 @@ If an ID/title conflicts with the above, this matrix must be updated immediately
 | **ENG-008** | GPU Pool Management | ENG-003, OPS-003 | `tests/infrastructure/test_gpu_pool.py`, `tests/infrastructure/test_autoscaler.py` | Automated + Load | High |
 | **ENG-009** | Deduplication Cache | ENG-003 | `tests/infrastructure/test_deduplication_cache.py`, `tests/integration/test_cache_hit_rate.py` | Automated | Medium |
 | **ENG-010** | Transformation Manifest Generation | ENG-003, ENG-006, ENG-007 | `tests/processing/test_manifest_generation.py`, `tests/api/test_transformation_manifest.py` | Automated | High |
-| **ENG-011** | Async Processing (Realtime progress + webhooks) | ENG-002, ENG-003 | `tests/api/test_async_processing.py`, `tests/api/test_progress_updates.py` | Automated + Load | High |
+| **ENG-011** | Async Processing | ENG-002, ENG-003 | `tests/api/test_async_processing.py`, `tests/api/test_progress_updates.py` | Automated + Load | High |
 | **ENG-012** | Error Recovery | ENG-003, ENG-011 | `tests/processing/test_error_recovery.py`, `tests/integration/test_partial_results.py` | Automated | High |
-| **NFR-002** | Processing Performance SLOs | ENG-003, ENG-007 | `tests/load/test_processing_performance.py` | Automated | High |
-| **SEC-007** | Model Security & Sandboxing | ENG-005, ENG-006 | `tests/security/test_model_security.py` | Manual | Medium |
-| **OPS-003** | GPU Resource Management | ENG-008 | `tests/ops/test_gpu_management.py` | Automated | High |
+| **NFR-002** | Processing Time SLO | ENG-003, ENG-007 | `tests/load/test_processing_performance.py` | Automated | High |
+| **SEC-007** | Customer-Managed Encryption Keys (CMEK) | ENG-005, ENG-006 | `tests/security/test_model_security.py` | Manual | Medium |
+| **OPS-003** | Incident Response | ENG-008 | `tests/ops/test_gpu_management.py` | Automated | High |
 
 **Phase Goal:** Build and validate core AI/ML processing pipeline
 
@@ -145,7 +145,7 @@ If an ID/title conflicts with the above, this matrix must be updated immediately
 | **DS-004** | Color Contrast | DS-007 | `tests/accessibility/test_color_contrast.spec.ts` | UI Validation | Medium |
 | **DS-005** | Focus Indicators | DS-002, DS-003 | `tests/accessibility/test_focus_management.spec.ts`, `tests/accessibility/test_modal_focus.spec.ts` | UI Validation | Medium |
 | **DS-006** | Error Messages Accessibility | DS-003 | `tests/accessibility/test_error_messages.spec.ts`, `tests/accessibility/test_uncertainty_callouts_a11y.spec.ts` | UI Validation | Medium |
-| **NFR-003** | API Response Time SLOs | ENG-002 | `tests/load/test_api_performance.py` | Automated | Medium |
+| **NFR-003** | Cost Optimization | ENG-002 | `tests/load/test_api_performance.py` | Automated | Medium |
 
 **Phase Goal:** Build user interface and API layer
 
@@ -164,16 +164,16 @@ If an ID/title conflicts with the above, this matrix must be updated immediately
 | Req ID | Requirement Name | Dependencies | Test Files | Verification | Risk |
 |---|---|---|---|---|---|
 | **FR-006** | Preview Generation | FR-001, FR-002, ENG-007, ENG-014 | `tests/api/test_preview.py` | Automated | Medium |
-| **SEC-001** | Deletion Proof (Museum Tier) | FR-005, ENG-010 | `tests/security/test_deletion_proof.py` | Automated | High |
-| **SEC-002** | Uncertainty Callouts | FR-002, ENG-007 | `tests/quality/test_uncertainty.py` | Automated | Medium |
-| **SEC-003** | Manifest Redaction Mode | ENG-010, SEC-008 | `tests/security/test_manifest_redaction.py` | Automated | Medium |
-| **SEC-004** | Data Encryption (At-Rest & In-Transit) | ENG-016 | `tests/security/test_encryption.py` | Automated | High |
-| **SEC-005** | Access Control & IAM | SEC-013 | `tests/security/test_access_control.py` | Automated | Medium |
-| **SEC-006** | Audit Logging | OPS-002, SEC-005 | `tests/security/test_audit_logging.py` | Automated | Low |
-| **NFR-004** | Tier-Specific Feature Gating | FR-003, SEC-013 | `tests/api/test_feature_gating.py` | Automated | Medium |
-| **NFR-005** | Cost Control & Budget Alerts | FR-004, OPS-001 | `tests/ops/test_cost_control.py` | Automated | Medium |
-| **NFR-006** | Usability & User Experience | DS-001, DS-002, DS-003, DS-004, DS-005, DS-006 | User testing | Manual | Low |
-| **NFR-009** | Scalability & Autoscaling | OPS-003 | `tests/ops/test_autoscaling.py` | Automated | High |
+| **SEC-001** | Authentication & Authorization | FR-005, ENG-010 | `tests/security/test_deletion_proof.py` | Automated | High |
+| **SEC-002** | Data Encryption | FR-002, ENG-007 | `tests/quality/test_uncertainty.py` | Automated | Medium |
+| **SEC-003** | Data Classification | ENG-010, SEC-008 | `tests/security/test_manifest_redaction.py` | Automated | Medium |
+| **SEC-004** | Access Control | ENG-016 | `tests/security/test_encryption.py` | Automated | High |
+| **SEC-005** | Transformation Manifest Retention | SEC-013 | `tests/security/test_access_control.py` | Automated | Medium |
+| **SEC-006** | GDPR Compliance | OPS-002, SEC-005 | `tests/security/test_audit_logging.py` | Automated | Low |
+| **NFR-004** | Reliability & Availability | FR-003, SEC-013 | `tests/api/test_feature_gating.py` | Automated | Medium |
+| **NFR-005** | Museum SLA & Disaster Recovery | FR-004, OPS-001 | `tests/ops/test_cost_control.py` | Automated | Medium |
+| **NFR-006** | Pricing Model | DS-001, DS-002, DS-003, DS-004, DS-005, DS-006 | User testing | Manual | Low |
+| **NFR-009** | Internationalization (i18n) | OPS-003 | `tests/ops/test_autoscaling.py` | Automated | High |
 
 **Phase Goal:** Implement advanced features and tier-specific functionality
 
@@ -188,15 +188,15 @@ If an ID/title conflicts with the above, this matrix must be updated immediately
 | Req ID | Requirement Name | Dependencies | Test Files | Verification | Risk |
 |---|---|---|---|---|---|
 | **FR-007** | Human Preference Score (HPS) Validation | FR-002, ENG-003, ENG-005, ENG-007 | `tests/hps/test_evaluation_platform.py`, `tests/hps/test_statistical_analysis.py` | Manual + Automated | High |
-| **NFR-001** | Human Preference Score (HPS) Gate | FR-007 | HPS protocol | Manual | High |
+| **NFR-001** | Cost Estimate Display | FR-007 | HPS protocol | Manual | High |
 | **SEC-015** | Third-Party Security Audit | All SEC requirements | `tests/security/test_audit_remediation.py`, audit report | Manual | High |
-| **NFR-008** | Compliance (GDPR, SOC 2) | SEC-001, SEC-008, SEC-015 | Compliance audit | Manual | High |
-| **NFR-010** | Documentation & User Guides | All requirements | Documentation review | Manual | Low |
-| **SEC-009** | Penetration Testing | All SEC requirements | Pentest report | Manual | High |
-| **SEC-010** | Vulnerability Management | All requirements | Security scan | Automated | Medium |
-| **SEC-011** | Incident Response Plan | OPS-001, SEC-006 | Runbook review | Manual | Medium |
-| **SEC-012** | Disaster Recovery & Backup | ENG-016, OPS-003 | DR drill | Manual | High |
-| **OPS-004** | Operational Runbooks | OPS-001, OPS-002 | Runbook review | Manual | Low |
+| **NFR-008** | Usability | SEC-001, SEC-008, SEC-015 | Compliance audit | Manual | High |
+| **NFR-010** | Documentation | All requirements | Documentation review | Manual | Low |
+| **SEC-008** | VPC Service Controls (Post-GA roadmap) | ENG-016, OPS-002 | `tests/security/test_vpc_controls.py`, `tests/security/test_network_isolation.py` | Manual | High |
+| **SEC-010** | Deletion Proofs | All requirements | Security scan | Automated | Medium |
+| **SEC-011** | Dataset Provenance | OPS-001, SEC-006 | Runbook review | Manual | Medium |
+| **SEC-012** | Data Residency | ENG-016, OPS-003 | DR drill | Manual | High |
+| **OPS-004** | Performance Monitoring | OPS-001, OPS-002 | Runbook review | Manual | Low |
 
 **Phase Goal:** Validate production readiness through HPS validation, security audit, compliance verification, and operational readiness
 
@@ -248,31 +248,77 @@ After updating the matrix, recalculate:
 - ENG-010 (Transformation Manifest Generation) - Reproducibility critical
 - ENG-011 (Async Processing) - User experience critical
 - ENG-012 (Error Recovery) - Reliability critical
-- NFR-002 (Processing Performance) - User experience critical
-- OPS-003 (GPU Management) - Cost and performance critical
+- NFR-002 (Processing Time SLO) - User experience critical
+- OPS-003 (Incident Response) - Cost and performance critical
 
 ### Phase 4 (2 High)
 - FR-004 (Job Orchestration) - Critical path
 - ENG-015 (Output Encoding) - Output quality critical
 
 ### Phase 5 (3 High)
-- SEC-001 (Deletion Proof) - Legal compliance
-- SEC-004 (Encryption) - Security critical
-- NFR-009 (Scalability) - Production readiness
+- SEC-001 (Authentication & Authorization) - Security critical
+- SEC-004 (Access Control) - Security critical
+- NFR-009 (Internationalization) - Launch readiness
 
 ### Phase 6 (6 High)
 - FR-007 (HPS Validation) - GA gate
-- NFR-001 (HPS Gate) - Launch blocker
+- NFR-001 (Cost Estimate Display) - Launch blocker
 - SEC-015 (Third-Party Security Audit) - Security validation
-- NFR-008 (Compliance) - Legal requirement
-- SEC-009 (Penetration Testing) - Security validation
-- SEC-012 (Disaster Recovery) - Business continuity
+- NFR-008 (Usability) - Legal and launch requirement
+- SEC-009 (Log Retention & PII Redaction) - Security validation
+- SEC-012 (Data Residency) - Business continuity
 
 ---
 
+## Current Progress Snapshot (2026-03-05)
+
+Source evidence:
+- `README.md` (Phase 1 baseline scope)
+- `docs/phase1_readiness_report.md` (Phase 1 exit-gate report)
+- Current test coverage + traceability headers under `tests/`
+
+| Phase | Requirements | Status | Notes |
+|---|---:|---|---|
+| Phase 1: Foundation & Core Infrastructure | 6/6 | ✅ Complete (baseline scope) | Baseline scaffolding and validation confirmed in `docs/phase1_readiness_report.md` |
+| Phase 2: API Foundation & Data Layer | 0/6 | 🔄 In Progress (kickoff/planning) | Phase 2 kickoff packet required before implementation |
+| Phase 3: Core Processing Pipeline & AI Integration | 0/12 | ⏸️ Not Started | Dependent on Phase 2 completion |
+| Phase 4: User-Facing Features & Application Logic | 0/14 | ⏸️ Not Started | Dependent on Phase 3 completion |
+| Phase 5: Advanced Features & UX Refinement | 0/11 | ⏸️ Not Started | Dependent on Phase 4 completion |
+| Phase 6: Production Readiness & Launch | 0/10 | ⏸️ Not Started | Dependent on Phase 5 completion |
+
+### Phase 1 Progress: Foundation & Core Infrastructure
+
+**Requirements:** 6 of 6 complete (baseline scope)  
+**Status:** Complete (Phase 1 baseline)  
+**Completion Date:** 2026-03-02 (readiness report)
+
+| Req ID | Status | Notes |
+|---|---|---|
+| ENG-016 | ✅ Complete | Supabase baseline schema, migrations, and client scaffolding in place |
+| SEC-013 | ✅ Complete | Supabase auth baseline and RBAC/session scaffolding in place |
+| DS-007 | ✅ Complete | Design tokens, component primitives, and Storybook baseline in place |
+| NFR-012 | ✅ Complete | Stripe Product/Price configuration and webhook scaffolding in place |
+| OPS-001 | ✅ Complete | `/v1/metrics`, structured logging, and monitoring placeholders in place |
+| OPS-002 | ✅ Complete | SLO baseline definitions and error-budget scaffolding in place |
+
+### Phase 2 Progress: API Foundation & Data Layer
+
+**Requirements:** 0 of 6 complete (0%)  
+**Status:** In Progress (planning/kickoff)  
+**Completion Date:** Target TBD / Actual N/A
+
+| Req ID | Status | Notes |
+|---|---|---|
+| ENG-001 | ⏳ Not Started | Kickoff packet required |
+| ENG-002 | ⏳ Not Started | Kickoff packet required |
+| ENG-004 | ⏳ Not Started | Kickoff packet required |
+| FR-002 | ⏳ Not Started | Kickoff packet required |
+| SEC-009 | ⏳ Not Started | Kickoff packet required |
+| NFR-007 | ⏳ Not Started | Kickoff packet required |
+
 ## Progress Tracking Template
 
-Use this template to track implementation progress:
+Use this template for future phase updates:
 
 ```markdown
 ## Phase X Progress: [Phase Name]

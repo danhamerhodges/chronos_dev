@@ -61,7 +61,7 @@ This implementation plan is organized into a logical execution sequence designed
 
 **Objective:** Implement API foundations, schema validation, era detection, and core data-layer controls.
 
-**Requirements Implemented:** **ENG-001**, **ENG-002**, **ENG-004**, **FR-002**, **SEC-008**, **NFR-007** (6 requirements)  
+**Requirements Implemented:** **ENG-001**, **ENG-002**, **ENG-004**, **FR-002**, **SEC-009**, **NFR-007** (6 requirements)  
 **Coverage Matrix:** See `docs/specs/ChronosRefine Requirements Coverage Matrix.md`
 
 **Entry Criteria:**
@@ -71,20 +71,20 @@ This implementation plan is organized into a logical execution sequence designed
 
 **Deliverables:**
 -   Finalized JSON Schema for Era Profiles → **Req:** **ENG-001**, **Test:** `tests/api/test_schema_validation.py`, **See:** `docs/specs/chronosrefine_prd_v9.md#era-profile-schema`
--   Database/storage solution for job metadata and user assets → **Req:** **ENG-003**, **Test:** `tests/db/test_migrations.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-003-video-processing-pipeline`, `companion_docs/ChronosRefine_Database_Schema.md` (to be created)
--   Data Access Layer (DAL) for interacting with the database → **Req:** **ENG-004**, **Test:** `tests/db/test_dal.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-004-era-detection-model`
+-   Phase 2 API foundation subset (`/v1/detect-era`, `/v1/eras`, `/v1/users/me`, `/v1/users/me/usage`, `/v1/users/me/approve-overage`, `/v1/orgs/{org_id}/settings/logs`, `/v1/user/delete_logs`, `/v1/health`, `/v1/version`) → **Req:** **ENG-002**, **Test:** `tests/api/test_endpoints.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-002-api-endpoint-implementation`
+-   Era-detection model service, persistence, and fallback contract → **Req:** **ENG-004**, **FR-002**, **Test:** `tests/ml/test_era_detection.py`, `tests/ml/test_gemini_integration.py`, `tests/api/test_era_detection.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-004-era-detection-model`, `docs/specs/chronosrefine_functional_requirements.md#fr-002-era-detection`
 -   Validation logic that enforces all schema rules → **Req:** **ENG-001**, **Test:** `tests/api/test_schema_validation.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-001-json-schema-validation`
--   PII redaction and log retention configured → **Req:** **SEC-008**, **Test:** `tests/security/test_pii_redaction.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-009-log-retention--pii-redaction`
+-   PII redaction, log retention, and GDPR log-deletion flows configured → **Req:** **SEC-009**, **Test:** `tests/security/test_log_retention.py`, `tests/security/test_pii_redaction.py`, `tests/compliance/test_gdpr_log_deletion.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-009-log-retention--pii-redaction`
 
 **Exit Criteria:**
 - [ ] JSON Schema validates all 6 era profiles with 100% pass rate → **Req:** **ENG-001**, **Test:** `tests/api/test_schema_validation.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-001-json-schema-validation`
-- [ ] Database schema applied with migration scripts → **Req:** **ENG-003**, **Test:** `tests/db/test_migrations.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-003-video-processing-pipeline`
-- [ ] DAL unit tests achieve >90% code coverage → **Req:** **ENG-004**, **Test:** `tests/db/test_dal.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-004-era-detection-model`
+- [ ] Phase 2 API subset documented in OpenAPI and covered by contract tests → **Req:** **ENG-002**, **Test:** `tests/api/test_endpoints.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-002-api-endpoint-implementation`
+- [ ] Era-detection model fallback and manual-confirmation contract validated → **Req:** **ENG-004**, **FR-002**, **Test:** `tests/ml/test_era_detection.py`, `tests/api/test_era_detection.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-004-era-detection-model`, `docs/specs/chronosrefine_functional_requirements.md#fr-002-era-detection`
 - [ ] Schema validation correctly rejects invalid profiles (tested with 50+ negative test cases) → **Req:** **ENG-001**, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-001-json-schema-validation`
 - [ ] All three validation rules (A, B, C) enforced programmatically → **Req:** **ENG-001**, **See:** `docs/specs/chronosrefine_prd_v9.md#validation-rules`
-- [ ] Performance: Schema validation completes in <50ms for 99th percentile → **Req:** **ENG-001**, **Test:** `tests/load/test_schema_validation_performance.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-001-json-schema-validation`
-- [ ] PII redaction tested with 30+ scenarios → **Req:** **SEC-008**, **Test:** `tests/security/test_pii_redaction.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-008-vpc-service-controls`
-- [ ] Data residency configuration tested for all supported regions → **Req:** **NFR-007**, **Test:** `tests/ops/test_data_residency.py`, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-007-cost-control-requirements`
+- [ ] Performance: Schema validation completes in <100ms for 95th percentile → **Req:** **ENG-001**, **Test:** `tests/load/test_schema_validation_performance.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-001-json-schema-validation`
+- [ ] PII redaction and log retention tested with Phase 2 API/config surfaces → **Req:** **SEC-009**, **Test:** `tests/security/test_log_retention.py`, `tests/security/test_pii_redaction.py`, `tests/compliance/test_gdpr_log_deletion.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-009-log-retention--pii-redaction`
+- [ ] Cost-control hard-stop, overage approval, and usage alerts validated against Stripe-configured pricing → **Req:** **NFR-007**, **Test:** `tests/billing/test_cost_control.py`, `tests/billing/test_overage_approval.py`, `tests/billing/test_usage_alerts.py`, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-007-cost-control-requirements`
 
 **Phase-Specific Risks:**
 - **Risk**: Schema changes during development require migration complexity
@@ -182,7 +182,7 @@ This implementation plan is organized into a logical execution sequence designed
 
 ### Phase 5: Advanced Features & UX Refinement
 
-**Objective:** Implement the advanced features required for the Pro and Museum tiers, and refine the user experience.
+**Objective:** Implement security/compliance hardening, reliability controls, pricing model controls, and internationalization readiness for advanced tiers.
 
 **Requirements Implemented:** **FR-006**, **SEC-001**, **SEC-002**, **SEC-003**, **SEC-004**, **SEC-005**, **SEC-006**, **NFR-004**, **NFR-005**, **NFR-006**, **NFR-009** (11 requirements)  
 **Coverage Matrix:** See `docs/specs/ChronosRefine Requirements Coverage Matrix.md`
@@ -190,39 +190,35 @@ This implementation plan is organized into a logical execution sequence designed
 **Entry Criteria:**
 - [ ] Phase 4 complete: User-facing features operational → **See:** `docs/specs/chronosrefine_implementation_plan.md#phase-4-user-facing-features--application-logic`
 - [ ] Pricing tiers finalized with feature allocation → **Req:** **NFR-006**, **NFR-012**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-006-pricing-model`, `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-012-payment-provider-selection`, `docs/specs/chronosrefine_prd_v9.md#pricing--business-model`
-- [ ] Legal review complete for Deletion Proof compliance → **Req:** **SEC-010**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-010-deletion-proofs`
+- [ ] Legal review complete for GDPR and data-handling controls → **Req:** **SEC-006**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-006-gdpr-compliance`
 
 **Deliverables:**
--   Implementation of the Uncertainty Callout system → **Req:** **NFR-003**, **Test:** `tests/ux/test_uncertainty_callouts.py`, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-003-cost-optimization`
--   Development of the Transformation Manifest and Deletion Proof features → **Req:** **NFR-004**, **SEC-010**, **Test:** `tests/compliance/test_transformation_manifest.py`, `tests/compliance/test_deletion_proof.py`, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-004-scalability`, `docs/specs/chronosrefine_security_operations_requirements.md#sec-010-deletion-proofs`
--   Implementation of the tiered pricing and feature gating → **Req:** **NFR-006**, **NFR-007**, **Test:** `tests/billing/test_feature_gating.py`, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-006-pricing-model`, `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-007-cost-control-requirements`
--   A complete design system and polished user interface → **Req:** **DS-007** (completed in Phase 1), **Test:** `tests/visual_regression/test_all_screens.spec.ts`, **See:** `docs/specs/chronosrefine_design_requirements.md#ds-007-design-system-implementation`
--   Data encryption at rest and in transit → **Req:** **SEC-001**, **SEC-002**, **Test:** `tests/security/test_encryption.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-001-authentication--authorization`, `docs/specs/chronosrefine_security_operations_requirements.md#sec-002-data-encryption`
--   Data classification and access control → **Req:** **SEC-003**, **SEC-004**, **Test:** `tests/security/test_data_classification.py`, `tests/security/test_access_control.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-003-data-classification`, `docs/specs/chronosrefine_security_operations_requirements.md#sec-004-access-control`
--   GDPR compliance features (data export, deletion, consent) → **Req:** **SEC-006**, **Test:** `tests/compliance/test_gdpr_compliance.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-006-gdpr-compliance`
--   Internationalization (i18n) support → **Req:** **NFR-009**, **Test:** `tests/i18n/test_translations.spec.ts`, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-009-internationalization-i18n`
--   Cost control and budget alerts → **Req:** **NFR-005**, **Test:** `tests/ops/test_cost_control.py`, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-005-availability`
+-   Preview generation system hardened for production usage → **Req:** **FR-006**, **Test:** `tests/api/test_preview.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-006-preview-generation`
+-   Authentication and authorization controls hardened for tiered access → **Req:** **SEC-001**, **SEC-004**, **Test:** `tests/security/test_access_control.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-001-authentication--authorization`, `docs/specs/chronosrefine_security_operations_requirements.md#sec-004-access-control`
+-   Data encryption and key-management controls validated → **Req:** **SEC-002**, **Test:** `tests/security/test_encryption.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-002-data-encryption`
+-   Data classification and retention controls implemented for manifests/audit artifacts → **Req:** **SEC-003**, **SEC-005**, **Test:** `tests/security/test_data_classification.py`, `tests/security/test_manifest_retention.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-003-data-classification`, `docs/specs/chronosrefine_security_operations_requirements.md#sec-005-transformation-manifest-retention`
+-   GDPR support implemented (export/deletion/consent workflows) → **Req:** **SEC-006**, **Test:** `tests/compliance/test_gdpr_compliance.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-006-gdpr-compliance`
+-   Reliability/availability controls and Museum-tier DR posture validated → **Req:** **NFR-004**, **NFR-005**, **Test:** `tests/ops/test_availability_slo.py`, `tests/ops/test_disaster_recovery.py`, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-004-reliability--availability`, `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-005-museum-sla--disaster-recovery`
+-   Pricing model and entitlement enforcement finalized (no hardcoded pricing) → **Req:** **NFR-006**, **NFR-012**, **Test:** `tests/billing/test_feature_gating.py`, `tests/billing/test_subscription_lifecycle.py`, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-006-pricing-model`, `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-012-payment-provider-selection`
+-   UTF-8 metadata support and i18n framework foundations implemented → **Req:** **NFR-009**, **Test:** `tests/i18n/test_utf8_encoding.py`, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-009-internationalization-i18n`
 
 **Exit Criteria:**
-- [ ] Uncertainty Callouts generated for 100% of jobs exceeding hallucination_limit → **Req:** **NFR-003**, **Test:** `tests/ux/test_uncertainty_callouts.py`, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-003-cost-optimization`
-- [ ] Transformation Manifest is deterministically rerunnable (verified with 50 test cases) → **Req:** **NFR-004**, **Test:** `tests/compliance/test_transformation_manifest.py`, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-004-scalability`
-- [ ] Deletion Proof cryptographically signed and exportable as PDF within 10s → **Req:** **SEC-010**, **Test:** `tests/compliance/test_deletion_proof.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-010-deletion-proofs`
-- [ ] Feature gating correctly enforces tier restrictions (tested with 100+ scenarios) → **Req:** **NFR-006**, **NFR-007**, **Test:** `tests/billing/test_feature_gating.py`, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-006-pricing-model`, `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-007-cost-control-requirements`
-- [ ] UI polish complete: All animations follow 150-400ms timing specifications → **Req:** **DS-007**, **See:** `docs/specs/chronosrefine_design_requirements.md#ds-007-design-system-implementation`, `chronosrefine_companion_docs/ChronosRefine_Design_System_Specification.md#animation-timing`
-- [ ] User acceptance testing with 10 beta users (5 Pro, 5 Museum tier)
-- [ ] NPS score from beta users >40
-- [ ] Data encryption tested (at rest and in transit) → **Req:** **SEC-001**, **SEC-002**, **Test:** `tests/security/test_encryption.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-001-authentication--authorization`, `docs/specs/chronosrefine_security_operations_requirements.md#sec-002-data-encryption`
-- [ ] GDPR compliance tested (data export, deletion, consent) → **Req:** **SEC-006**, **Test:** `tests/compliance/test_gdpr_compliance.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-006-gdpr-compliance`
-- [ ] Internationalization tested for all supported languages → **Req:** **NFR-009**, **Test:** `tests/i18n/test_translations.spec.ts`, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-009-internationalization-i18n`
-- [ ] Cost control and budget alerts tested → **Req:** **NFR-005**, **Test:** `tests/ops/test_cost_control.py`, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-005-availability`
+- [ ] Preview generation remains <6s p95 under expected load → **Req:** **FR-006**, **Test:** `tests/load/test_preview_performance.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-006-preview-generation`
+- [ ] Authentication/authorization and access control pass security validation suite → **Req:** **SEC-001**, **SEC-004**, **Test:** `tests/security/test_access_control.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-001-authentication--authorization`, `docs/specs/chronosrefine_security_operations_requirements.md#sec-004-access-control`
+- [ ] Encryption controls pass at-rest and in-transit verification → **Req:** **SEC-002**, **Test:** `tests/security/test_encryption.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-002-data-encryption`
+- [ ] Data classification and manifest retention policies pass automated checks → **Req:** **SEC-003**, **SEC-005**, **Test:** `tests/security/test_data_classification.py`, `tests/security/test_manifest_retention.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-003-data-classification`, `docs/specs/chronosrefine_security_operations_requirements.md#sec-005-transformation-manifest-retention`
+- [ ] GDPR workflows validated (export/deletion/consent) → **Req:** **SEC-006**, **Test:** `tests/compliance/test_gdpr_compliance.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-006-gdpr-compliance`
+- [ ] Reliability/SLA/DR requirements validated for Museum tier → **Req:** **NFR-004**, **NFR-005**, **Test:** `tests/ops/test_availability_slo.py`, `tests/ops/test_disaster_recovery.py`, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-004-reliability--availability`, `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-005-museum-sla--disaster-recovery`
+- [ ] Pricing model and feature gating validate against Stripe-configured pricing only → **Req:** **NFR-006**, **NFR-012**, **Test:** `tests/billing/test_feature_gating.py`, `tests/billing/test_subscription_lifecycle.py`, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-006-pricing-model`, `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-012-payment-provider-selection`
+- [ ] UTF-8 handling and localization framework pass baseline coverage → **Req:** **NFR-009**, **Test:** `tests/i18n/test_utf8_encoding.py`, `tests/i18n/test_localization.py`, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-009-internationalization-i18n`
 
 **Phase-Specific Risks:**
-- **Risk**: Uncertainty Callout density too high, causing user friction
-  - **Mitigation**: Tune confidence thresholds based on beta feedback; allow user dismissal
-- **Risk**: Transformation Manifest size grows too large for complex jobs
-  - **Mitigation**: Implement manifest compression; test with 4-hour video jobs
+- **Risk**: Security/compliance controls add latency and operational overhead
+  - **Mitigation**: Track p95 latency budgets per control and tune enforcement paths before Phase 6
+- **Risk**: Pricing and entitlement drift from Stripe configuration
+  - **Mitigation**: Enforce Product/Price-ID-only billing configuration and add reconciliation checks in CI
 
-**Rationale:** This phase builds upon the core product to deliver the full feature set and a world-class user experience, as defined by the Jony Ive-inspired design system.
+**Rationale:** This phase converts a functional product into a launch-ready system by hardening security, compliance, reliability, and pricing/i18n controls before production readiness gates.
 
 ### Phase 6: Production Readiness & Launch
 
@@ -237,27 +233,32 @@ This implementation plan is organized into a logical execution sequence designed
 - [ ] Third-party security auditor engaged → **Req:** **SEC-015**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-015-third-party-security-audit`
 
 **Deliverables:**
--   Completed security audit and penetration testing → **Req:** **SEC-015**, **SEC-009**, **Test:** `tests/security/test_audit_remediation.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-015-third-party-security-audit`, `docs/specs/chronosrefine_security_operations_requirements.md#sec-009-log-retention--pii-redaction`, `docs/security/Third_Party_Security_Audit_Report.pdf`
+-   Completed third-party security audit with remediation verification → **Req:** **SEC-015**, **Test:** `tests/security/test_audit_remediation.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-015-third-party-security-audit`, `docs/security/Third_Party_Security_Audit_Report.pdf`
 -   Successful load testing that meets all SLOs → **Req:** **NFR-002**, **Test:** `tests/load/test_production_load.py`, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-002-processing-time-slo`, `docs/specs/chronosrefine_prd_v9.md#performance-slos`
--   Comprehensive internal and user-facing documentation → **Req:** **NFR-010**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-010-documentation`, `docs/user_guide/`, `docs/api/`, `docs/operations/`
--   A finalized deployment and rollback plan → **Req:** **OPS-004**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#ops-004-performance-monitoring`, `docs/operations/deployment_runbook.md`, `docs/operations/rollback_runbook.md`
+-   Log retention and PII-redaction controls validated and documented → **Req:** **SEC-009**, **Test:** `tests/security/test_log_retention_redaction.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-009-log-retention--pii-redaction`
+-   Deletion proof generation and verification finalized for launch readiness → **Req:** **SEC-010**, **Test:** `tests/compliance/test_deletion_proof.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-010-deletion-proofs`
+-   Dataset provenance chain and evidence model validated → **Req:** **SEC-011**, **Test:** `tests/compliance/test_dataset_provenance.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-011-dataset-provenance`
+-   Data residency controls and validation reports finalized → **Req:** **SEC-012**, **Test:** `tests/ops/test_data_residency.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-012-data-residency`
+-   Usability and end-user readiness checks finalized → **Req:** **NFR-008**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-008-usability`
+-   Comprehensive internal and user-facing documentation finalized → **Req:** **NFR-010**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-010-documentation`, `docs/user_guide/`, `docs/api/`, `docs/operations/`
+-   Performance monitoring dashboards, baselines, and runbooks finalized → **Req:** **OPS-004**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#ops-004-performance-monitoring`, `docs/operations/deployment_runbook.md`, `docs/operations/rollback_runbook.md`
 -   HPS validation platform and results → **Req:** **FR-007**, **Test:** `tests/hps/test_evaluation_platform.py`, `tests/hps/test_statistical_analysis.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-007-human-preference-score-hps-validation`, `docs/hps/HPS_Validation_Report.md`
--   Disaster recovery and backup plan → **Req:** **SEC-012**, **Test:** `tests/ops/test_disaster_recovery.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-012-data-residency`, `docs/operations/disaster_recovery_plan.md`
--   Incident response plan → **Req:** **SEC-011**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-011-dataset-provenance`, `docs/security/incident_response_plan.md`
--   Compliance documentation (GDPR, SOC 2) → **Req:** **NFR-008**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-008-usability`, `docs/compliance/GDPR_Compliance_Report.md`, `docs/compliance/SOC2_Readiness_Assessment.md`
+-   Compliance documentation package (usability/legal/security readiness) → **Req:** **NFR-008**, **SEC-015**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-008-usability`, `docs/compliance/GDPR_Compliance_Report.md`, `docs/compliance/SOC2_Readiness_Assessment.md`
 
 **Exit Criteria:**
 - [ ] **HPS Gate**: ≥75% in EACH media category (Daguerreotype, Albumen, 16mm, Super 8, Kodachrome, VHS) → **Req:** **FR-007**, **NFR-001**, **Test:** `tests/hps/test_statistical_analysis.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-007-human-preference-score-hps-validation`, `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-001-cost-estimate-display`, `docs/specs/chronosrefine_prd_v9.md#beta-exit-criteria-ga-readiness`
 - [ ] Security audit complete with zero critical vulnerabilities → **Req:** **SEC-015**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-015-third-party-security-audit`, `docs/security/Third_Party_Security_Audit_Report.pdf`
-- [ ] Penetration testing report reviewed and all findings remediated → **Req:** **SEC-009**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-009-log-retention--pii-redaction`, `docs/security/Penetration_Testing_Report.pdf`
+- [ ] Log retention and PII redaction controls validated in production-like environment → **Req:** **SEC-009**, **Test:** `tests/security/test_log_retention_redaction.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-009-log-retention--pii-redaction`
+- [ ] Deletion proofs generated/verified for required launch scenarios → **Req:** **SEC-010**, **Test:** `tests/compliance/test_deletion_proof.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-010-deletion-proofs`
+- [ ] Dataset provenance evidence chain validated for audit samples → **Req:** **SEC-011**, **Test:** `tests/compliance/test_dataset_provenance.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-011-dataset-provenance`
+- [ ] Data residency controls validated for supported launch regions → **Req:** **SEC-012**, **Test:** `tests/ops/test_data_residency.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-012-data-residency`
 - [ ] Load testing validates 1000 concurrent users with <5% error rate → **Req:** **NFR-002**, **Test:** `tests/load/test_production_load.py`, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-002-processing-time-slo`
 - [ ] All SLOs met in staging environment for 7 consecutive days → **Req:** **NFR-002**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-002-processing-time-slo`, `docs/specs/chronosrefine_prd_v9.md#performance-slos`
+- [ ] Usability acceptance checks pass for launch personas → **Req:** **NFR-008**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-008-usability`
 - [ ] User documentation complete with video tutorials for each persona → **Req:** **NFR-010**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-010-documentation`, `docs/user_guide/`
-- [ ] Runbook documented for common operational scenarios → **Req:** **OPS-004**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#ops-004-performance-monitoring`, `docs/operations/runbooks/`
-- [ ] Rollback tested successfully in staging (complete rollback in <15 minutes) → **Req:** **OPS-004**, **Test:** `tests/ops/test_rollback.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#ops-004-performance-monitoring`
+- [ ] Performance monitoring runbook and regression detection procedures documented → **Req:** **OPS-004**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#ops-004-performance-monitoring`, `docs/operations/runbooks/`
+- [ ] Monitoring-driven rollback decision procedure tested in staging → **Req:** **OPS-004**, **Test:** `tests/ops/test_rollback.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#ops-004-performance-monitoring`
 - [ ] Legal review complete for Terms of Service and Privacy Policy → **Req:** **NFR-008**, **SEC-006**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-008-usability`, `docs/specs/chronosrefine_security_operations_requirements.md#sec-006-gdpr-compliance`
-- [ ] Disaster recovery tested (RTO <1 hour, RPO <15 minutes) → **Req:** **SEC-012**, **Test:** `tests/ops/test_disaster_recovery.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-012-data-residency`
-- [ ] Incident response plan tested with tabletop exercise → **Req:** **SEC-011**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-011-dataset-provenance`, `docs/security/incident_response_plan.md`
 - [ ] SOC 2 Type II readiness assessment complete → **Req:** **NFR-008**, **SEC-015**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-008-usability`, `docs/specs/chronosrefine_security_operations_requirements.md#sec-015-third-party-security-audit`, `docs/compliance/SOC2_Readiness_Assessment.md`
 
 **Phase-Specific Risks:**
@@ -269,6 +270,8 @@ This implementation plan is organized into a logical execution sequence designed
 **Rationale:** This final phase ensures that the product is stable, secure, and ready for public launch. It is the final quality gate before making ChronosRefine available to the public.
 
 ### 10.0 Beta → GA Release Gates
+
+**Post-GA roadmap note:** `SEC-008` (VPC Service Controls) remains a post-GA roadmap requirement per canonical security requirements (`GA+6 months` / `GA+9 months`) and is intentionally excluded from the Phase 1-6 implementation packets.
 
 This section defines the formal entry and exit criteria for the Beta and GA (General Availability) phases, along with canary deployment rules and operational readiness requirements. These gates ensure that ChronosRefine launches with high quality and minimal risk.
 
