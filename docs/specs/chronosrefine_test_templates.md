@@ -136,6 +136,12 @@ TEST_AUTH_OVERRIDE=true  # REQUIRED for unit-only mode
 
 **Note:** Unit-only mode allows contributors to run unit tests without Supabase secrets. Tests using `test_user` or `auth_headers_supabase` will skip gracefully.
 
+**Phase 1 Baseline Variable Mapping (Current Repo):**
+
+- `DATABASE_URL = N/A` (not required for current Phase 1 baseline test runs)
+- `SUPABASE_URL = SUPABASE_URL_DEV`
+- `SUPABASE_ANON_KEY = SUPABASE_ANON_KEY_DEV`
+
 ### Required Fixtures (tests/conftest.py)
 - `test_user`: Authenticated test user with seeded credentials
 - `auth_headers_supabase`: Real Supabase access token (for integration/E2E tests)

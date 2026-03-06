@@ -1,0 +1,549 @@
+openapi: 3.1.0
+info:
+  title: ChronosRefine Phase 2 API
+  version: 0.2.0
+  description: >
+    Phase 2 foundation subset covering ENG-001, ENG-002, ENG-004, FR-002,
+    NFR-007, and SEC-009.
+servers:
+  - url: https://api.chronosrefine.example
+    description: Production placeholder
+  - url: http://localhost:8000
+    description: Local development
+tags:
+  - name: health
+  - name: version
+  - name: era-detection
+  - name: users
+  - name: security
+paths:
+  /health:
+    get:
+      tags: [health]
+      summary: Shallow infrastructure probe
+      responses:
+        "200":
+          description: Service reachable
+  /v1/health:
+    get:
+      tags: [health]
+      summary: Detailed service health
+      responses:
+        "200":
+          description: Health snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+  /v1/version:
+    get:
+      tags: [version]
+      summary: Build metadata
+      responses:
+        "200":
+          description: Version payload
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VersionResponse"
+  /v1/eras:
+    get:
+      tags: [era-detection]
+      summary: Supported eras
+      responses:
+        "200":
+          description: Era catalog
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EraCatalogResponse"
+  /v1/detect-era:
+    post:
+      tags: [era-detection]
+      summary: Detect era from media plus era profile
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DetectEraRequest"
+      responses:
+        "200":
+          description: Detection result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetectEraResponse"
+        "400":
+          description: Schema validation or request failure
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "401":
+          description: Missing or invalid bearer token
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+  /v1/users/me:
+    get:
+      tags: [users]
+      summary: Current user profile
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfileResponse"
+    patch:
+      tags: [users]
+      summary: Update current user profile
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UserProfileUpdateRequest"
+      responses:
+        "200":
+          description: Updated user profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfileResponse"
+  /v1/users/me/usage:
+    get:
+      tags: [users]
+      summary: Current usage and overage posture
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Usage snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UsageResponse"
+  /v1/users/me/approve-overage:
+    post:
+      tags: [users]
+      summary: Approve overage for the current user
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OverageApprovalRequest"
+      responses:
+        "200":
+          description: Overage approval accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OverageApprovalResponse"
+  /v1/orgs/{org_id}/settings/logs:
+    patch:
+      tags: [security]
+      summary: Update org log-retention and redaction settings
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: org_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LogSettingsUpdateRequest"
+      responses:
+        "200":
+          description: Log settings updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LogSettingsResponse"
+        "403":
+          description: Missing logs:write permission
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+  /v1/user/delete_logs:
+    post:
+      tags: [security]
+      summary: Submit a GDPR log-deletion request
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeleteLogsRequest"
+      responses:
+        "200":
+          description: Deletion request completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeleteLogsResponse"
+  /v1/testing/reset-rate-limits:
+    post:
+      tags: [security]
+      summary: Reset per-user rate limits in test mode
+      responses:
+        "200":
+          description: Rate limit buckets cleared
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    ProblemDetail:
+      type: object
+      required: [title, status, detail]
+      properties:
+        type:
+          type: string
+          default: about:blank
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        request_id:
+          type: string
+        errors:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+    HealthResponse:
+      type: object
+      required: [status, components, timestamp]
+      properties:
+        status:
+          type: string
+        components:
+          type: object
+          additionalProperties:
+            type: string
+        timestamp:
+          type: string
+    VersionResponse:
+      type: object
+      required: [version, build_sha, build_time]
+      properties:
+        version:
+          type: string
+        build_sha:
+          type: string
+        build_time:
+          type: string
+    EraCatalogResponse:
+      type: object
+      required: [eras]
+      properties:
+        eras:
+          type: array
+          items:
+            type: string
+    EraRangeInput:
+      type: object
+      required: [start_year, end_year]
+      properties:
+        start_year:
+          type: integer
+        end_year:
+          type: integer
+    ArtifactPolicyInput:
+      type: object
+      required: [deinterlace, grain_intensity]
+      properties:
+        deinterlace:
+          type: boolean
+        grain_intensity:
+          type: string
+        preserve_edge_fog:
+          type: boolean
+        preserve_chromatic_aberration:
+          type: boolean
+    EraProfileInput:
+      type: object
+      required:
+        [capture_medium, mode, tier, resolution_cap, hallucination_limit, artifact_policy, era_range]
+      properties:
+        capture_medium:
+          type: string
+        mode:
+          type: string
+        tier:
+          type: string
+        resolution_cap:
+          type: string
+        hallucination_limit:
+          type: number
+        gemini_confidence:
+          type: number
+          default: 1
+        manual_confirmation_required:
+          type: boolean
+          default: false
+        artifact_policy:
+          $ref: "#/components/schemas/ArtifactPolicyInput"
+        era_range:
+          $ref: "#/components/schemas/EraRangeInput"
+    DetectEraRequest:
+      type: object
+      required: [job_id, media_uri, estimated_duration_seconds, era_profile]
+      properties:
+        job_id:
+          type: string
+        media_uri:
+          type: string
+        original_filename:
+          type: string
+        mime_type:
+          type: string
+        estimated_duration_seconds:
+          type: integer
+        manual_override_era:
+          type: string
+        override_reason:
+          type: string
+        era_profile:
+          $ref: "#/components/schemas/EraProfileInput"
+    CandidateEra:
+      type: object
+      required: [era, confidence]
+      properties:
+        era:
+          type: string
+        confidence:
+          type: number
+    ForensicMarkers:
+      type: object
+      required: [grain_structure, color_saturation, format_artifacts]
+      properties:
+        grain_structure:
+          type: string
+        color_saturation:
+          type: number
+        format_artifacts:
+          type: array
+          items:
+            type: string
+    DetectEraResponse:
+      type: object
+      required:
+        [detection_id, job_id, era, confidence, manual_confirmation_required, forensic_markers, processing_timestamp, source, model_version, prompt_version, estimated_usage_minutes]
+      properties:
+        detection_id:
+          type: string
+        job_id:
+          type: string
+        era:
+          type: string
+        confidence:
+          type: number
+        manual_confirmation_required:
+          type: boolean
+        top_candidates:
+          type: array
+          items:
+            $ref: "#/components/schemas/CandidateEra"
+        forensic_markers:
+          $ref: "#/components/schemas/ForensicMarkers"
+        warnings:
+          type: array
+          items:
+            type: string
+        processing_timestamp:
+          type: string
+        source:
+          type: string
+        model_version:
+          type: string
+        prompt_version:
+          type: string
+        estimated_usage_minutes:
+          type: integer
+    UserProfileResponse:
+      type: object
+      required: [user_id, email, role, plan_tier, org_id]
+      properties:
+        user_id:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+        plan_tier:
+          type: string
+        org_id:
+          type: string
+        display_name:
+          type: string
+        avatar_url:
+          type: string
+        preferences:
+          type: object
+          additionalProperties: true
+    UserProfileUpdateRequest:
+      type: object
+      properties:
+        display_name:
+          type: string
+        avatar_url:
+          type: string
+        preferences:
+          type: object
+          additionalProperties: true
+    UsageResponse:
+      type: object
+      required:
+        [user_id, plan_tier, used_minutes, monthly_limit_minutes, remaining_minutes, estimated_next_job_minutes, threshold_alerts, hard_stop, price_reference, reconciliation_source]
+      properties:
+        user_id:
+          type: string
+        plan_tier:
+          type: string
+        used_minutes:
+          type: integer
+        monthly_limit_minutes:
+          type: integer
+        remaining_minutes:
+          type: integer
+        estimated_next_job_minutes:
+          type: integer
+        threshold_alerts:
+          type: array
+          items:
+            type: integer
+        overage_approval_scope:
+          type: string
+        hard_stop:
+          type: boolean
+        price_reference:
+          type: string
+        reconciliation_source:
+          type: string
+    OverageApprovalRequest:
+      type: object
+      required: [approval_scope]
+      properties:
+        approval_scope:
+          type: string
+        requested_minutes:
+          type: integer
+        reason:
+          type: string
+    OverageApprovalResponse:
+      type: object
+      required: [user_id, approval_scope, approved_for_minutes, remaining_minutes, threshold_alerts]
+      properties:
+        user_id:
+          type: string
+        approval_scope:
+          type: string
+        approved_for_minutes:
+          type: integer
+        remaining_minutes:
+          type: integer
+        threshold_alerts:
+          type: array
+          items:
+            type: integer
+    LogSettingsUpdateRequest:
+      type: object
+      required: [retention_days, redaction_mode]
+      properties:
+        retention_days:
+          type: integer
+        redaction_mode:
+          type: string
+        categories:
+          type: array
+          items:
+            type: string
+        export_targets:
+          type: array
+          items:
+            type: string
+    LogSettingsResponse:
+      type: object
+      required: [org_id, retention_days, redaction_mode, categories, export_targets, updated_by]
+      properties:
+        org_id:
+          type: string
+        retention_days:
+          type: integer
+        redaction_mode:
+          type: string
+        categories:
+          type: array
+          items:
+            type: string
+        export_targets:
+          type: array
+          items:
+            type: string
+        updated_by:
+          type: string
+    DeleteLogsRequest:
+      type: object
+      required: [categories, date_from, date_to]
+      properties:
+        categories:
+          type: array
+          items:
+            type: string
+        date_from:
+          type: string
+          format: date
+        date_to:
+          type: string
+          format: date
+        reason:
+          type: string
+    DeleteLogsResponse:
+      type: object
+      required: [deletion_request_id, deletion_proof_id, deleted_categories, deleted_entries, status]
+      properties:
+        deletion_request_id:
+          type: string
+        deletion_proof_id:
+          type: string
+        deleted_categories:
+          type: array
+          items:
+            type: string
+        deleted_entries:
+          type: integer
+        status:
+          type: string

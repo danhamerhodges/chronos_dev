@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import quote_plus
+from uuid import uuid5, NAMESPACE_URL
 
 import httpx
 from supabase import Client, create_client
@@ -25,6 +27,135 @@ class SupabaseClient:
         if not self.is_configured():
             raise ValueError("Supabase configuration is required")
         return create_client(self.base_url, self.anon_key)
+
+    def user_scoped_headers(self, access_token: str) -> dict[str, str]:
+        if not self.is_configured():
+            raise ValueError("Supabase configuration is required")
+        return {
+            "apikey": self.anon_key,
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+            "Prefer": "return=representation",
+        }
+
+    def service_role_headers(self) -> dict[str, str]:
+        if not self.base_url or not settings.supabase_service_role_key:
+            raise ValueError("Supabase service role configuration is required")
+        return {
+            "apikey": settings.supabase_service_role_key,
+            "Authorization": f"Bearer {settings.supabase_service_role_key}",
+            "Content-Type": "application/json",
+            "Prefer": "return=representation",
+        }
+
+    def direct_db_dsn(self) -> str:
+        if settings.supabase_db_url:
+            return settings.supabase_db_url
+        required = (
+            settings.supabase_db_host,
+            settings.supabase_db_port,
+            settings.supabase_db_name,
+            settings.supabase_db_user,
+            settings.supabase_db_password,
+        )
+        if not all(required):
+            raise ValueError("Supabase direct database configuration is required")
+        password = quote_plus(settings.supabase_db_password)
+        return (
+            f"postgresql://{settings.supabase_db_user}:{password}"
+            f"@{settings.supabase_db_host}:{settings.supabase_db_port}/{settings.supabase_db_name}"
+            "?sslmode=require"
+        )
+
+    def rest_url(self, table_name: str) -> str:
+        if not self.base_url:
+            raise ValueError("Supabase configuration is required")
+        return f"{self.base_url}/rest/v1/{table_name}"
+
+    def rest_select(self, table_name: str, *, params: dict[str, str], headers: dict[str, str] | None = None) -> list[dict[str, Any]]:
+        request_headers = headers or self.service_role_headers()
+        with httpx.Client(timeout=10.0) as client:
+            response = client.get(self.rest_url(table_name), headers=request_headers, params=params)
+            response.raise_for_status()
+            return response.json()
+
+    def rest_insert(
+        self,
+        table_name: str,
+        *,
+        payload: dict[str, Any],
+        headers: dict[str, str] | None = None,
+    ) -> list[dict[str, Any]]:
+        request_headers = headers or self.service_role_headers()
+        with httpx.Client(timeout=10.0) as client:
+            response = client.post(self.rest_url(table_name), headers=request_headers, json=payload)
+            response.raise_for_status()
+            return response.json()
+
+    def rest_upsert(
+        self,
+        table_name: str,
+        *,
+        payload: dict[str, Any],
+        on_conflict: str,
+        headers: dict[str, str] | None = None,
+    ) -> list[dict[str, Any]]:
+        request_headers = dict(headers or self.service_role_headers())
+        request_headers["Prefer"] = "resolution=merge-duplicates,return=representation"
+        with httpx.Client(timeout=10.0) as client:
+            response = client.post(
+                self.rest_url(table_name),
+                headers=request_headers,
+                params={"on_conflict": on_conflict},
+                json=payload,
+            )
+            response.raise_for_status()
+            return response.json()
+
+    def rest_update(
+        self,
+        table_name: str,
+        *,
+        payload: dict[str, Any],
+        params: dict[str, str],
+        headers: dict[str, str] | None = None,
+    ) -> list[dict[str, Any]]:
+        request_headers = headers or self.service_role_headers()
+        with httpx.Client(timeout=10.0) as client:
+            response = client.patch(
+                self.rest_url(table_name),
+                headers=request_headers,
+                params=params,
+                json=payload,
+            )
+            response.raise_for_status()
+            return response.json()
+
+    def rest_delete(
+        self,
+        table_name: str,
+        *,
+        params: dict[str, str],
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        request_headers = dict(headers or self.service_role_headers())
+        request_headers["Prefer"] = "return=minimal"
+        with httpx.Client(timeout=10.0) as client:
+            response = client.delete(
+                self.rest_url(table_name),
+                headers=request_headers,
+                params=params,
+            )
+            response.raise_for_status()
+
+    def auth_user(self, access_token: str) -> dict[str, Any]:
+        if not self.is_configured():
+            raise ValueError("Supabase configuration is required")
+        headers = self.user_scoped_headers(access_token)
+        with httpx.Client(timeout=10.0) as client:
+            response = client.get(f"{self.base_url}/auth/v1/user", headers=headers)
+            response.raise_for_status()
+            return response.json()
 
     def healthcheck(self) -> tuple[bool, str]:
         if not self.is_configured():
@@ -52,3 +183,6 @@ class SupabaseClient:
         result = self.sdk_client().table(table_name).select(columns).limit(limit).execute()
         data = getattr(result, "data", None) or []
         return data
+
+    def synthetic_user_id(self, access_token: str) -> str:
+        return str(uuid5(NAMESPACE_URL, access_token))

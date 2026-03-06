@@ -1,0 +1,228 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chronosrefine.dev/schemas/era_profile_v2020-12.json",
+  "title": "Era Profile",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "capture_medium",
+    "mode",
+    "tier",
+    "resolution_cap",
+    "hallucination_limit",
+    "artifact_policy",
+    "era_range"
+  ],
+  "properties": {
+    "capture_medium": {
+      "type": "string",
+      "enum": ["daguerreotype", "albumen", "16mm", "super_8", "kodachrome", "vhs"]
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["Conserve", "Restore", "Enhance"]
+    },
+    "tier": {
+      "type": "string",
+      "enum": ["Hobbyist", "Pro", "Museum"]
+    },
+    "resolution_cap": {
+      "type": "string",
+      "enum": ["1080p", "2k", "4k", "native_scan"]
+    },
+    "hallucination_limit": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "gemini_confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "default": 1
+    },
+    "manual_confirmation_required": {
+      "type": "boolean",
+      "default": false
+    },
+    "artifact_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "deinterlace",
+        "grain_intensity",
+        "preserve_edge_fog",
+        "preserve_chromatic_aberration"
+      ],
+      "properties": {
+        "deinterlace": {
+          "type": "boolean"
+        },
+        "grain_intensity": {
+          "type": "string",
+          "enum": ["Matched", "Subtle", "Heavy"]
+        },
+        "preserve_edge_fog": {
+          "type": "boolean",
+          "default": false
+        },
+        "preserve_chromatic_aberration": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "era_range": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start_year", "end_year"],
+      "properties": {
+        "start_year": {
+          "type": "integer",
+          "minimum": 1800,
+          "maximum": 2100
+        },
+        "end_year": {
+          "type": "integer",
+          "minimum": 1800,
+          "maximum": 2100
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "capture_medium": {
+            "const": "vhs"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "artifact_policy": {
+            "properties": {
+              "deinterlace": {
+                "const": true
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "mode": {
+            "const": "Conserve"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "hallucination_limit": {
+            "maximum": 0.05
+          },
+          "artifact_policy": {
+            "properties": {
+              "grain_intensity": {
+                "const": "Matched"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "gemini_confidence": {
+            "exclusiveMaximum": 0.7
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "manual_confirmation_required": {
+            "const": true
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "capture_medium": {
+            "enum": ["daguerreotype", "albumen"]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "resolution_cap": {
+            "enum": ["2k", "4k", "native_scan"]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "tier": {
+            "const": "Museum"
+          },
+          "mode": {
+            "const": "Conserve"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "artifact_policy": {
+            "properties": {
+              "preserve_edge_fog": {
+                "const": true
+              },
+              "preserve_chromatic_aberration": {
+                "const": true
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "tier": {
+            "const": "Hobbyist"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "mode": {
+            "const": "Enhance"
+          },
+          "resolution_cap": {
+            "const": "1080p"
+          },
+          "hallucination_limit": {
+            "const": 0.25
+          },
+          "artifact_policy": {
+            "properties": {
+              "preserve_edge_fog": {
+                "const": false
+              },
+              "preserve_chromatic_aberration": {
+                "const": false
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
