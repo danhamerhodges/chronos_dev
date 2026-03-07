@@ -100,6 +100,45 @@ def test_extract_api_error_message_prefers_sanitized_api_message() -> None:
     assert "invalid_request_error" not in message
 
 
+def test_redact_sensitive_diff_content_redacts_secret_like_lines() -> None:
+    module = _load_module()
+    diff = "\n".join(
+        [
+            "diff --git a/.env b/.env",
+            "--- a/.env",
+            "+++ b/.env",
+            '+OPENAI_API_KEY="sk-test-secret-value"',
+            '+NORMAL_VALUE="safe"',
+        ]
+    )
+
+    redacted = module.redact_sensitive_diff_content(diff)
+
+    assert '+[REDACTED SENSITIVE CONTENT]' in redacted
+    assert '+NORMAL_VALUE="safe"' in redacted
+    assert 'sk-test-secret-value' not in redacted
+
+
+def test_select_reviewable_diff_paths_omits_sensitive_and_excess_paths() -> None:
+    module = _load_module()
+    changed_files = [
+        {"path": ".env", "added": 1, "deleted": 0, "binary": False},
+        {"path": "app/main.py", "added": 5, "deleted": 2, "binary": False},
+        {"path": "secrets/service.key", "added": 1, "deleted": 0, "binary": False},
+    ] + [
+        {"path": f"tests/test_{idx}.py", "added": 1, "deleted": 0, "binary": False}
+        for idx in range(module.MAX_DIFF_FILES + 2)
+    ]
+
+    diff_paths, omitted_count = module.select_reviewable_diff_paths(changed_files)
+
+    assert ".env" not in diff_paths
+    assert "secrets/service.key" not in diff_paths
+    assert "app/main.py" in diff_paths
+    assert len(diff_paths) == module.MAX_DIFF_FILES
+    assert omitted_count == len(changed_files) - len(diff_paths)
+
+
 def test_build_review_input_includes_changed_files_and_diff_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
     module = _load_module()
     event = {
@@ -118,9 +157,12 @@ def test_build_review_input_includes_changed_files_and_diff_metadata(monkeypatch
     monkeypatch.setattr(
         module,
         "collect_changed_files",
-        lambda base_sha, head_sha: [{"path": "scripts/agents/codex_pr_review.py", "added": 12, "deleted": 3, "binary": False}],
+        lambda base_sha, head_sha: [
+            {"path": "scripts/agents/codex_pr_review.py", "added": 12, "deleted": 3, "binary": False},
+            {"path": ".env", "added": 1, "deleted": 0, "binary": False},
+        ],
     )
-    monkeypatch.setattr(module, "collect_diff", lambda base_sha, head_sha: ("diff --git a/x b/x", True))
+    monkeypatch.setattr(module, "collect_diff", lambda base_sha, head_sha, paths: ("diff --git a/x b/x", True))
 
     bundle = module.build_review_input(event)
 
@@ -129,6 +171,8 @@ def test_build_review_input_includes_changed_files_and_diff_metadata(monkeypatch
     assert bundle["diff_truncated"] is True
     assert bundle["pr_body_truncated"] is False
     assert "- scripts/agents/codex_pr_review.py (+12 -3)" in bundle["review_input"]
+    assert "Diff paths sent to OpenAI: 1" in bundle["review_input"]
+    assert "Diff paths omitted from OpenAI payload: 1" in bundle["review_input"]
     assert "diff --git a/x b/x" in bundle["review_input"]
 
 
@@ -141,7 +185,7 @@ def test_upsert_pr_comment_paginates_before_patching(monkeypatch: pytest.MonkeyP
         if method == "GET" and path.endswith("page=1"):
             return [{"id": idx, "body": "other comment"} for idx in range(100)]
         if method == "GET" and path.endswith("page=2"):
-            return [{"id": 777, "body": f"{module.REVIEW_MARKER}\nold body"}]
+            return [{"id": 777, "body": f"{module.REVIEW_MARKER}\nold body", "user": {"login": "github-actions"}}]
         if method == "PATCH":
             return {"id": 777, "html_url": "https://example.com/comment/777", "body": body["body"]}
         raise AssertionError(f"Unexpected request: {method} {path}")
@@ -162,6 +206,32 @@ def test_upsert_pr_comment_paginates_before_patching(monkeypatch: pytest.MonkeyP
     ]
     assert seen_paths[2][0] == "PATCH"
     assert seen_paths[2][1] == "/repos/danhamerhodges/chronos_dev/issues/comments/777"
+
+
+def test_upsert_pr_comment_does_not_overwrite_non_bot_marker_comment(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_module()
+    seen_paths: list[tuple[str, str, object | None]] = []
+
+    def fake_github_request(method: str, path: str, token: str, body=None):
+        seen_paths.append((method, path, body))
+        if method == "GET" and path.endswith("page=1"):
+            return [{"id": 101, "body": f"{module.REVIEW_MARKER}\nhuman note", "user": {"login": "alice"}}]
+        if method == "POST":
+            return {"id": 202, "html_url": "https://example.com/comment/202", "body": body["body"]}
+        raise AssertionError(f"Unexpected request: {method} {path}")
+
+    monkeypatch.setattr(module, "github_request", fake_github_request)
+
+    result = module.upsert_pr_comment(
+        repo_full_name="danhamerhodges/chronos_dev",
+        issue_number=3,
+        token="ghs_test",
+        body="new body",
+    )
+
+    assert result["html_url"] == "https://example.com/comment/202"
+    assert seen_paths[-1][0] == "POST"
+    assert "/repos/danhamerhodges/chronos_dev/issues/3/comments" == seen_paths[-1][1]
 
 
 def test_main_returns_zero_for_intentional_skip(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:

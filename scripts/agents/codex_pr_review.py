@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import urllib.error
@@ -18,12 +19,38 @@ ROOT = Path(__file__).resolve().parents[2]
 REVIEW_MARKER = "<!-- codex-pr-review -->"
 DEFAULT_MODEL = "gpt-5.4"
 MAX_CHANGED_FILES = 60
+MAX_DIFF_FILES = 40
 MAX_PR_BODY_CHARS = 4_000
 MAX_DIFF_CHARS = 100_000
 MAX_COMMENT_BODY_CHARS = 60_000
 MAX_ERROR_TEXT_CHARS = 300
 OPENAI_BASE_URL = "https://api.openai.com/v1/responses"
 GITHUB_API_BASE = "https://api.github.com"
+BOT_AUTHOR_LOGINS = {"github-actions", "github-actions[bot]"}
+SENSITIVE_PATH_SUFFIXES = (
+    ".env",
+    ".key",
+    ".pem",
+    ".p12",
+    ".pfx",
+    ".crt",
+    ".cer",
+    ".der",
+    ".jks",
+    ".keystore",
+)
+SENSITIVE_PATH_FRAGMENTS = (
+    "/secrets/",
+    "/secret/",
+    "/credentials/",
+    "/private/",
+    "/tokens/",
+)
+SENSITIVE_DIFF_PATTERNS = (
+    re.compile(r"(?i)\b(api[_-]?key|secret|token|password|passwd|private[_-]?key|authorization)\b"),
+    re.compile(r"sk-[A-Za-z0-9_-]{20,}"),
+    re.compile(r"(?i)begin [a-z0-9 ]*private key"),
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -126,8 +153,47 @@ def collect_changed_files(base_sha: str, head_sha: str) -> list[dict[str, Any]]:
     return changed_files
 
 
-def collect_diff(base_sha: str, head_sha: str) -> tuple[str, bool]:
-    diff = run_git(["diff", "--no-color", "--unified=2", f"{base_sha}..{head_sha}"])
+def is_sensitive_path(path: str) -> bool:
+    normalized = path.lower()
+    basename = Path(normalized).name
+    if basename.startswith(".env"):
+        return True
+    if normalized.endswith(SENSITIVE_PATH_SUFFIXES):
+        return True
+    return any(fragment in normalized for fragment in SENSITIVE_PATH_FRAGMENTS)
+
+
+def is_sensitive_diff_line(line: str) -> bool:
+    if not line.startswith(("+", "-")) or line.startswith(("+++", "---")):
+        return False
+    return any(pattern.search(line) for pattern in SENSITIVE_DIFF_PATTERNS)
+
+
+def redact_sensitive_diff_content(diff: str) -> str:
+    redacted_lines: list[str] = []
+    for line in diff.splitlines():
+        if is_sensitive_diff_line(line):
+            redacted_lines.append(f"{line[0]}[REDACTED SENSITIVE CONTENT]")
+        else:
+            redacted_lines.append(line)
+    return "\n".join(redacted_lines)
+
+
+def select_reviewable_diff_paths(changed_files: list[dict[str, Any]]) -> tuple[list[str], int]:
+    reviewable_paths = [
+        str(item["path"])
+        for item in changed_files
+        if not item["binary"] and not is_sensitive_path(str(item["path"]))
+    ]
+    selected_paths = reviewable_paths[:MAX_DIFF_FILES]
+    return selected_paths, max(len(changed_files) - len(selected_paths), 0)
+
+
+def collect_diff(base_sha: str, head_sha: str, paths: list[str]) -> tuple[str, bool]:
+    if not paths:
+        return "", False
+    diff = run_git(["diff", "--no-color", "--unified=2", f"{base_sha}..{head_sha}", "--", *paths])
+    diff = redact_sensitive_diff_content(diff)
     return trim_text(diff, MAX_DIFF_CHARS)
 
 
@@ -139,7 +205,8 @@ def build_review_input(event: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError("Missing base/head SHA in pull request event payload.")
 
     changed_files = collect_changed_files(base_sha, head_sha)
-    diff_excerpt, diff_truncated = collect_diff(base_sha, head_sha)
+    diff_paths, diff_path_omissions = select_reviewable_diff_paths(changed_files)
+    diff_excerpt, diff_truncated = collect_diff(base_sha, head_sha, diff_paths)
     pr_body, body_truncated = trim_text(pr.get("body") or "", MAX_PR_BODY_CHARS)
 
     file_lines = []
@@ -163,6 +230,8 @@ def build_review_input(event: dict[str, Any]) -> dict[str, Any]:
             "",
             "Changed files:",
             "\n".join(file_lines) or "(none)",
+            f"Diff paths sent to OpenAI: {len(diff_paths)}",
+            f"Diff paths omitted from OpenAI payload: {diff_path_omissions}",
             "",
             "Unified diff excerpt:",
             "```diff",
@@ -182,7 +251,7 @@ def build_review_input(event: dict[str, Any]) -> dict[str, Any]:
 
 def build_review_instructions() -> str:
     return (
-        "You are a senior software engineer reviewing a GitHub pull request for the ChronosRefine repository. "
+        "You are a senior software engineer reviewing a GitHub pull request. "
         "Review only the provided PR metadata and diff excerpt. "
         "Prioritize correctness bugs, behavioral regressions, security/privacy issues, and missing tests. "
         "Do not praise or restate the diff. Do not suggest broad refactors. "
@@ -277,7 +346,15 @@ def list_issue_comments(*, owner: str, repo: str, issue_number: int, token: str)
 def upsert_pr_comment(*, repo_full_name: str, issue_number: int, token: str, body: str) -> dict[str, Any]:
     owner, repo = repo_full_name.split("/", 1)
     comments = list_issue_comments(owner=owner, repo=repo, issue_number=issue_number, token=token)
-    existing = next((item for item in comments if REVIEW_MARKER in item.get("body", "")), None)
+    existing = next(
+        (
+            item
+            for item in comments
+            if REVIEW_MARKER in item.get("body", "")
+            and item.get("user", {}).get("login") in BOT_AUTHOR_LOGINS
+        ),
+        None,
+    )
     if existing:
         return github_request("PATCH", f"/repos/{owner}/{repo}/issues/comments/{existing['id']}", token, {"body": body})
     return github_request("POST", f"/repos/{owner}/{repo}/issues/{issue_number}/comments", token, {"body": body})
