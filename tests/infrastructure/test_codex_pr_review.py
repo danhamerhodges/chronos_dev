@@ -381,6 +381,44 @@ def test_upsert_pr_comment_uses_legacy_bot_login_fallback(monkeypatch: pytest.Mo
     assert result["html_url"] == "https://example.com/comment/303"
 
 
+def test_upsert_pr_comment_updates_newest_owned_marker_comment(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_module()
+    seen_paths: list[tuple[str, str, object | None]] = []
+
+    def fake_github_request(method: str, path: str, token: str, body=None):
+        seen_paths.append((method, path, body))
+        if method == "GET":
+            return [
+                {
+                    "id": 101,
+                    "body": f"{module.REVIEW_MARKER}\nolder body",
+                    "user": {"login": "github-actions[bot]", "type": "Bot"},
+                    "performed_via_github_app": {"slug": "github-actions"},
+                },
+                {
+                    "id": 202,
+                    "body": f"{module.REVIEW_MARKER}\nnewer body",
+                    "user": {"login": "github-actions[bot]", "type": "Bot"},
+                    "performed_via_github_app": {"slug": "github-actions"},
+                },
+            ]
+        if method == "PATCH":
+            return {"id": 202, "html_url": "https://example.com/comment/202", "body": body["body"]}
+        raise AssertionError(f"Unexpected request: {method} {path}")
+
+    monkeypatch.setattr(module, "github_request", fake_github_request)
+
+    result = module.upsert_pr_comment(
+        repo_full_name="danhamerhodges/chronos_dev",
+        issue_number=3,
+        token="ghs_test",
+        body="updated body",
+    )
+
+    assert result["html_url"] == "https://example.com/comment/202"
+    assert seen_paths[-1][1] == "/repos/danhamerhodges/chronos_dev/issues/comments/202"
+
+
 def test_upsert_pr_comment_does_not_overwrite_non_bot_marker_comment(monkeypatch: pytest.MonkeyPatch) -> None:
     module = _load_module()
     seen_paths: list[tuple[str, str, object | None]] = []

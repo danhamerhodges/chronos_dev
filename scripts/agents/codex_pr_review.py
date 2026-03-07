@@ -436,7 +436,7 @@ def is_owned_review_comment(comment: dict[str, Any]) -> bool:
 def upsert_pr_comment(*, repo_full_name: str, issue_number: int, token: str, body: str) -> dict[str, Any]:
     owner, repo = repo_full_name.split("/", 1)
     comments = list_issue_comments(owner=owner, repo=repo, issue_number=issue_number, token=token)
-    existing = next((item for item in comments if is_owned_review_comment(item)), None)
+    existing = next((item for item in reversed(comments) if is_owned_review_comment(item)), None)
     if existing:
         return github_request("PATCH", f"/repos/{owner}/{repo}/issues/comments/{existing['id']}", token, {"body": body})
     return github_request("POST", f"/repos/{owner}/{repo}/issues/{issue_number}/comments", token, {"body": body})
