@@ -1,4 +1,4 @@
-"""Maps to: ENG-002, SEC-009"""
+"""Maps to: ENG-002, ENG-010, ENG-011, SEC-009"""
 
 from pathlib import Path
 
@@ -60,6 +60,20 @@ def test_testing_reset_rate_limits_endpoint_is_available_in_test_mode() -> None:
     assert response.json() == {"status": "reset"}
 
 
+def test_testing_job_dispatcher_endpoint_is_available_in_test_mode() -> None:
+    response = client.post("/v1/testing/jobs/run-dispatcher", headers=fake_auth_header("user-1"))
+    assert response.status_code == 200
+    assert response.json() == {"processed_jobs": []}
+
+
+def test_admin_runtime_ops_snapshot_requires_ops_permission() -> None:
+    response = client.get("/v1/ops/runtime", headers=fake_auth_header("ops-admin", role="admin"))
+    assert response.status_code == 200
+    payload = response.json()
+    assert "desired_warm_instances" in payload
+    assert "alert_routes" in payload
+
+
 def test_request_validation_errors_use_problem_details_shape() -> None:
     response = client.post(
         "/v1/detect-era",
@@ -78,3 +92,6 @@ def test_tracked_openapi_spec_covers_phase2_subset() -> None:
 
     assert "/v1/detect-era:" in openapi_spec
     assert "/v1/orgs/{org_id}/settings/logs:" in openapi_spec
+    assert "/v1/jobs:" in openapi_spec
+    assert "/v1/manifests/{job_id}:" in openapi_spec
+    assert "/v1/ops/runtime:" in openapi_spec

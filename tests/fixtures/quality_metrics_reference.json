@@ -1,0 +1,22 @@
+{
+  "job_id": "job-fixture-1",
+  "source_asset_checksum": "abc12345def67890",
+  "segment_index": 0,
+  "segment_duration_seconds": 10,
+  "fidelity_tier": "Restore",
+  "expected": {
+    "e_hf": 0.725243,
+    "s_ls_db": 1.895162,
+    "t_tc": 0.948742,
+    "thresholds_met": true,
+    "noise_floor_correction": 0.023388,
+    "metric_latency_ms": 1200,
+    "frames_sampled": 10,
+    "roi_256": {
+      "x": 832,
+      "y": 412,
+      "width": 256,
+      "height": 256
+    }
+  }
+}

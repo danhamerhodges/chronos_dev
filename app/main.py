@@ -11,8 +11,12 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.era_detection import router as era_detection_router
 from app.api.health import router as health_router
+from app.api.internal_workers import router as internal_workers_router
+from app.api.jobs import router as jobs_router
 from app.api.logs import router as logs_router
+from app.api.manifests import router as manifests_router
 from app.api.metrics import router as metrics_router
+from app.api.ops import router as ops_router
 from app.api.problem_details import (
     http_exception_handler,
     problem_exception_handler,
@@ -60,9 +64,13 @@ def create_app() -> FastAPI:
     app.add_exception_handler(RequestValidationError, request_validation_exception_handler)
 
     app.include_router(health_router, tags=["health"])
+    app.include_router(internal_workers_router, tags=["internal-workers"])
     app.include_router(metrics_router, tags=["metrics"])
+    app.include_router(ops_router, tags=["ops"])
     app.include_router(version_router, tags=["version"])
     app.include_router(era_detection_router, tags=["era-detection"])
+    app.include_router(jobs_router, tags=["jobs"])
+    app.include_router(manifests_router, tags=["manifests"])
     app.include_router(users_router, tags=["users"])
     app.include_router(logs_router, tags=["security"])
 

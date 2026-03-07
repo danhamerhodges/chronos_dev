@@ -64,6 +64,8 @@ This implementation plan is organized into a logical execution sequence designed
 **Requirements Implemented:** **ENG-001**, **ENG-002**, **ENG-004**, **FR-002**, **SEC-009**, **NFR-007** (6 requirements)  
 **Coverage Matrix:** See `docs/specs/ChronosRefine Requirements Coverage Matrix.md`
 
+**Implementation Note:** The merged Phase 2 delivery closes an approved `ENG-002` API subset for the backend closeout packet. The canonical `ENG-002` endpoint catalog in Engineering Requirements remains broader and should not be redefined by this status snapshot.
+
 **Entry Criteria:**
 - [ ] Phase 1 complete: Infrastructure operational → **See:** `docs/specs/chronosrefine_implementation_plan.md#phase-1-foundation--core-infrastructure`
 - [ ] Database technology selected (Supabase PostgreSQL) → **Req:** **ENG-016** (completed in Phase 1), **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-016-database-technology-selection-supabase`
@@ -96,46 +98,53 @@ This implementation plan is organized into a logical execution sequence designed
 
 ### Phase 3: Core Processing Pipeline & AI Integration
 
-**Objective:** Build the core video processing pipeline and integrate the primary AI/ML models.
+**Objective:** Build the canonical Phase 3 processing substrate, quality controls, and scaling/runtime systems without reclassifying already-delivered Phase 2 era-detection work.
 
 **Requirements Implemented:** **ENG-003**, **ENG-005**, **ENG-006**, **ENG-007**, **ENG-008**, **ENG-009**, **ENG-010**, **ENG-011**, **ENG-012**, **NFR-002**, **SEC-007**, **OPS-003** (12 requirements)  
 **Coverage Matrix:** See `docs/specs/ChronosRefine Requirements Coverage Matrix.md`
 
+**Implementation Status Note:** Packet 3A is implemented in backend code on the current branch for **ENG-003**, **ENG-011**, and **ENG-012**. Packet 3A.1 adds a dispatcher abstraction, explicit worker entrypoint, and trusted background publish path aligned to the canonical `Cloud Run service -> Pub/Sub -> Cloud Run Jobs` topology. Packet 3A.2 adds env-gated runtime binding surfaces plus a dedicated live-smoke path in `scripts/smoke/async_jobs_runtime_smoke.sh`. Packet 3B adds reference-first fidelity profile enforcement, deterministic quality metrics, reproducibility proof generation, transformation manifest generation/download, and baseline per-job stage timing capture for **ENG-005**, **ENG-006**, **ENG-007**, **ENG-010**, and the instrumentation subset of **NFR-002**. Packet 3C extends the same runtime with GPU warm-pool reconciliation, Redis-compatible segment deduplication, incident persistence and alert routing hooks, expanded per-job runtime summaries, and full `NFR-002` SLO/accounting closure for the current branch. **SEC-007** remains a deferred Museum-tier milestone tracked for `GA+3 months`.
+
 **Entry Criteria:**
-- [ ] Phase 2 complete: Data layer operational with >95% test coverage → **See:** `docs/specs/chronosrefine_implementation_plan.md#phase-2-api-foundation--data-layer`
-- [ ] GPU access configured (Vertex AI L4 instances) → **Req:** **OPS-003**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#ops-003-incident-response`, `docs/specs/chronosrefine_prd_v9.md#infrastructure-requirements`
-- [ ] All AI model licenses and API keys secured → **Req:** **ENG-005**, **ENG-006**, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-005-fidelity-tier-implementation`, `docs/specs/chronosrefine_engineering_requirements.md#eng-006-quality-metrics-calculation`, `docs/specs/chronosrefine_prd_v9.md`
-- [ ] Heritage Test Set (2,000 items) prepared and accessible → **Req:** **FR-007**, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-007-human-preference-score-hps-validation`, `docs/specs/chronosrefine_prd_v9.md#beta-exit-criteria-ga-readiness`
+- [ ] Phase 2 merged to `main` and progress docs reconciled → **See:** `docs/specs/ChronosRefine Requirements Coverage Matrix.md#phase-2-progress-api-foundation--data-layer`
+- [ ] Persistence boundary hardened for user-request paths (end-user JWT + RLS by default; privileged access explicit) → **Req:** **ENG-002**, **SEC-001**, **SEC-013**, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-002-api-endpoint-implementation`, `docs/specs/chronosrefine_security_operations_requirements.md#sec-001-authentication--authorization`
+- [x] Runtime prerequisites identified for processing execution (GCS, Redis/degraded-cache path, worker runtime, GPU capacity planning) → **Req:** **ENG-003**, **ENG-008**, **ENG-009**, **OPS-003**
+- [ ] Processing/infrastructure test scaffolding created for new Phase 3 suites → **See:** `docs/specs/chronosrefine_test_templates.md`
 
 **Deliverables:**
--   Integration with Gemini 3 Pro for era classification → **Req:** **ENG-005**, **FR-002**, **Test:** `tests/ml/test_gemini_integration.py`, `tests/ml/test_era_detection.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-005-fidelity-tier-implementation`, `docs/specs/chronosrefine_functional_requirements.md#fr-002-era-detection`
--   Implementation of the AV1 Film Grain Synthesis (FGS) pipeline → **Req:** **ENG-007**, **Test:** `tests/processing/test_av1_fgs.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-007-reproducibility-proof`, `docs/specs/chronosrefine_prd_v9.md#av1-film-grain-synthesis`
--   Integration of the CodeFormer model for facial restoration → **Req:** **ENG-006**, **Test:** `tests/ml/test_codeformer.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-006-quality-metrics-calculation`, `docs/specs/chronosrefine_prd_v9.md#codeformer`
--   A functioning end-to-end processing pipeline that can execute a single job → **Req:** **FR-004**, **Test:** `tests/processing/test_end_to_end_pipeline.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-004-processing-and-restoration`
--   Quality metrics implementation (E_HF, S_LS, T_TC) → **Req:** **ENG-008**, **ENG-009**, **ENG-010**, **Test:** `tests/quality/test_e_hf_metric.py`, `tests/quality/test_s_ls_metric.py`, `tests/quality/test_t_tc_metric.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-008-gpu-pool-management`, `docs/specs/chronosrefine_engineering_requirements.md#eng-009-deduplication-cache`, `docs/specs/chronosrefine_engineering_requirements.md#eng-010-transformation-manifest-generation`
--   SynthID watermarking integration → **Req:** **ENG-012**, **Test:** `tests/processing/test_synthid.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-012-error-recovery`
--   MediaPipe segmentation integration → **Req:** **ENG-011**, **Test:** `tests/ml/test_mediapipe.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-011-async-processing`
+-   Core job and segment processing pipeline with explicit job state transitions → **Req:** **ENG-003**
+-   Dispatcher + worker execution boundary aligned to canonical Pub/Sub / Cloud Run Jobs topology, with explicit trusted-background mutation and publish paths → **Req:** **ENG-011**, **ENG-012**
+-   Fidelity-tier execution parameters persisted and enforced throughout processing → **Req:** **ENG-005**
+-   Quality metrics implementation for `E_HF`, `S_LS`, and `T_TC` with threshold handling → **Req:** **ENG-006**
+-   Reproducibility proof modes and audit evidence generation → **Req:** **ENG-007**
+-   GPU pool management, autoscaling hooks, and incident-ready operational controls → **Req:** **ENG-008**, **OPS-003**
+-   Deduplication cache with degraded-mode behavior when cache infrastructure is unavailable → **Req:** **ENG-009**
+-   Transformation manifest generation, storage, and retrieval contract → **Req:** **ENG-010**
+-   Async processing substrate with progress delivery, retry behavior, and failure isolation → **Req:** **ENG-011**, **ENG-012**
+-   End-to-end processing time instrumentation, alerting, and SLO reporting → **Req:** **NFR-002**
+-   Deferred CMEK milestone tracked explicitly for Museum tier rollout timing → **Req:** **SEC-007** (`GA+3 months`)
 
 **Exit Criteria:**
-- [ ] Gemini 3 Pro integration achieves >90% era classification accuracy on Heritage Test Set → **Req:** **ENG-005**, **FR-002**, **Test:** `tests/ml/test_era_detection.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-005-fidelity-tier-implementation`, `docs/specs/chronosrefine_functional_requirements.md#fr-002-era-detection`
-- [ ] AV1 FGS pipeline produces output with grain energy within 10% of source measurement → **Req:** **ENG-007**, **Test:** `tests/processing/test_av1_fgs.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-007-reproducibility-proof`
-- [ ] CodeFormer facial restoration maintains LPIPS identity drift < 0.02 on test faces → **Req:** **ENG-006**, **Test:** `tests/ml/test_codeformer.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-006-quality-metrics-calculation`
-- [ ] End-to-end pipeline processes a 10-minute 4K video in <20 minutes (p95) → **Req:** **NFR-002**, **Test:** `tests/load/test_processing_performance.py`, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-002-processing-time-slo`
-- [ ] All Phase 3 unit tests pass with >85% coverage
-- [ ] Integration tests validate correct parameter passing between AI components → **Test:** `tests/integration/test_ai_pipeline_integration.py`
-- [ ] E_HF and S_LS metrics calculated correctly for 100% of test videos → **Req:** **ENG-008**, **ENG-009**, **Test:** `tests/quality/test_quality_metrics.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-008-gpu-pool-management`, `docs/specs/chronosrefine_engineering_requirements.md#eng-009-deduplication-cache`
-- [ ] Model security and sandboxing tested → **Req:** **SEC-007**, **Test:** `tests/security/test_model_security.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-007-customer-managed-encryption-keys-cmek`
-- [ ] GPU resource management tested with autoscaling → **Req:** **OPS-003**, **Test:** `tests/ops/test_gpu_management.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#ops-003-incident-response`
+- [ ] Processing jobs execute through a canonical job/segment pipeline with persistent status and recovery checkpoints → **Req:** **ENG-003**, **ENG-011**, **ENG-012**
+- [ ] Dispatcher and worker entrypoint contracts are explicit, testable in unit-only mode, and preserve the user-request JWT boundary while keeping background writes/publish actions privileged → **Req:** **ENG-011**, **ENG-012**, **SEC-013**
+- [ ] Fidelity tier parameters and quality thresholds are enforced using the canonical metric definitions in Engineering + Functional Requirements → **Req:** **ENG-005**, **ENG-006**
+- [ ] Reproducibility proof artifacts are captured alongside manifest data and remain traceable for audits → **Req:** **ENG-007**, **ENG-010**
+- [x] GPU pool readiness, autoscaling behavior, and incident hooks are validated in local/runtime test coverage, with env-gated live validation path retained for deployed environments → **Req:** **ENG-008**, **OPS-003**
+- [x] Deduplication cache behavior is validated for hit, miss, invalidation, and degraded-mode scenarios → **Req:** **ENG-009**
+- [x] End-to-end processing time is measured against the canonical `p95 <2x video duration` SLO with alerting hooks in place → **Req:** **NFR-002**
+- [ ] `SEC-007` is tracked as a deferred Museum-tier milestone and is not used as an unconditional Phase 3 completion blocker before `GA+3 months` → **Req:** **SEC-007**
 
 **Phase-Specific Risks:**
-- **Risk**: Gemini API rate limits impact development velocity
-  - **Mitigation**: Implement aggressive caching; use mock responses for testing
-- **Risk**: AV1 encoder performance bottleneck
-  - **Mitigation**: Benchmark libaom vs SVT-AV1; optimize encoding parameters
-- **Risk**: GPU costs exceed budget during development
-  - **Mitigation**: Use preemptible instances; implement auto-shutdown for idle GPUs
+- **Risk**: Phase 3 execution drifts back toward already-delivered Phase 2 era-detection work
+  - **Mitigation**: Keep packet scope anchored to the canonical Phase 3 requirement IDs and titles
+- **Risk**: Async orchestration, cache, and GPU concerns are introduced without a clear trust boundary
+  - **Mitigation**: Require explicit privileged-access decisions and keep JWT/RLS as the default for user-request paths
+- **Risk**: Test-mode dispatch helpers are mistaken for production runtime infrastructure
+  - **Mitigation**: Keep the dispatcher interface explicit, document the cloud binding as a follow-on, and restrict trusted worker execution behind an explicit background token
+- **Risk**: `SEC-007` is treated as an immediate blocker despite its canonical rollout timing
+  - **Mitigation**: Track CMEK as a deferred milestone criterion aligned to `GA+3 months`
 
-**Rationale:** This phase tackles the highest-risk and most complex part of the system. Proving out the core AI/ML pipeline early will provide critical insights and de-risk the project.
+**Rationale:** This phase should be repacketed from canonical requirement semantics, not from older narrative bullets. The goal is to land the missing processing substrate and operational controls that Phase 2 did not implement.
 
 ### Phase 4: User-Facing Features & Application Logic
 
