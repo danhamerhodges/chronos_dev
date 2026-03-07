@@ -45,6 +45,7 @@ def test_render_comment_body_includes_marker_and_metadata() -> None:
         model="gpt-5.4",
         project_header_status="enabled",
         changed_files_count=3,
+        diff_paths_sent=2,
         base_sha="abcdef1234567890",
         head_sha="fedcba0987654321",
         diff_truncated=True,
@@ -54,6 +55,8 @@ def test_render_comment_body_includes_marker_and_metadata() -> None:
     assert module.REVIEW_MARKER in rendered
     assert "## Codex PR Review" in rendered
     assert "OpenAI project header: `enabled`" in rendered
+    assert "Changed files in PR: `3`" in rendered
+    assert "Diff paths sent to OpenAI: `2`" in rendered
     assert "Input truncation: `diff truncated`" in rendered
     assert "## Findings" in rendered
 
@@ -66,6 +69,7 @@ def test_render_comment_body_truncates_oversized_review_text() -> None:
         model="gpt-5.4",
         project_header_status="enabled",
         changed_files_count=3,
+        diff_paths_sent=2,
         base_sha="abcdef1234567890",
         head_sha="fedcba0987654321",
         diff_truncated=False,
@@ -163,12 +167,22 @@ def test_select_reviewable_diff_paths_omits_sensitive_and_excess_paths() -> None
 
 def test_collect_changed_files_handles_rename_paths(monkeypatch: pytest.MonkeyPatch) -> None:
     module = _load_module()
-    monkeypatch.setattr(module, "run_git", lambda args: "1\t0\tsrc/{old.py => new.py}\n")
+    monkeypatch.setattr(
+        module,
+        "run_git_bytes",
+        lambda args: b"1\t0\t\0src/old.py\0src/new.py\0",
+    )
 
     changed_files = module.collect_changed_files("abc123", "def456")
 
     assert changed_files == [
-        {"path": "src/{old.py => new.py}", "added": 1, "deleted": 0, "binary": False}
+        {
+            "path": "src/new.py",
+            "display_path": "src/old.py => src/new.py",
+            "added": 1,
+            "deleted": 0,
+            "binary": False,
+        }
     ]
 
 
@@ -249,6 +263,7 @@ def test_build_review_input_includes_changed_files_and_diff_metadata(monkeypatch
     assert bundle["head_sha"] == "def456"
     assert bundle["diff_truncated"] is True
     assert bundle["pr_body_truncated"] is False
+    assert bundle["diff_paths_sent"] == 1
     assert "- scripts/agents/codex_pr_review.py (+12 -3)" in bundle["review_input"]
     assert "Diff paths sent to OpenAI: 1" in bundle["review_input"]
     assert "Diff paths filtered from OpenAI payload: 1" in bundle["review_input"]
@@ -423,6 +438,7 @@ def test_main_returns_zero_and_prints_summary_on_success(
             "base_sha": "abc123",
             "head_sha": "def456",
             "changed_files": [{"path": "scripts/agents/codex_pr_review.py"}],
+            "diff_paths_sent": 1,
             "diff_truncated": False,
             "pr_body_truncated": False,
             "review_input": "review me",

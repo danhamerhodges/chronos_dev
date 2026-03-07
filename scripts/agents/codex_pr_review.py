@@ -76,10 +76,23 @@ def run_command(cmd: list[str]) -> tuple[int, str, str]:
     return proc.returncode, proc.stdout, proc.stderr
 
 
+def run_command_bytes(cmd: list[str]) -> tuple[int, bytes, bytes]:
+    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True)
+    return proc.returncode, proc.stdout, proc.stderr
+
+
 def run_git(args: list[str]) -> str:
     rc, out, err = run_command(["git", *args])
     if rc != 0:
         raise RuntimeError((err or out).strip() or f"git {' '.join(args)} failed")
+    return out
+
+
+def run_git_bytes(args: list[str]) -> bytes:
+    rc, out, err = run_command_bytes(["git", *args])
+    if rc != 0:
+        message = (err or out).decode("utf-8", errors="replace").strip()
+        raise RuntimeError(message or f"git {' '.join(args)} failed")
     return out
 
 
@@ -161,20 +174,49 @@ def extract_api_error_message(service: str, status_code: int, error_body: str) -
     return f"{service} API error {status_code}: {sanitize_error_text(message)}"
 
 
+def decode_git_path(raw_path: bytes) -> str:
+    return raw_path.decode("utf-8", errors="surrogateescape")
+
+
 def collect_changed_files(base_sha: str, head_sha: str) -> list[dict[str, Any]]:
-    output = run_git(["diff", "--numstat", f"{base_sha}..{head_sha}"])
+    output = run_git_bytes(["diff", "--numstat", "-z", f"{base_sha}..{head_sha}"])
     changed_files: list[dict[str, Any]] = []
-    for raw_line in output.splitlines():
-        if not raw_line.strip():
-            continue
-        parts = raw_line.split("\t")
-        if len(parts) < 3:
-            raise RuntimeError(f"Unexpected git diff --numstat output: {raw_line}")
-        added, deleted = parts[:2]
-        path = "\t".join(parts[2:])
+    cursor = 0
+    while cursor < len(output):
+        first_tab = output.find(b"\t", cursor)
+        second_tab = output.find(b"\t", first_tab + 1)
+        if first_tab == -1 or second_tab == -1:
+            raise RuntimeError("Unexpected git diff --numstat -z output.")
+        added = output[cursor:first_tab].decode("utf-8", errors="replace")
+        deleted = output[first_tab + 1 : second_tab].decode("utf-8", errors="replace")
+        cursor = second_tab + 1
+        if cursor >= len(output):
+            raise RuntimeError("Unexpected end of git diff --numstat -z output.")
+        if output[cursor] == 0:
+            cursor += 1
+            old_end = output.find(b"\0", cursor)
+            if old_end == -1:
+                raise RuntimeError("Missing old path in git diff --numstat -z rename record.")
+            old_path = decode_git_path(output[cursor:old_end])
+            cursor = old_end + 1
+            new_end = output.find(b"\0", cursor)
+            if new_end == -1:
+                raise RuntimeError("Missing new path in git diff --numstat -z rename record.")
+            new_path = decode_git_path(output[cursor:new_end])
+            cursor = new_end + 1
+            path = new_path
+            display_path = f"{old_path} => {new_path}"
+        else:
+            path_end = output.find(b"\0", cursor)
+            if path_end == -1:
+                raise RuntimeError("Missing path terminator in git diff --numstat -z output.")
+            path = decode_git_path(output[cursor:path_end])
+            display_path = path
+            cursor = path_end + 1
         changed_files.append(
             {
                 "path": path,
+                "display_path": display_path,
                 "added": None if added == "-" else int(added),
                 "deleted": None if deleted == "-" else int(deleted),
                 "binary": added == "-" or deleted == "-",
@@ -248,7 +290,7 @@ def build_review_input(event: dict[str, Any]) -> dict[str, Any]:
     file_lines = []
     for item in changed_files[:MAX_CHANGED_FILES]:
         stats = "binary" if item["binary"] else f"+{item['added']} -{item['deleted']}"
-        file_lines.append(f"- {item['path']} ({stats})")
+        file_lines.append(f"- {item.get('display_path', item['path'])} ({stats})")
     if len(changed_files) > MAX_CHANGED_FILES:
         file_lines.append(f"- ... {len(changed_files) - MAX_CHANGED_FILES} more files omitted")
 
@@ -280,6 +322,7 @@ def build_review_input(event: dict[str, Any]) -> dict[str, Any]:
         "base_sha": base_sha,
         "head_sha": head_sha,
         "changed_files": changed_files,
+        "diff_paths_sent": len(diff_paths),
         "diff_truncated": diff_truncated,
         "pr_body_truncated": body_truncated,
         "review_input": payload,
@@ -405,6 +448,7 @@ def render_comment_body(
     model: str,
     project_header_status: str,
     changed_files_count: int,
+    diff_paths_sent: int,
     base_sha: str,
     head_sha: str,
     diff_truncated: bool,
@@ -423,7 +467,8 @@ def render_comment_body(
             "",
             f"- Model: `{model}`",
             f"- OpenAI project header: `{project_header_status}`",
-            f"- Reviewed files: `{changed_files_count}`",
+            f"- Changed files in PR: `{changed_files_count}`",
+            f"- Diff paths sent to OpenAI: `{diff_paths_sent}`",
             f"- Base..Head: `{base_sha[:12]}..{head_sha[:12]}`",
             f"- Input truncation: `{truncation_line}`",
             "",
@@ -492,6 +537,7 @@ def main() -> int:
                 model=model,
                 project_header_status=project_header_status,
                 changed_files_count=len(review_bundle["changed_files"]),
+                diff_paths_sent=review_bundle["diff_paths_sent"],
                 base_sha=review_bundle["base_sha"],
                 head_sha=review_bundle["head_sha"],
                 diff_truncated=review_bundle["diff_truncated"],
@@ -510,7 +556,8 @@ def main() -> int:
                     f"PR: `#{issue_number}`",
                     f"Model: `{model}`",
                     f"OpenAI project header: `{project_header_status}`",
-                    f"Reviewed files: `{len(review_bundle['changed_files'])}`",
+                    f"Changed files in PR: `{len(review_bundle['changed_files'])}`",
+                    f"Diff paths sent to OpenAI: `{review_bundle['diff_paths_sent']}`",
                     f"Diff truncated: `{'yes' if review_bundle['diff_truncated'] else 'no'}`",
                     f"Comment URL: {comment.get('html_url', 'n/a')}",
                     f"OpenAI response ID: `{api_payload.get('id', 'unknown')}`",
@@ -520,7 +567,8 @@ def main() -> int:
                 "status": "commented",
                 "model": model,
                 "project_header": project_header_status,
-                "reviewed_files": len(review_bundle["changed_files"]),
+                "changed_files": len(review_bundle["changed_files"]),
+                "diff_paths_sent": review_bundle["diff_paths_sent"],
                 "diff_truncated": review_bundle["diff_truncated"],
                 "comment_url": comment.get("html_url", ""),
                 "response_id": api_payload.get("id", ""),
