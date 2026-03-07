@@ -22,7 +22,7 @@ MAX_CHANGED_FILES = 60
 MAX_DIFF_FILES = 40
 MAX_PR_BODY_CHARS = 4_000
 MAX_DIFF_CHARS = 100_000
-MAX_COMMENT_BODY_CHARS = 60_000
+MAX_COMMENT_BODY_BYTES = 60_000
 MAX_ERROR_TEXT_CHARS = 300
 OPENAI_BASE_URL = "https://api.openai.com/v1/responses"
 GITHUB_API_BASE = "https://api.github.com"
@@ -40,13 +40,7 @@ SENSITIVE_PATH_SUFFIXES = (
     ".jks",
     ".keystore",
 )
-SENSITIVE_PATH_FRAGMENTS = (
-    "/secrets/",
-    "/secret/",
-    "/credentials/",
-    "/private/",
-    "/tokens/",
-)
+SENSITIVE_PATH_SEGMENTS = {"secrets", "secret", "credentials", "private", "tokens"}
 SENSITIVE_DIFF_PATTERNS = (
     re.compile(r"(?i)\b(api[_-]?key|secret|token|password|passwd|private[_-]?key|authorization)\b"),
     re.compile(r"sk-[A-Za-z0-9_-]{20,}"),
@@ -127,6 +121,23 @@ def trim_text(text: str, limit: int) -> tuple[str, bool]:
     if limit <= 3:
         return text[:limit], True
     return text[: limit - 3] + "...", True
+
+
+def trim_utf8_bytes(text: str, byte_limit: int) -> tuple[str, bool]:
+    encoded = text.encode("utf-8")
+    if len(encoded) <= byte_limit:
+        return text, False
+    if byte_limit <= 3:
+        return "." * byte_limit, True
+    suffix = "..."
+    allowed = max(byte_limit - len(suffix.encode("utf-8")), 0)
+    truncated = encoded[:allowed]
+    while truncated:
+        try:
+            return truncated.decode("utf-8") + suffix, True
+        except UnicodeDecodeError:
+            truncated = truncated[:-1]
+    return suffix[:byte_limit], True
 
 
 def extract_output_text(response: dict[str, Any]) -> str:
@@ -226,13 +237,14 @@ def collect_changed_files(base_sha: str, head_sha: str) -> list[dict[str, Any]]:
 
 
 def is_sensitive_path(path: str) -> bool:
-    normalized = path.lower()
+    normalized = path.lower().replace("\\", "/")
     basename = Path(normalized).name
     if basename.startswith(".env"):
         return True
     if normalized.endswith(SENSITIVE_PATH_SUFFIXES):
         return True
-    return any(fragment in normalized for fragment in SENSITIVE_PATH_FRAGMENTS)
+    segments = [segment for segment in normalized.split("/") if segment]
+    return any(segment in SENSITIVE_PATH_SEGMENTS for segment in segments[:-1])
 
 
 def is_sensitive_diff_line(line: str) -> bool:
@@ -476,12 +488,15 @@ def render_comment_body(
     )
     review_section = review_text.strip()
     body = f"{header}\n{review_section}".strip() + "\n"
-    if len(body) <= MAX_COMMENT_BODY_CHARS:
+    if len(body.encode("utf-8")) <= MAX_COMMENT_BODY_BYTES:
         return body
 
     truncation_note = "\n\n_Review text truncated to fit GitHub comment limits._"
-    available = max(MAX_COMMENT_BODY_CHARS - len(header) - len(truncation_note) - 2, 0)
-    truncated_review, _ = trim_text(review_section, available)
+    available = max(
+        MAX_COMMENT_BODY_BYTES - len(header.encode("utf-8")) - len(truncation_note.encode("utf-8")) - 2,
+        0,
+    )
+    truncated_review, _ = trim_utf8_bytes(review_section, available)
     return f"{header}\n{truncated_review}{truncation_note}".strip() + "\n"
 
 

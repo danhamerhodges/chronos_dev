@@ -66,7 +66,7 @@ def test_render_comment_body_truncates_oversized_review_text() -> None:
     module = _load_module()
 
     rendered = module.render_comment_body(
-        review_text="A" * (module.MAX_COMMENT_BODY_CHARS + 500),
+        review_text="A" * (module.MAX_COMMENT_BODY_BYTES + 500),
         model="gpt-5.4",
         project_header_status="enabled",
         changed_files_count=3,
@@ -77,9 +77,28 @@ def test_render_comment_body_truncates_oversized_review_text() -> None:
         pr_body_truncated=False,
     )
 
-    assert len(rendered) <= module.MAX_COMMENT_BODY_CHARS
+    assert len(rendered.encode("utf-8")) <= module.MAX_COMMENT_BODY_BYTES
     assert "_Review text truncated to fit GitHub comment limits._" in rendered
     assert module.REVIEW_MARKER in rendered
+
+
+def test_render_comment_body_truncates_by_utf8_bytes() -> None:
+    module = _load_module()
+
+    rendered = module.render_comment_body(
+        review_text="é" * module.MAX_COMMENT_BODY_BYTES,
+        model="gpt-5.4",
+        project_header_status="enabled",
+        changed_files_count=3,
+        diff_paths_sent=2,
+        base_sha="abcdef1234567890",
+        head_sha="fedcba0987654321",
+        diff_truncated=False,
+        pr_body_truncated=False,
+    )
+
+    assert len(rendered.encode("utf-8")) <= module.MAX_COMMENT_BODY_BYTES
+    assert "_Review text truncated to fit GitHub comment limits._" in rendered
 
 
 def test_resolve_project_header_status_ignores_non_project_values() -> None:
@@ -164,6 +183,13 @@ def test_select_reviewable_diff_paths_omits_sensitive_and_excess_paths() -> None
     assert len(diff_paths) == module.MAX_DIFF_FILES
     assert filtered_count == 2
     assert omitted_count == 3
+
+
+def test_is_sensitive_path_matches_top_level_secret_directories() -> None:
+    module = _load_module()
+
+    assert module.is_sensitive_path("secrets/service-account.json") is True
+    assert module.is_sensitive_path("tokens/cache.txt") is True
 
 
 def test_collect_changed_files_handles_rename_paths(monkeypatch: pytest.MonkeyPatch) -> None:
