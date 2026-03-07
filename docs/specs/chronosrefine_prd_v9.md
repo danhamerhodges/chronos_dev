@@ -6,6 +6,8 @@
 
 **Version:** 9.0 (Handoff Candidate - Feb 2026)
 
+**Context Status:** Context only. For current phase sequencing, requirement placement, merged-state status, and kickoff packets, defer to the canonical documents under `docs/specs/` in the order defined by `AGENTS.md`. The roadmap in Section 10 is historical planning context and may intentionally differ from the canonical Coverage Matrix and Implementation Plan.
+
 **Lead Dev Tool:** Codex 5.3 (Interaction Mode: Steering & SDD Enforcement)
 
 **Infrastructure:** GCP (Cloud Run Jobs + Vertex AI L4/RTX 6000 GPUs)
@@ -2318,7 +2320,7 @@ Inspired by the design philosophy of Jony Ive, the ChronosRefine user experience
 
 ### 11.2 Design System Specifications
 
-**Complete specifications available in companion document:** [ChronosRefine_Design_System_Specification.md](./ChronosRefine_Design_System_Specification.md)
+**Canonical design specifications live in:** [chronosrefine_design_requirements.md](./chronosrefine_design_requirements.md)
 
 The full design system includes:
 
@@ -2360,7 +2362,7 @@ The full design system includes:
 5 elevation levels with box shadow specifications:
 - Level 0 (none), Level 1 (cards), Level 2 (hover), Level 3 (dropdowns), Level 4 (modals)
 
-#### Additional Specifications in Companion Document
+#### Additional Implementation Details
 
 - CSS variables for all design tokens
 - Complete CSS implementations for all components
@@ -2369,7 +2371,7 @@ The full design system includes:
 - Design tokens export formats (CSS, SCSS, JS, JSON)
 - Storybook documentation guidelines
 
-**For implementation:** Refer to the complete Design System Specification for pixel-perfect specifications, CSS code, and usage guidelines.
+**For implementation:** Refer to the canonical design requirements plus the repo-local design-token/component implementation under `web/`.
 
 ## 12. Accessibility Requirements
 
@@ -2628,13 +2630,13 @@ This section documents the evolution of the ChronosRefine PRD across major versi
    - Changed from "v8.0 (True 10/10)" to "v9.0 (Handoff Candidate)"
    - Removed self-scoring to maintain credibility with reviewers
 
-8. **Implementation Details Extracted to Companion Documents**
-   - E_HF pseudocode → Engineering Spec (reference added)
-   - PII redaction regex patterns → Security Implementation Guide (reference added)
-   - Full component library → Design System (standalone document)
-   - Reproducibility bash commands → Operations Runbook (reference added)
+8. **Implementation Details Consolidated into Canonical Docs and Repo Artifacts**
+   - E_HF pseudocode → Engineering Requirements / implementation code
+   - PII redaction patterns → Security & Operations Requirements / implementation code
+   - Full component library → Design Requirements / `web/`
+   - Reproducibility commands → Implementation Plan / repo scripts
 
-**Lines Changed:** +850 lines (new sections), -120 lines (extracted to companion docs), Net: +730 lines  
+**Lines Changed:** +850 lines (new sections), -120 lines (consolidated into canonical docs/artifacts), Net: +730 lines  
 **Total Document Size:** v8.0: 2,379 lines → v9.0: ~3,100 lines
 
 ### Version 7.0 → 8.0 (February 2026)
@@ -2727,9 +2729,9 @@ This section documents the evolution of the ChronosRefine PRD across major versi
 
 ## 15. API Endpoint Summary
 
-This section provides a consolidated reference of all API endpoints mentioned throughout the PRD. While a full OpenAPI specification will be maintained separately in the Engineering API Spec, this summary gives engineering teams a single view of the API surface they need to build.
+This section provides a consolidated reference of all API endpoints mentioned throughout the PRD. The checked-in OpenAPI 3.1 specification lives at `docs/api/openapi.yaml`; this summary gives engineering teams a single view of the API surface they need to build.
 
-**Note:** Full OpenAPI 3.1 specification available in companion document: `ChronosRefine_API_Spec.yaml`
+**Note:** Full OpenAPI 3.1 specification is available at `docs/api/openapi.yaml`
 
 ### Core Job Management APIs
 

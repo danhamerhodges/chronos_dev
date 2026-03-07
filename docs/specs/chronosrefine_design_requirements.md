@@ -2,8 +2,10 @@
 
 **Purpose:** UX design, design system, and accessibility requirements  
 **Audience:** UX designers, front-end developers  
-**Companion Document:** ChronosRefine_Design_System_Specification.md  
+**Companion Document:** No separate design-system companion specification is checked in on `main`; this file is the canonical design-system source of truth.  
 **Last Updated:** February 2026
+
+**Repo Note:** Test-file references for requirements not yet implemented on `main` are canonical target mappings and may not exist until the corresponding phase lands.
 
 **Change Note (February 2026):** Applied 7-patch accuracy/completeness pack:
 1. DS-007 structural fix: moved before "End of Design Requirements" marker (was placed after)
@@ -12,7 +14,7 @@
 4. DS-004 color contrast verification language tightened: "must be verified" instead of "have been verified"
 5. DS-002 keyboard shortcuts made safe: Cmd/Ctrl+Shift combos to avoid browser/OS collisions
 6. Accessibility phases made referential: note added to align with Implementation Plan
-7. Color palette made explicit: all 9 colors enumerated with hex values or deferred to companion spec
+7. Color palette made explicit: primary/semantic colors enumerated here; neutral token details must stay aligned with repo-local design-token implementation until this file expands them further
 
 ---
 
@@ -34,16 +36,16 @@ Inspired by the design philosophy of Jony Ive, the ChronosRefine user experience
 
 ## Design System Overview
 
-**Complete specifications available in companion document:** [ChronosRefine_Design_System_Specification.md](../chronosrefine_companion_docs/ChronosRefine_Design_System_Specification.md)
+**Canonical status:** This file is the design-system source of truth. Any future companion design-system specification must derive from and remain aligned with this file.
 
 The full design system includes:
 
 ### Color Palette
 
-Design tokens are defined in the companion Design System Specification (source of truth), including:
+Design tokens are defined in this canonical design requirements document, including:
 - Near Black (#1A1A1A), Pure White (#FFFFFF)
 - Accent Blue (#0066FF), Success Green (#00C853), Warning Amber (#FFB300), Error Red (#D32F2F)
-- Neutral Gray 100, Neutral Gray 300, Neutral Gray 600 (exact hex in companion spec)
+- Neutral Gray 100, Neutral Gray 300, Neutral Gray 600 (repo-local design-token implementation must remain aligned with this palette)
 
 ### Typography
 8-level type scale using Inter font family:
@@ -429,9 +431,9 @@ All color pairs used in product UI **must be verified** to meet WCAG 2.1 AA befo
 **Related Requirements:** DS-001 (Fidelity Configuration UX), DS-002 (Keyboard Navigation), DS-003 (Screen Reader Support), DS-004 (Color Contrast), DS-005 (Focus Indicators), DS-006 (Error Messages Accessibility)
 
 **Implementation Guidance:**
-- 📄 **Design System Specification:** `chronosrefine_companion_docs/ChronosRefine_Design_System_Specification.md`
-- 📄 **Design Requirements (this file):** `requirements/chronosrefine_design_requirements.md`
-- 📄 **Implementation Plan (phases & checkpoints):** `requirements/chronosrefine_implementation_plan.md`
+- 📄 **Design Requirements (canonical):** `docs/specs/chronosrefine_design_requirements.md`
+- 📄 **Implementation Plan (phases & checkpoints):** `docs/specs/chronosrefine_implementation_plan.md`
+- 📄 **Coverage Matrix (requirement placement):** `docs/specs/ChronosRefine Requirements Coverage Matrix.md`
 
 ---
 

@@ -2,9 +2,11 @@
 
 **Purpose:** Technical implementation, architecture, and infrastructure requirements  
 **Audience:** Backend engineers, ML engineers, DevOps/SRE  
-**Companion Documents:** ChronosRefine_Engineering_Spec.md  
+**Companion Documents:** No separate engineering companion spec is checked in on `main`; use this canonical file plus repo-local implementation artifacts such as `docs/api/openapi.yaml`.  
 **Last Updated:** February 2026  
 **Change Note (this revision):** Corrected Supabase/Auth consistency, aligned tier thresholds + metric definitions with Functional Requirements, fixed API endpoint count/table, and tempered a few DB performance claims while keeping intent.
+
+**Repo Note:** Test-file references for requirements not yet implemented on `main` are canonical target mappings and may not exist until the corresponding phase lands.
 
 **Change Note (final revision - Feb 12, 2026):** Applied 5 critical Codex alignment recommendations: (1) Chose Prometheus as canonical metrics format, (2) 22 Phase 1 endpoints; 2 deferred to Phase 2, (3) Enhanced idempotency hash with fidelity_tier + processing_mode, (4) Added model_version + prompt_version to job_era_detections schema, (5) Chose Supabase Realtime as canonical real-time update approach.
 
@@ -369,7 +371,6 @@ LIMIT 1;
 **Test Files:**
 - `tests/infrastructure/test_gpu_pool.py`
 - `tests/infrastructure/test_autoscaler.py`
-- `tests/load/test_gpu_allocation.py`
 
 **Related Requirements:** OPS-001 (Monitoring & Alerting), OPS-004 (Performance Monitoring), NFR-002 (Processing Time SLO)
 
@@ -408,9 +409,8 @@ LIMIT 1;
 **Verification Method:** Automated (pytest integration tests + load testing)
 
 **Test Files:**
-- `tests/infrastructure/test_deduplication_cache.py`
-- `tests/integration/test_cache_hit_rate.py`
-- `tests/load/test_cache_performance.py`
+- `tests/infrastructure/test_cache_dedup.py`
+- `tests/integration/test_partial_results.py`
 
 **Related Requirements:** ENG-003 (Video Processing Pipeline), OPS-001 (Monitoring & Alerting), NFR-003 (Cost Optimization)
 
@@ -460,7 +460,6 @@ LIMIT 1;
 **Test Files:**
 - `tests/api/test_transformation_manifest.py`
 - `tests/processing/test_manifest_generation.py`
-- `tests/integration/test_manifest_workflow.py`
 
 **Related Requirements:** ENG-003 (Video Processing Pipeline), FR-005 (Output Delivery), SEC-011 (Dataset Provenance)
 

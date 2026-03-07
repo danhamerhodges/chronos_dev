@@ -4,6 +4,8 @@
 **Last Updated:** February 2026  
 **Purpose:** Reusable test templates for all requirement categories
 
+**Repo Note:** Test-file references in canon for phases not yet implemented on `main` are target mappings and may not exist until the corresponding packet lands. Completed-phase references should align to checked-in tests.
+
 **Change Note (v2.12 - February 2026):** Applied 3 critical fixes + 3 medium-priority improvements (CLEAN GOVERNANCE):
 1. **FIX #1 (CRITICAL):** Traceability validator `return Falsee` typo (CI-breaking NameError, corrected to `return False`)
 2. **FIX #2 (CRITICAL):** Rate-limit reset call missing auth headers (would return 401 under middleware, added `headers=auth_headers_test`)
@@ -1737,8 +1739,8 @@ locust -f tests/load/test_{feature}_performance.py \
 
 ## Related Documents
 
-- **[Code Examples](./chronosrefine_code_examples.md)** - Implementation examples
-- **[AI IDE Usage Guide](./chronosrefine_ai_ide_guide.md)** - How to use templates with AI IDEs
+- **[Engineering Requirements](./chronosrefine_engineering_requirements.md)** - Architecture, infrastructure, and implementation constraints
+- **[Implementation Plan](./chronosrefine_implementation_plan.md)** - Phase sequencing, packet scope, and delivery gates
 - **[Requirements Documents](./chronosrefine_functional_requirements.md)** - Full requirement specifications
 - **[Coverage Matrix](./ChronosRefine Requirements Coverage Matrix.md)** - Requirement-to-test mapping
 

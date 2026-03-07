@@ -2,8 +2,10 @@
 
 **Purpose:** Security, compliance, monitoring, and operational requirements  
 **Audience:** Security engineers, DevOps/SRE, compliance officers  
-**Companion Documents:** ChronosRefine_Security_Implementation_Guide.md  
+**Companion Documents:** No separate security implementation guide is checked in on `main`; use this canonical file plus repo-local implementation evidence.  
 **Last Updated:** February 2026
+
+**Repo Note:** Test-file references for requirements not yet implemented on `main` are canonical target mappings and may not exist until the corresponding phase lands.
 
 ---
 
@@ -573,19 +575,15 @@ All API endpoints in this document follow the `/v1/` versioning scheme unless ex
 - `tests/auth/test_supabase_auth.py`
 - `tests/auth/test_email_password_auth.py`
 - `tests/auth/test_oauth_integration.py`
-- `tests/auth/test_magic_link_auth.py`
-- `tests/auth/test_mfa.py`
-- `tests/auth/test_session_management.py`
-- `tests/auth/test_rbac.py`
-- `tests/auth/test_password_reset.py`
+- `tests/auth/test_packet_b_auth.py`
 
 **Related Requirements:** ENG-016 (Database Technology Selection), SEC-001 (Data Encryption at Rest), SEC-002 (Data Encryption in Transit), SEC-004 (Access Control)
 
 **Implementation Guidance:**
 - 📄 **Supabase Auth Setup:** `docs/specs/chronosrefine_implementation_plan.md#phase-1-foundation--core-infrastructure` (to be cross-referenced)
-- 📄 **Authentication Flows:** `companion_docs/ChronosRefine_Auth_Flows.md` (to be created)
-- 📄 **RBAC Policies:** `companion_docs/ChronosRefine_Security_Spec.md#rbac-policies` (to be created)
-- 📄 **Session Management:** `companion_docs/ChronosRefine_Security_Spec.md#session-management` (to be created)
+- 📄 **Authentication Flows:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-013-authentication-provider-selection-supabase`
+- 📄 **RBAC Policies:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-004-access-control`
+- 📄 **Session Management:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-001-authentication--authorization`
 
 ---
 
@@ -630,16 +628,16 @@ All API endpoints in this document follow the `/v1/` versioning scheme unless ex
 
 **Test Files:**
 - `tests/security/test_audit_remediation.py` (automated tests for remediated findings)
-- `docs/security/Third_Party_Security_Audit_Report.pdf` (audit report)
-- `docs/security/Audit_Remediation_Plan.md` (remediation tracking)
+- third-party security audit evidence package (planned launch artifact; not yet present on `main`)
+- audit remediation tracking artifact (planned launch artifact; not yet present on `main`)
 
 **Related Requirements:** SEC-001 (Data Encryption at Rest), SEC-002 (Data Encryption in Transit), SEC-004 (Access Control), SEC-006 (GDPR Compliance), SEC-013 (Authentication Provider Selection)
 
 **Implementation Guidance:**
 - 📄 **Security Audit Process:** `docs/specs/chronosrefine_implementation_plan.md#phase-6-production-readiness--launch` (to be cross-referenced)
 - 📄 **Audit Scope:** `docs/specs/chronosrefine_prd_v9.md#beta-exit-criteria-ga-readiness`
-- 📄 **Security Policies:** `companion_docs/ChronosRefine_Security_Policies.md` (to be created)
-- 📄 **SOC 2 Readiness:** `companion_docs/ChronosRefine_SOC2_Readiness.md` (to be created)
+- 📄 **Security Policies:** `docs/specs/chronosrefine_security_operations_requirements.md`
+- 📄 **SOC 2 Readiness:** `docs/specs/chronosrefine_implementation_plan.md#phase-6-production-readiness--launch`
 
 ---
 

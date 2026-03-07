@@ -1,8 +1,10 @@
 # ChronosRefine Requirements Coverage Matrix
 
-**Version:** 11.4 (FINAL PRODUCTION)  
-**Last Updated:** February 2026  
+**Version:** 11.5 (FINAL PRODUCTION)  
+**Last Updated:** March 2026  
 **Purpose:** Map all 59 requirements to implementation phases to ensure 100% coverage and identify dependencies
+
+**Repo Note:** For phases not yet implemented on `main`, listed test files are canonical target mappings rather than checked-in evidence. Completed-phase rows should align to the repo.
 
 **Change Note (v11.0 - February 2026):** Applied 7-patch regression fix pack:
 1. Added Canonical Requirement ID Map section (prevents future drift)
@@ -33,6 +35,12 @@
 1. **CLARITY #1 (IMPORTANT):** Added FR-001 scope clarification note (upload/validation only, no segmentation/transforms)
 2. **CLARITY #2 (IMPORTANT):** Added ENG-002 scaffolding note (authenticated + DB-backed endpoints required for DoD)
 3. **CLARITY #3 (CONSISTENCY):** Normalized phase names across Coverage Summary, section headers, and phase goals
+
+**Change Note (v11.5 - March 2026):** Applied Phase 3 closeout + Phase 4 kickoff reconciliation pack:
+1. **STATUS #1 (CRITICAL):** Reconciled Phase 2 and Phase 3 progress rows with merged-state git history on `main`
+2. **STATUS #2 (IMPORTANT):** Marked Phase 3 as kickoff-complete with `SEC-007` deferred per canon
+3. **PHASE 4 #1 (IMPORTANT):** Added explicit Packet 4A kickoff note centered on `FR-001`
+4. **TRACEABILITY #1 (IMPORTANT):** Aligned drifted Phase 4/5 test-file mappings with the higher-priority requirement specs
 
 ---
 
@@ -78,7 +86,7 @@ If an ID/title conflicts with the above, this matrix must be updated immediately
 | Req ID | Requirement Name | Dependencies | Test Files | Verification | Risk |
 |---|---|---|---|---|---|
 | **ENG-016** | Database Technology Selection (Supabase) | None | `tests/database/test_supabase_connection.py`, `tests/database/test_schema_migrations.py` | Automated | Medium |
-| **SEC-013** | Authentication Provider Selection (Supabase) | ENG-016 | `tests/auth/test_supabase_auth.py`, `tests/auth/test_rbac.py` | Automated | Medium |
+| **SEC-013** | Authentication Provider Selection (Supabase) | ENG-016 | `tests/auth/test_supabase_auth.py`, `tests/auth/test_oauth_integration.py`, `tests/auth/test_email_password_auth.py` | Automated | Medium |
 | **DS-007** | Design System Implementation | None | `tests/design_system/test_tokens.spec.ts`, `tests/visual_regression/test_all_components.spec.ts` | Automated + Manual | Low |
 | **NFR-012** | Payment Provider Selection | SEC-013 | `tests/billing/test_stripe_integration.py`, `tests/billing/test_subscription_lifecycle.py` | Automated | Medium |
 | **OPS-001** | Monitoring & Alerting | None | `tests/ops/test_monitoring.py` | Automated | Low |
@@ -94,7 +102,7 @@ If an ID/title conflicts with the above, this matrix must be updated immediately
 |---|---|---|---|---|---|
 | **ENG-001** | JSON Schema Validation | None | `tests/api/test_schema_validation.py` | Automated | Medium |
 | **ENG-002** | API Endpoint Implementation | ENG-001, SEC-013, ENG-016 | `tests/api/test_endpoints.py` | Automated | Medium |
-| **ENG-004** | Era Detection Model | ENG-001 | `tests/ml/test_era_detection.py`, `tests/ml/test_gemini_integration.py` | Automated | High |
+| **ENG-004** | Era Detection Model | ENG-001 | `tests/ml/test_era_detection_service.py`, `tests/ml/test_gemini_integration.py` | Automated | High |
 | **FR-002** | Era Detection | ENG-001, ENG-004 | `tests/api/test_era_detection.py`, `tests/integration/test_era_detection_e2e.py` | Automated | High |
 | **SEC-009** | Log Retention & PII Redaction | SEC-013, OPS-001, OPS-002, ENG-016 | `tests/security/test_log_retention.py`, `tests/security/test_pii_redaction.py`, `tests/compliance/test_gdpr_log_deletion.py` | Automated + Manual | High |
 | **NFR-007** | Cost Control Requirements | ENG-001, NFR-012 | `tests/billing/test_cost_control.py`, `tests/billing/test_budget_alerts.py` | Manual | Medium |
@@ -119,7 +127,7 @@ If an ID/title conflicts with the above, this matrix must be updated immediately
 | **ENG-011** | Async Processing | ENG-002, ENG-003 | `tests/api/test_async_processing.py`, `tests/api/test_progress_updates.py` | Automated + Load | High |
 | **ENG-012** | Error Recovery | ENG-003, ENG-011 | `tests/processing/test_error_recovery.py`, `tests/integration/test_partial_results.py` | Automated | High |
 | **NFR-002** | Processing Time SLO | ENG-003, ENG-007 | `tests/load/test_processing_performance.py` | Automated | High |
-| **SEC-007** | Customer-Managed Encryption Keys (CMEK) | ENG-005, ENG-006 | `tests/security/test_model_security.py` | Manual | Medium |
+| **SEC-007** | Customer-Managed Encryption Keys (CMEK) | ENG-005, ENG-006 | Deferred; no repo-local automated test on `main` | Manual | Medium |
 | **OPS-003** | Incident Response | ENG-008 | `tests/ops/test_incident_response.py`, `infra/runbooks/incident-response.md` | Automated + Manual | High |
 
 **Phase Goal:** Build and validate core AI/ML processing pipeline
@@ -133,19 +141,19 @@ If an ID/title conflicts with the above, this matrix must be updated immediately
 | Req ID | Requirement Name | Dependencies | Test Files | Verification | Risk |
 |---|---|---|---|---|---|
 | **FR-001** | Video Upload and Validation | SEC-013, ENG-002, ENG-016 | `tests/api/test_upload.py` | Automated | Medium |
-| **FR-003** | Fidelity Tier Selection | FR-002, ENG-001 | `tests/ui/test_tier_selection.py` | Automated | Low |
-| **FR-004** | Processing and Restoration | FR-001, FR-003, ENG-007 | `tests/api/test_job_submission.py` | Automated | High |
-| **FR-005** | Output Delivery | FR-004, ENG-007 | `tests/api/test_export.py` | Automated | Medium |
-| **ENG-013** | Cost Estimation | FR-004, ENG-002 | `tests/api/test_cost_estimation.py`, `tests/integration/test_cost_reconciliation.py` | Automated | Medium |
-| **ENG-014** | Preview Generation | FR-001, ENG-002 | `tests/processing/test_preview_generation.py`, `tests/load/test_preview_performance.py` | Automated | Medium |
-| **ENG-015** | Output Encoding | FR-004 | `tests/processing/test_output_encoding.py`, `tests/processing/test_encoding_performance.py` | Automated | High |
-| **DS-001** | Fidelity Configuration UX | FR-002, FR-003 | `tests/ui/test_fidelity_tier_selector.spec.ts`, `tests/ui/test_era_override_modal.spec.ts` | UI Validation | Medium |
-| **DS-002** | Keyboard Navigation | DS-001 | `tests/accessibility/test_keyboard_navigation.spec.ts`, `tests/accessibility/test_keyboard_shortcuts.spec.ts` | UI Validation | Medium |
-| **DS-003** | Screen Reader Support | DS-001, DS-002 | `tests/accessibility/test_screen_reader_support.spec.ts`, `tests/accessibility/test_aria_live_regions.spec.ts` | UI Validation | Medium |
-| **DS-004** | Color Contrast | DS-007 | `tests/accessibility/test_color_contrast.spec.ts` | UI Validation | Medium |
-| **DS-005** | Focus Indicators | DS-002, DS-003 | `tests/accessibility/test_focus_management.spec.ts`, `tests/accessibility/test_modal_focus.spec.ts` | UI Validation | Medium |
-| **DS-006** | Error Messages Accessibility | DS-003 | `tests/accessibility/test_error_messages.spec.ts`, `tests/accessibility/test_uncertainty_callouts_a11y.spec.ts` | UI Validation | Medium |
-| **NFR-003** | Cost Optimization | ENG-002 | `tests/load/test_api_performance.py` | Automated | Medium |
+| **FR-003** | Fidelity Tier Selection | FR-002, ENG-001 | `tests/api/test_fidelity_tiers.py`, `tests/processing/test_tier_parameters.py`, `tests/ui/test_tier_selection.spec.ts` | Automated | Low |
+| **FR-004** | Processing and Restoration | FR-001, FR-003, ENG-007 | `tests/processing/test_restoration_pipeline.py`, `tests/processing/test_uncertainty_callouts.py`, `tests/processing/test_retry_logic.py` | Automated | High |
+| **FR-005** | Output Delivery | FR-004, ENG-007 | `tests/api/test_output_delivery.py`, `tests/api/test_transformation_manifest.py`, `tests/api/test_deletion_proof.py`, `tests/integration/test_export_workflow.py` | Automated | Medium |
+| **ENG-013** | Cost Estimation | FR-004, ENG-002 | `tests/api/test_cost_estimation.py`, `tests/api/test_cost_breakdown.py`, `tests/integration/test_cost_reconciliation.py` | Automated | Medium |
+| **ENG-014** | Preview Generation | FR-001, ENG-002 | `tests/processing/test_preview_generation.py`, `tests/processing/test_scene_detection.py`, `tests/load/test_preview_performance.py` | Automated | Medium |
+| **ENG-015** | Output Encoding | FR-004 | `tests/processing/test_output_encoding.py`, `tests/processing/test_av1_encoding.py`, `tests/processing/test_metadata_preservation.py`, `tests/processing/test_encoding_performance.py` | Automated | High |
+| **DS-001** | Fidelity Configuration UX | FR-002, FR-003 | `tests/ui/test_fidelity_tier_selector.spec.ts`, `tests/ui/test_era_override_modal.spec.ts`, `tests/accessibility/test_fidelity_config_a11y.spec.ts` | UI Validation | Medium |
+| **DS-002** | Keyboard Navigation | DS-001 | `tests/accessibility/test_keyboard_navigation.spec.ts`, `tests/accessibility/test_focus_indicators.spec.ts`, `tests/accessibility/test_keyboard_shortcuts.spec.ts` | UI Validation | Medium |
+| **DS-003** | Screen Reader Support | DS-001, DS-002 | `tests/accessibility/test_screen_reader_support.spec.ts`, `tests/accessibility/test_aria_labels.spec.ts`, `tests/accessibility/test_aria_live_regions.spec.ts` | UI Validation | Medium |
+| **DS-004** | Color Contrast | DS-007 | `tests/accessibility/test_color_contrast.spec.ts`, `tests/accessibility/test_button_contrast.spec.ts`, `tests/accessibility/test_focus_contrast.spec.ts` | UI Validation | Medium |
+| **DS-005** | Focus Indicators | DS-002, DS-003 | `tests/accessibility/test_focus_management.spec.ts`, `tests/accessibility/test_modal_focus.spec.ts`, `tests/accessibility/test_form_focus.spec.ts` | UI Validation | Medium |
+| **DS-006** | Error Messages Accessibility | DS-003 | `tests/accessibility/test_error_messages.spec.ts`, `tests/accessibility/test_error_announcements.spec.ts`, `tests/accessibility/test_uncertainty_callouts_a11y.spec.ts` | UI Validation | Medium |
+| **NFR-003** | Cost Optimization | ENG-002 | `tests/ops/test_cost_optimization.py`, `tests/ops/test_gpu_utilization.py`, `tests/ops/test_cost_tracking.py` | Automated | Medium |
 
 **Phase Goal:** Build user interface and API layer
 
@@ -163,7 +171,7 @@ If an ID/title conflicts with the above, this matrix must be updated immediately
 
 | Req ID | Requirement Name | Dependencies | Test Files | Verification | Risk |
 |---|---|---|---|---|---|
-| **FR-006** | Preview Generation | FR-001, FR-002, ENG-007, ENG-014 | `tests/api/test_preview.py` | Automated | Medium |
+| **FR-006** | Preview Generation | FR-001, FR-002, ENG-007, ENG-014 | `tests/processing/test_preview_generation.py`, `tests/processing/test_scene_detection.py`, `tests/ui/test_preview_modal.spec.ts`, `tests/load/test_preview_performance.py` | Automated | Medium |
 | **SEC-001** | Authentication & Authorization | FR-005, ENG-010 | `tests/security/test_deletion_proof.py` | Automated | High |
 | **SEC-002** | Data Encryption | FR-002, ENG-007 | `tests/quality/test_uncertainty.py` | Automated | Medium |
 | **SEC-003** | Data Classification | ENG-010, SEC-008 | `tests/security/test_manifest_redaction.py` | Automated | Medium |
@@ -270,19 +278,23 @@ After updating the matrix, recalculate:
 
 ---
 
-## Current Progress Snapshot (2026-03-05)
+## Current Progress Snapshot (2026-03-07)
 
 Source evidence:
 - `README.md` (Phase 1 baseline scope)
 - `docs/phase1_readiness_report.md` (Phase 1 exit-gate report)
+- `git log --oneline --decorate -n 8` and `git ls-remote --heads origin main`
+- PR merge history on `main` (`709687a` for Phase 2, `a5b0f6c` for Phase 3, `5ac15cd` docs follow-up)
 - Current test coverage + traceability headers under `tests/`
+- `python3 scripts/ops/verify_cloud_run_runtime.py --service chronos-phase1-app --project chronos-dev-489301 --region us-central1`
+- `curl https://chronos-phase1-app-wprbzt6h3q-uc.a.run.app/v1/version`
 
 | Phase | Requirements | Status | Notes |
 |---|---:|---|---|
 | Phase 1: Foundation & Core Infrastructure | 6/6 | ✅ Complete (baseline scope) | Baseline scaffolding and validation confirmed in `docs/phase1_readiness_report.md` |
-| Phase 2: API Foundation & Data Layer | 0/6 | 🔄 In Progress (kickoff/planning) | Phase 2 kickoff packet required before implementation |
-| Phase 3: Core Processing Pipeline & AI Integration | 11/12 | 🔄 In Progress | Packets 3A, 3B, and 3C implemented locally; SEC-007 remains deferred to its canonical `GA+3 months` milestone |
-| Phase 4: User-Facing Features & Application Logic | 0/14 | ⏸️ Not Started | Dependent on Phase 3 completion |
+| Phase 2: API Foundation & Data Layer | 6/6 | ✅ Complete (merged via PR #1) | `main` includes merge commit `709687a`; this is the canonical baseline for later phases |
+| Phase 3: Core Processing Pipeline & AI Integration | 11/12 | ✅ Complete for Phase 4 kickoff | PR #2 merged to `main`; `SEC-007` remains deferred to its canonical `GA+3 months` milestone |
+| Phase 4: User-Facing Features & Application Logic | 0/14 | ⏸️ Not Started (Packet 4A approved) | Start with `FR-001` upload/validation; do not pull `FR-006` preview UX into Phase 4 kickoff scope |
 | Phase 5: Advanced Features & UX Refinement | 0/11 | ⏸️ Not Started | Dependent on Phase 4 completion |
 | Phase 6: Production Readiness & Launch | 0/10 | ⏸️ Not Started | Dependent on Phase 5 completion |
 
@@ -318,24 +330,37 @@ Source evidence:
 
 ### Phase 3 Progress: Core Processing Pipeline & AI Integration
 
-**Requirements:** 11 of 12 complete on current branch (92%)  
-**Status:** In Progress (Packets 3A, 3A.1, 3A.2, 3B, and 3C implemented locally; only the deferred `SEC-007` milestone remains outside the current branch scope)  
-**Completion Date:** Target TBD / Actual TBD
+**Requirements:** 11 of 12 complete on `main` (92%; `SEC-007` deferred per canon)  
+**Status:** Complete for Phase 4 kickoff (Packets 3A, 3A.1, 3A.2, 3B, and 3C merged via PR #2; only the deferred `SEC-007` milestone remains outside current delivery scope)  
+**Completion Date:** Target TBD / Actual 2026-03-07 (`a5b0f6c` merge on `main`; docs follow-up `5ac15cd`)
 
 | Req ID | Status | Notes |
 |---|---|---|
-| ENG-003 | ✅ Complete | Job/segment pipeline, deterministic segmentation, persisted output pointers, and processing tests implemented on current branch |
-| ENG-005 | ✅ Complete | Reference-first fidelity profile enforcement, persistence, and validation implemented locally |
-| ENG-006 | ✅ Complete | Deterministic reference metric calculation, sampling metadata, and threshold reporting implemented locally |
-| ENG-007 | ✅ Complete | Perceptual-equivalence + deterministic reproducibility proofs, rerun handling, and rollup reporting implemented locally |
-| ENG-008 | ✅ Complete | GPU warm-pool reconciliation, allocation latency tracking, autoscaling signals, and runtime ops hooks implemented locally |
-| ENG-009 | ✅ Complete | Redis-compatible per-user segment dedup cache with degraded mode, invalidation namespace, and cache reporting implemented locally |
-| ENG-010 | ✅ Complete | Manifest generation, persistence, retrieval API, and schema-backed payload contract implemented locally |
-| ENG-011 | ✅ Complete | `/v1/jobs` API, Pub/Sub-capable dispatch boundary, trusted worker ingress, progress contract, cancellation, and webhook delivery tests implemented on current branch |
-| ENG-012 | ✅ Complete | Retry/backoff, segment isolation, partial-results handling, and worker-contract coverage implemented on current branch |
-| NFR-002 | ✅ Complete | End-to-end SLO accounting, five-stage timing plus queue/allocation tracking, alert hooks, and runtime summaries implemented locally |
+| ENG-003 | ✅ Complete | Job/segment pipeline, deterministic segmentation, persisted output pointers, and processing tests merged to `main` |
+| ENG-005 | ✅ Complete | Reference-first fidelity profile enforcement, persistence, and validation merged to `main` |
+| ENG-006 | ✅ Complete | Deterministic reference metric calculation, sampling metadata, and threshold reporting merged to `main` |
+| ENG-007 | ✅ Complete | Perceptual-equivalence + deterministic reproducibility proofs, rerun handling, and rollup reporting merged to `main` |
+| ENG-008 | ✅ Complete | GPU warm-pool reconciliation, allocation latency tracking, autoscaling signals, and runtime ops hooks merged to `main` |
+| ENG-009 | ✅ Complete | Redis-compatible per-user segment dedup cache with degraded mode, invalidation namespace, and cache reporting merged to `main` |
+| ENG-010 | ✅ Complete | Manifest generation, persistence, retrieval API, and schema-backed payload contract merged to `main` |
+| ENG-011 | ✅ Complete | `/v1/jobs` API, Pub/Sub-capable dispatch boundary, trusted worker ingress, progress contract, cancellation, and webhook delivery tests merged to `main` |
+| ENG-012 | ✅ Complete | Retry/backoff, segment isolation, partial-results handling, and worker-contract coverage merged to `main` |
+| NFR-002 | ✅ Complete | End-to-end SLO accounting, five-stage timing plus queue/allocation tracking, alert hooks, and runtime summaries merged to `main` |
 | SEC-007 | ⏸️ Deferred | Canonically tracked as `GA+3 months` |
-| OPS-003 | ✅ Complete | Incident persistence, severity mapping, alert routing hooks, and runbook references implemented locally |
+| OPS-003 | ✅ Complete | Incident persistence, severity mapping, alert routing hooks, and runbook references merged to `main` |
+
+### Phase 4 Kickoff Status: User-Facing Features & Application Logic
+
+**Requirements:** 0 of 14 complete (0%)  
+**Status:** Not started in code on `main`; Packet 4A approved on 2026-03-07  
+**Approved Kickoff Packet:** `Packet 4A = FR-001 (Video Upload and Validation)`
+
+| Area | Approved kickoff note |
+|---|---|
+| Scope | Signed GCS upload URL generation, resumable upload handling, format/size validation, authenticated metadata persistence, and a thin upload UI shell |
+| Explicit Exclusions | `FR-003`, `FR-004`, `FR-005`, `ENG-013`, `ENG-014`, `ENG-015`, and all `FR-006` preview-review UX remain follow-on Phase 4/5 work |
+| Dependencies Satisfied | `SEC-013`, `ENG-002`, `ENG-016`; Phase 3 kickoff dependency is satisfied with `SEC-007` deferred per canon |
+| Initial Test Mapping | `tests/api/test_upload.py`, `tests/integration/test_resumable_upload.py`, `tests/load/test_upload_performance.py` |
 
 ## Progress Tracking Template
 
@@ -365,10 +390,7 @@ Use this template for future phase updates:
 - **Security & Operations Requirements**: `docs/specs/chronosrefine_security_operations_requirements.md`
 - **Nonfunctional Requirements**: `docs/specs/chronosrefine_nonfunctional_requirements.md`
 - **Design Requirements**: `docs/specs/chronosrefine_design_requirements.md`
-- **Companion Documents**:
-  - `ChronosRefine_Engineering_Spec.md`
-  - `ChronosRefine_Security_Implementation_Guide.md`
-  - `ChronosRefine_Design_System_Specification.md`
+- **Repository Note**: Historical companion-doc names from earlier planning are not present on `main`. Use the canonical documents above plus `docs/api/openapi.yaml` for the checked-in API contract.
 
 ---
 

@@ -2,7 +2,9 @@
 
 **Purpose:** User-facing features and core product functionality  
 **Audience:** Product managers, UX designers, developers  
-**Last Updated:** February 2026
+**Last Updated:** March 2026
+
+**Repo Note:** Test-file references for requirements not yet implemented on `main` are canonical target mappings and may not exist until the corresponding phase lands.
 
 ---
 
@@ -233,7 +235,7 @@ ChronosRefine uses four core metrics to enforce historical authenticity and prev
 - `tests/integration/test_resumable_upload.py`
 - `tests/load/test_upload_performance.py`
 
-**Related Requirements:** ENG-001 (JSON Schema Validation), ENG-002 (API Endpoint Implementation), SEC-001 (Authentication & Authorization), OPS-001 (Monitoring & Alerting)
+**Related Requirements:** ENG-001 (JSON Schema Validation), ENG-002 (API Endpoint Implementation), ENG-016 (Database Technology Selection), SEC-013 (Authentication Provider Selection), OPS-001 (Monitoring & Alerting)
 
 ---
 
@@ -291,9 +293,10 @@ ChronosRefine uses four core metrics to enforce historical authenticity and prev
 **Verification Method:** Automated (pytest unit tests + Heritage Test Set evaluation + Playwright UI tests)
 
 **Test Files:**
-- `tests/ml/test_era_detection.py`
-- `tests/ml/test_heritage_test_set.py`
-- `tests/ui/test_era_override.spec.ts`
+- `tests/ml/test_era_detection_service.py`
+- `tests/ml/test_gemini_integration.py`
+- `tests/api/test_era_detection.py`
+- `tests/integration/test_era_detection_e2e.py`
 
 **Related Requirements:** ENG-004 (Era Detection Model), ENG-006 (Quality Metrics Calculation), FR-003 (Fidelity Tier Selection), DS-001 (Fidelity Configuration UX)
 
@@ -441,7 +444,7 @@ ChronosRefine uses four core metrics to enforce historical authenticity and prev
 - `tests/processing/test_av1_fgs.py`
 - `tests/processing/test_deduplication.py`
 
-**Related Requirements:** ENG-003 (Video Processing Pipeline), ENG-005 (Fidelity Tier Implementation), ENG-006 (Quality Metrics Calculation), ENG-007 (Reproducibility Proof), ENG-011 (Async Processing), SEC-003 (PII Redaction), OPS-004 (Performance Monitoring)
+**Related Requirements:** ENG-003 (Video Processing Pipeline), ENG-005 (Fidelity Tier Implementation), ENG-006 (Quality Metrics Calculation), ENG-007 (Reproducibility Proof), ENG-011 (Async Processing), SEC-003 (Data Classification), OPS-004 (Performance Monitoring)
 
 ---
 
@@ -519,7 +522,7 @@ ChronosRefine uses four core metrics to enforce historical authenticity and prev
 - `tests/api/test_deletion_proof.py`
 - `tests/integration/test_export_workflow.py`
 
-**Related Requirements:** ENG-015 (Output Encoding), SEC-007 (Log Retention & PII Redaction), SEC-011 (Dataset Provenance), OPS-007 (Backup & Recovery), NFR-001 (Cost Estimate Display)
+**Related Requirements:** ENG-010 (Transformation Manifest Generation), ENG-015 (Output Encoding), SEC-010 (Deletion Proofs), SEC-011 (Dataset Provenance), OPS-001 (Monitoring & Alerting)
 
 ---
 
@@ -663,7 +666,7 @@ ChronosRefine uses four core metrics to enforce historical authenticity and prev
 - 📄 **HPS Protocol:** `docs/specs/chronosrefine_prd_v9.md#beta-exit-criteria-ga-readiness`
 - 📄 **Heritage Test Set:** `docs/specs/chronosrefine_implementation_plan.md#phase-3-core-processing-pipeline--ai-integration`
 - 📄 **Dataset Governance:** `docs/specs/chronosrefine_prd_v9.md#dataset-governance--rights`
-- 📄 **Statistical Methods:** `companion_docs/ChronosRefine_Engineering_Spec.md#hps-statistical-analysis` (📅 Planned for Phase 3)
+- 📄 **Statistical Methods:** derive from this requirement plus `tests/hps/test_statistical_analysis.py`; no separate canonical companion engineering spec currently exists
 
 ---
 
@@ -678,5 +681,3 @@ ChronosRefine uses four core metrics to enforce historical authenticity and prev
 [3] Gemini 3 Pro visual reasoning capabilities for era detection  
 
 ---
-
-
