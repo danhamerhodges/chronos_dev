@@ -20,6 +20,8 @@ DEFAULT_MODEL = "gpt-5.4"
 MAX_CHANGED_FILES = 60
 MAX_PR_BODY_CHARS = 4_000
 MAX_DIFF_CHARS = 100_000
+MAX_COMMENT_BODY_CHARS = 60_000
+MAX_ERROR_TEXT_CHARS = 300
 OPENAI_BASE_URL = "https://api.openai.com/v1/responses"
 GITHUB_API_BASE = "https://api.github.com"
 
@@ -81,6 +83,29 @@ def resolve_project_header_status(project_id: str) -> tuple[str, str]:
     if value.startswith("proj_"):
         return value, "enabled"
     return "", "ignored (invalid project id)"
+
+
+def sanitize_error_text(text: str) -> str:
+    collapsed = " ".join(text.split())
+    sanitized, _ = trim_text(collapsed, MAX_ERROR_TEXT_CHARS)
+    return sanitized or "unknown error"
+
+
+def extract_api_error_message(service: str, status_code: int, error_body: str) -> str:
+    message = ""
+    try:
+        payload = json.loads(error_body)
+    except json.JSONDecodeError:
+        payload = None
+    if isinstance(payload, dict):
+        error = payload.get("error")
+        if isinstance(error, dict):
+            message = str(error.get("message", "")).strip()
+        if not message:
+            message = str(payload.get("message", "")).strip()
+    if not message:
+        message = error_body.strip() or f"HTTP {status_code}"
+    return f"{service} API error {status_code}: {sanitize_error_text(message)}"
 
 
 def collect_changed_files(base_sha: str, head_sha: str) -> list[dict[str, Any]]:
@@ -200,9 +225,9 @@ def call_openai_review(*, review_input: str, model: str, project_id: str) -> tup
             payload = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         error_body = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"OpenAI API error {exc.code}: {error_body}") from exc
+        raise RuntimeError(extract_api_error_message("OpenAI", exc.code, error_body)) from exc
     except urllib.error.URLError as exc:
-        raise RuntimeError(f"OpenAI API request failed: {exc.reason}") from exc
+        raise RuntimeError(f"OpenAI API request failed: {sanitize_error_text(str(exc.reason))}") from exc
 
     text = extract_output_text(payload)
     if not text:
@@ -227,9 +252,9 @@ def github_request(method: str, path: str, token: str, body: dict[str, Any] | No
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         error_body = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"GitHub API error {exc.code}: {error_body}") from exc
+        raise RuntimeError(extract_api_error_message("GitHub", exc.code, error_body)) from exc
     except urllib.error.URLError as exc:
-        raise RuntimeError(f"GitHub API request failed: {exc.reason}") from exc
+        raise RuntimeError(f"GitHub API request failed: {sanitize_error_text(str(exc.reason))}") from exc
 
 
 def list_issue_comments(*, owner: str, repo: str, issue_number: int, token: str) -> list[dict[str, Any]]:
@@ -275,7 +300,7 @@ def render_comment_body(
     if diff_truncated:
         truncation_bits.append("diff truncated")
     truncation_line = ", ".join(truncation_bits) if truncation_bits else "none"
-    return "\n".join(
+    header = "\n".join(
         [
             REVIEW_MARKER,
             "## Codex PR Review",
@@ -286,15 +311,36 @@ def render_comment_body(
             f"- Base..Head: `{base_sha[:12]}..{head_sha[:12]}`",
             f"- Input truncation: `{truncation_line}`",
             "",
-            review_text.strip(),
         ]
-    ).strip() + "\n"
+    )
+    review_section = review_text.strip()
+    body = f"{header}\n{review_section}".strip() + "\n"
+    if len(body) <= MAX_COMMENT_BODY_CHARS:
+        return body
+
+    truncation_note = "\n\n_Review text truncated to fit GitHub comment limits._"
+    available = max(MAX_COMMENT_BODY_CHARS - len(header) - len(truncation_note) - 2, 0)
+    truncated_review, _ = trim_text(review_section, available)
+    return f"{header}\n{truncated_review}{truncation_note}".strip() + "\n"
 
 
 def render_status_summary(title: str, details: list[str]) -> str:
     lines = [f"## {title}", ""]
     lines.extend(f"- {detail}" for detail in details)
     return "\n".join(lines) + "\n"
+
+
+def append_step_summary(path_str: str, summary: str) -> None:
+    path = Path(path_str)
+    prefix = ""
+    if path.exists():
+        existing = path.read_text(encoding="utf-8")
+        if existing and not existing.endswith("\n"):
+            prefix = "\n"
+    with path.open("a", encoding="utf-8") as handle:
+        if prefix:
+            handle.write(prefix)
+        handle.write(summary)
 
 
 def main() -> int:
@@ -364,12 +410,13 @@ def main() -> int:
                 "response_id": api_payload.get("id", ""),
             }
     except Exception as exc:  # pragma: no cover - error path exercised via workflow runtime
-        summary = render_status_summary("Codex PR Review", [f"Status: `error`", f"Reason: `{exc}`"])
-        result = {"status": "error", "error": str(exc)}
+        reason = sanitize_error_text(str(exc))
+        summary = render_status_summary("Codex PR Review", [f"Status: `error`", f"Reason: `{reason}`"])
+        result = {"status": "error", "error": reason}
         exit_code = 1
 
     if args.write_summary:
-        Path(args.write_summary).write_text(summary, encoding="utf-8")
+        append_step_summary(args.write_summary, summary)
     if args.json:
         print(json.dumps(result, indent=2))
     else:

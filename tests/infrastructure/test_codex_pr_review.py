@@ -58,6 +58,25 @@ def test_render_comment_body_includes_marker_and_metadata() -> None:
     assert "## Findings" in rendered
 
 
+def test_render_comment_body_truncates_oversized_review_text() -> None:
+    module = _load_module()
+
+    rendered = module.render_comment_body(
+        review_text="A" * (module.MAX_COMMENT_BODY_CHARS + 500),
+        model="gpt-5.4",
+        project_header_status="enabled",
+        changed_files_count=3,
+        base_sha="abcdef1234567890",
+        head_sha="fedcba0987654321",
+        diff_truncated=False,
+        pr_body_truncated=False,
+    )
+
+    assert len(rendered) <= module.MAX_COMMENT_BODY_CHARS
+    assert "_Review text truncated to fit GitHub comment limits._" in rendered
+    assert module.REVIEW_MARKER in rendered
+
+
 def test_resolve_project_header_status_ignores_non_project_values() -> None:
     module = _load_module()
 
@@ -65,6 +84,20 @@ def test_resolve_project_header_status_ignores_non_project_values() -> None:
 
     assert project_id == ""
     assert status == "ignored (invalid project id)"
+
+
+def test_extract_api_error_message_prefers_sanitized_api_message() -> None:
+    module = _load_module()
+
+    message = module.extract_api_error_message(
+        "OpenAI",
+        401,
+        '{"error":{"message":"OpenAI-Project header should match project for API key","type":"invalid_request_error","debug":"hidden"}}',
+    )
+
+    assert message == "OpenAI API error 401: OpenAI-Project header should match project for API key"
+    assert "hidden" not in message
+    assert "invalid_request_error" not in message
 
 
 def test_build_review_input_includes_changed_files_and_diff_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -150,14 +183,17 @@ def test_main_returns_zero_for_intentional_skip(monkeypatch: pytest.MonkeyPatch,
 def test_main_returns_zero_and_prints_summary_on_success(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
 ) -> None:
     module = _load_module()
     event = {
         "repository": {"full_name": "danhamerhodges/chronos_dev"},
         "pull_request": {"number": 3},
     }
+    summary_path = tmp_path / "step-summary.md"
+    summary_path.write_text("## Existing Summary\n", encoding="utf-8")
 
-    monkeypatch.setattr(module, "parse_args", lambda: SimpleNamespace(write_summary="", json=False))
+    monkeypatch.setattr(module, "parse_args", lambda: SimpleNamespace(write_summary=str(summary_path), json=False))
     monkeypatch.setattr(module, "load_event", lambda: event)
     monkeypatch.setenv("GITHUB_TOKEN", "ghs_test")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
@@ -188,6 +224,9 @@ def test_main_returns_zero_and_prints_summary_on_success(
     assert "Status: `commented`" in captured.out
     assert "OpenAI project header: `enabled`" in captured.out
     assert "Comment URL: https://example.com/comment/123" in captured.out
+    summary = summary_path.read_text(encoding="utf-8")
+    assert summary.startswith("## Existing Summary\n")
+    assert "## Codex PR Review" in summary
 
 
 def test_main_returns_non_zero_for_review_execution_failure(
@@ -217,6 +256,18 @@ def test_main_returns_non_zero_for_review_execution_failure(
     assert exit_code == 1
     assert "Status: `error`" in captured.out
     assert "boom" in captured.out
+
+
+def test_append_step_summary_preserves_existing_content(tmp_path: Path) -> None:
+    module = _load_module()
+    summary_path = tmp_path / "summary.md"
+    summary_path.write_text("existing summary", encoding="utf-8")
+
+    module.append_step_summary(str(summary_path), "## Codex PR Review\n- Status: `commented`\n")
+
+    assert summary_path.read_text(encoding="utf-8") == (
+        "existing summary\n## Codex PR Review\n- Status: `commented`\n"
+    )
 
 
 def test_trim_text_reports_truncation() -> None:
