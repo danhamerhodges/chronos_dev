@@ -455,10 +455,13 @@ class IncidentResponse(StrictModel):
 
 
 class RuntimeOpsSnapshotResponse(StrictModel):
+    queue_depth: int = 0
+    queue_age_seconds: float = 0.0
     desired_warm_instances: int = 0
     active_warm_instances: int = 0
     busy_instances: int = 0
     idle_instances: int = 0
+    utilization_percent: float = 0.0
     alert_routes: dict[str, str] = Field(default_factory=dict)
     incidents: list[IncidentResponse] = Field(default_factory=list)
     alerts: list[dict[str, Any]] = Field(default_factory=list)

@@ -22,16 +22,17 @@ def build_segments(
     source_asset_checksum: str,
     estimated_duration_seconds: int,
     fidelity_tier: str,
-    reproducibility_mode: str,
+    reproducibility_mode: str = "perceptual_equivalence",
     processing_mode: str,
     era_profile: dict[str, Any],
-    effective_fidelity_profile: dict[str, Any],
+    effective_fidelity_profile: dict[str, Any] | None = None,
     config: dict[str, Any],
 ) -> list[dict[str, Any]]:
     duration_seconds = max(int(estimated_duration_seconds), 1)
     segment_count = max(ceil(duration_seconds / SEGMENT_DURATION_SECONDS), 1)
     config_hash = _sha256(json.dumps(config, sort_keys=True, separators=(",", ":")))
     era_profile_digest = _sha256(json.dumps(era_profile, sort_keys=True, separators=(",", ":")))
+    effective_fidelity_profile = effective_fidelity_profile or {"tier": fidelity_tier}
     fidelity_profile_digest = _sha256(json.dumps(effective_fidelity_profile, sort_keys=True, separators=(",", ":")))
 
     segments: list[dict[str, Any]] = []
