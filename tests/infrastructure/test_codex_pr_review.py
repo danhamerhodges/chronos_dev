@@ -182,7 +182,29 @@ def test_ensure_commit_available_fetches_missing_commit(monkeypatch: pytest.Monk
 
     module.ensure_commit_available("abc123", "main")
 
-    assert seen_git_args == [["fetch", "--no-tags", "--depth=1", "origin", "main"]]
+    assert seen_git_args == [["fetch", "--no-tags", "--depth=1", "origin", "abc123"]]
+
+
+def test_ensure_commit_available_falls_back_to_ref_when_sha_fetch_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_module()
+    exists_checks = iter([False, True])
+    seen_git_args: list[list[str]] = []
+
+    def fake_run_git(args: list[str]) -> str:
+        seen_git_args.append(args)
+        if args[-1] == "abc123":
+            raise RuntimeError("sha fetch failed")
+        return ""
+
+    monkeypatch.setattr(module, "git_commit_exists", lambda sha: next(exists_checks))
+    monkeypatch.setattr(module, "run_git", fake_run_git)
+
+    module.ensure_commit_available("abc123", "main")
+
+    assert seen_git_args == [
+        ["fetch", "--no-tags", "--depth=1", "origin", "abc123"],
+        ["fetch", "--no-tags", "--depth=1", "origin", "main"],
+    ]
 
 
 def test_ensure_commit_available_raises_when_commit_stays_missing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -190,7 +212,7 @@ def test_ensure_commit_available_raises_when_commit_stays_missing(monkeypatch: p
     monkeypatch.setattr(module, "git_commit_exists", lambda sha: False)
     monkeypatch.setattr(module, "run_git", lambda args: "")
 
-    with pytest.raises(RuntimeError, match="Failed to fetch commit abc123 from origin ref main."):
+    with pytest.raises(RuntimeError, match=r"Failed to fetch commit abc123 from origin targets \[abc123, main\]\."):
         module.ensure_commit_available("abc123", "main")
 
 

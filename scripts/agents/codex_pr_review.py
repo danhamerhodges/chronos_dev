@@ -91,11 +91,21 @@ def git_commit_exists(commit_sha: str) -> bool:
 def ensure_commit_available(commit_sha: str, remote_ref: str) -> None:
     if git_commit_exists(commit_sha):
         return
-    if not remote_ref:
-        raise RuntimeError(f"Missing local git object for commit {commit_sha} and no remote ref was provided.")
-    run_git(["fetch", "--no-tags", "--depth=1", "origin", remote_ref])
-    if not git_commit_exists(commit_sha):
-        raise RuntimeError(f"Failed to fetch commit {commit_sha} from origin ref {remote_ref}.")
+    fetch_errors: list[str] = []
+    fetch_targets = [commit_sha]
+    if remote_ref and remote_ref != commit_sha:
+        fetch_targets.append(remote_ref)
+    for target in fetch_targets:
+        try:
+            run_git(["fetch", "--no-tags", "--depth=1", "origin", target])
+        except RuntimeError as exc:
+            fetch_errors.append(str(exc))
+            continue
+        if git_commit_exists(commit_sha):
+            return
+    target_summary = ", ".join(fetch_targets)
+    details = f" Fetch errors: {' | '.join(fetch_errors)}" if fetch_errors else ""
+    raise RuntimeError(f"Failed to fetch commit {commit_sha} from origin targets [{target_summary}].{details}")
 
 
 def trim_text(text: str, limit: int) -> tuple[str, bool]:
