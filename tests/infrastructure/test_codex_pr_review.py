@@ -172,6 +172,28 @@ def test_collect_changed_files_handles_rename_paths(monkeypatch: pytest.MonkeyPa
     ]
 
 
+def test_ensure_commit_available_fetches_missing_commit(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_module()
+    exists_checks = iter([False, True])
+    seen_git_args: list[list[str]] = []
+
+    monkeypatch.setattr(module, "git_commit_exists", lambda sha: next(exists_checks))
+    monkeypatch.setattr(module, "run_git", lambda args: seen_git_args.append(args) or "")
+
+    module.ensure_commit_available("abc123", "main")
+
+    assert seen_git_args == [["fetch", "--no-tags", "--depth=1", "origin", "main"]]
+
+
+def test_ensure_commit_available_raises_when_commit_stays_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_module()
+    monkeypatch.setattr(module, "git_commit_exists", lambda sha: False)
+    monkeypatch.setattr(module, "run_git", lambda args: "")
+
+    with pytest.raises(RuntimeError, match="Failed to fetch commit abc123 from origin ref main."):
+        module.ensure_commit_available("abc123", "main")
+
+
 def test_build_review_input_includes_changed_files_and_diff_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
     module = _load_module()
     event = {
@@ -182,10 +204,11 @@ def test_build_review_input_includes_changed_files_and_diff_metadata(monkeypatch
             "html_url": "https://github.com/danhamerhodges/chronos_dev/pull/3",
             "body": "Adds a reviewer.",
             "user": {"login": "danhamerhodges"},
-            "base": {"sha": "abc123"},
-            "head": {"sha": "def456"},
+            "base": {"sha": "abc123", "ref": "main"},
+            "head": {"sha": "def456", "ref": "codex/pr-review-automation"},
         },
     }
+    ensured_commits: list[tuple[str, str]] = []
 
     monkeypatch.setattr(
         module,
@@ -196,6 +219,7 @@ def test_build_review_input_includes_changed_files_and_diff_metadata(monkeypatch
         ],
     )
     monkeypatch.setattr(module, "collect_diff", lambda base_sha, head_sha, paths: ("diff --git a/x b/x", True))
+    monkeypatch.setattr(module, "ensure_commit_available", lambda sha, ref: ensured_commits.append((sha, ref)))
 
     bundle = module.build_review_input(event)
 
@@ -208,6 +232,7 @@ def test_build_review_input_includes_changed_files_and_diff_metadata(monkeypatch
     assert "Diff paths filtered from OpenAI payload: 1" in bundle["review_input"]
     assert "Diff paths omitted from OpenAI payload: 0" in bundle["review_input"]
     assert "diff --git a/x b/x" in bundle["review_input"]
+    assert ensured_commits == [("abc123", "main"), ("def456", "codex/pr-review-automation")]
 
 
 def test_upsert_pr_comment_paginates_before_patching(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -83,6 +83,21 @@ def run_git(args: list[str]) -> str:
     return out
 
 
+def git_commit_exists(commit_sha: str) -> bool:
+    rc, _, _ = run_command(["git", "cat-file", "-e", f"{commit_sha}^{{commit}}"])
+    return rc == 0
+
+
+def ensure_commit_available(commit_sha: str, remote_ref: str) -> None:
+    if git_commit_exists(commit_sha):
+        return
+    if not remote_ref:
+        raise RuntimeError(f"Missing local git object for commit {commit_sha} and no remote ref was provided.")
+    run_git(["fetch", "--no-tags", "--depth=1", "origin", remote_ref])
+    if not git_commit_exists(commit_sha):
+        raise RuntimeError(f"Failed to fetch commit {commit_sha} from origin ref {remote_ref}.")
+
+
 def trim_text(text: str, limit: int) -> tuple[str, bool]:
     if len(text) <= limit:
         return text, False
@@ -212,6 +227,8 @@ def build_review_input(event: dict[str, Any]) -> dict[str, Any]:
     head_sha = pr.get("head", {}).get("sha", "")
     if not base_sha or not head_sha:
         raise RuntimeError("Missing base/head SHA in pull request event payload.")
+    ensure_commit_available(base_sha, pr.get("base", {}).get("ref", ""))
+    ensure_commit_available(head_sha, pr.get("head", {}).get("ref", ""))
 
     changed_files = collect_changed_files(base_sha, head_sha)
     diff_paths, filtered_diff_paths, capped_diff_path_omissions = select_reviewable_diff_paths(changed_files)
