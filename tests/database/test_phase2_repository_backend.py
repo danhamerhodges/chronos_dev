@@ -406,6 +406,73 @@ def test_supabase_job_repository_rejects_unknown_worker_segment_patch_field() ->
         repo.update_segment_for_worker("job-1", 0, patch={"drop_table": "segments"})
 
 
+def test_supabase_job_repository_direct_db_insert_binds_processing_metadata_in_column_order(monkeypatch) -> None:
+    repo = _SupabaseJobRepository()
+    captured: dict[str, tuple[object, ...]] = {}
+
+    class StubCursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        def execute(self, query: str, params: tuple[object, ...]) -> None:
+            if "insert into public.media_jobs" in query:
+                captured["params"] = params
+            self._query = query
+
+        def fetchone(self) -> dict[str, object]:
+            return {
+                "external_job_id": "job-direct-order",
+                "external_user_id": "user-phase3",
+                "org_id": "org-7",
+                "media_uri": "gs://chronos-dev/input.mov",
+                "original_filename": "input.mov",
+                "mime_type": "video/mp4",
+                "status": "queued",
+                "created_at": "2026-03-07T00:00:00+00:00",
+                "updated_at": "2026-03-07T00:00:00+00:00",
+            }
+
+    class StubConnection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        def cursor(self) -> StubCursor:
+            return StubCursor()
+
+    monkeypatch.setattr(repo, "_connect", lambda: StubConnection())
+
+    repo.create_job(
+        job_id="job-direct-order",
+        owner_user_id="user-phase3",
+        plan_tier="pro",
+        org_id="org-7",
+        media_uri="gs://chronos-dev/input.mov",
+        original_filename="input.mov",
+        mime_type="video/mp4",
+        source_asset_checksum="abc12345def67890",
+        fidelity_tier="Restore",
+        processing_mode="balanced",
+        era_profile={"capture_medium": "film_scan"},
+        config={"stabilization": "medium"},
+        estimated_duration_seconds=25,
+        effective_fidelity_tier="Conserve",
+        effective_fidelity_profile={"tier": "Conserve"},
+        reproducibility_mode="deterministic",
+        segments=[],
+    )
+
+    params = captured["params"]
+    assert params[12] == "balanced"
+    assert params[15] == "Conserve"
+    assert params[17] == "deterministic"
+
+
 def test_supabase_job_repository_checks_ownership_before_direct_db_cancellation(monkeypatch) -> None:
     import app.db.phase2_store as phase2_store
 

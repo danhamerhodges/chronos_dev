@@ -1,5 +1,6 @@
 """Maps to: ENG-008, NFR-002"""
 
+import app.services.runtime_ops as runtime_ops
 from app.services.runtime_ops import allocate_gpu, current_runtime_snapshot, release_gpu
 
 
@@ -49,3 +50,44 @@ def test_runtime_snapshot_exposes_alert_evaluator_fields() -> None:
     assert "queue_depth" in runtime
     assert "queue_age_seconds" in runtime
     assert "utilization_percent" in runtime
+
+
+def test_runtime_snapshot_and_reconcile_exclude_cold_leases_from_warm_pool_accounting(monkeypatch) -> None:
+    leases = [
+        {
+            "worker_id": "warm-1",
+            "lease_state": "idle",
+            "is_warm": True,
+            "queue_depth_snapshot": 3,
+        },
+        {
+            "worker_id": "cold-1",
+            "lease_state": "busy",
+            "is_warm": False,
+            "queue_depth_snapshot": 9,
+        },
+    ]
+
+    class StubRepo:
+        def list_gpu_leases(self) -> list[dict[str, object]]:
+            return list(leases)
+
+        def list_incidents(self) -> list[dict[str, object]]:
+            return []
+
+        def upsert_gpu_lease(self, worker_id: str, payload: dict[str, object]) -> dict[str, object]:
+            return {"worker_id": worker_id, **payload}
+
+        def delete_gpu_lease(self, worker_id: str) -> None:
+            raise AssertionError(f"unexpected delete for {worker_id}")
+
+    monkeypatch.setattr(runtime_ops, "RuntimeOpsRepository", lambda: StubRepo())
+
+    reconcile = runtime_ops.reconcile_gpu_pool(queue_depth=0, queue_age_seconds=0.0)
+    snapshot = runtime_ops.current_runtime_snapshot()
+
+    assert reconcile["active_warm_instances"] == 1
+    assert reconcile["busy_instances"] == 0
+    assert snapshot["active_warm_instances"] == 1
+    assert snapshot["busy_instances"] == 0
+    assert snapshot["queue_depth"] == 3

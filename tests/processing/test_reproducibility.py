@@ -2,6 +2,7 @@
 
 from fastapi.testclient import TestClient
 
+import app.services.job_runtime as job_runtime
 from app.main import app
 from tests.helpers.auth import fake_auth_header
 from tests.helpers.jobs import run_all_jobs, valid_job_request
@@ -51,3 +52,23 @@ def test_reproducibility_failures_escalate_to_partial_rollup() -> None:
     assert payload["status"] == "partial"
     assert payload["failed_segments"] == [0]
     assert payload["reproducibility_summary"]["rollup"] == "critical"
+
+
+def test_reproducibility_retry_branch_honors_backoff_sleep(monkeypatch) -> None:
+    sleeps: list[int] = []
+    monkeypatch.setattr(job_runtime, "_sleep_for_retry", lambda seconds: sleeps.append(seconds))
+
+    created = client.post(
+        "/v1/jobs",
+        headers=fake_auth_header("repro-sleep-user", tier="pro"),
+        json=valid_job_request(reproducibility_mode="deterministic"),
+    ).json()
+    client.post(
+        f"/v1/testing/jobs/{created['job_id']}/segments/0/reproducibility-failures",
+        headers=fake_auth_header("repro-sleep-user", tier="pro"),
+        json={"failures": 2},
+    )
+
+    run_all_jobs()
+
+    assert sleeps == [1, 2]

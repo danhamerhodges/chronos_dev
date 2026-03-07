@@ -28,6 +28,7 @@ def test_job_lifecycle_transitions_from_queued_to_completed() -> None:
     assert payload["quality_summary"]["thresholds_met"] is True
     assert payload["cache_summary"]["hits"] >= 0
     assert payload["gpu_summary"]["gpu_type"] == "L4"
+    assert payload["gpu_summary"]["busy_instances"] == 0
     assert payload["cost_summary"]["gpu_seconds"] >= 0
     assert payload["slo_summary"]["compliant"] in {True, False}
     assert payload["progress"]["percent_complete"] == 100.0

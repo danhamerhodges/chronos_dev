@@ -188,8 +188,7 @@ def process_job(job_id: str, *, trusted_token: str | None = None) -> dict[str, A
                 return cancelled
             _process_segment(repo, current, segment, trusted_token=trusted_token)
 
-        completed = _finalize_job(repo, job_id, trusted_token=trusted_token)
-        gpu_released = True
+        completed, gpu_released = _finalize_job(repo, job_id, trusted_token=trusted_token)
         event_type = {
             JobStatus.COMPLETED.value: WebhookEventType.COMPLETED.value,
             JobStatus.PARTIAL.value: WebhookEventType.PARTIAL.value,
@@ -228,6 +227,10 @@ def process_job(job_id: str, *, trusted_token: str | None = None) -> dict[str, A
     finally:
         if gpu_allocated and not gpu_released:
             release_gpu(job_id, gpu_runtime_seconds=_current_gpu_runtime_seconds(repo, job_id))
+
+
+def _sleep_for_retry(backoff_seconds: int) -> None:
+    time.sleep(backoff_seconds)
 
 
 def _process_segment(
@@ -318,20 +321,21 @@ def _process_segment(
                     repo.update_segment_for_worker(
                         job["job_id"],
                         segment["segment_index"],
-                    patch={
-                        "status": "queued",
-                        "attempt_count": attempt,
-                        "last_error_classification": "reproducibility",
-                        "retry_backoffs_seconds": retry_backoffs,
-                        "cache_status": cache_state["cache_status"],
-                        "cache_hit_latency_ms": cache_state["cache_hit_latency_ms"],
-                        "cache_namespace": cache_state["cache_namespace"],
-                        "quality_metrics": quality_metrics,
-                        "reproducibility_proof": proof,
-                        "uncertainty_callouts": quality_metrics["uncertainty_callouts"],
-                    },
-                )
+                        patch={
+                            "status": "queued",
+                            "attempt_count": attempt,
+                            "last_error_classification": "reproducibility",
+                            "retry_backoffs_seconds": retry_backoffs,
+                            "cache_status": cache_state["cache_status"],
+                            "cache_hit_latency_ms": cache_state["cache_hit_latency_ms"],
+                            "cache_namespace": cache_state["cache_namespace"],
+                            "quality_metrics": quality_metrics,
+                            "reproducibility_proof": proof,
+                            "uncertainty_callouts": quality_metrics["uncertainty_callouts"],
+                        },
+                    )
                     record_segment_retry("reproducibility")
+                    _sleep_for_retry(backoff_seconds)
                     continue
                 repo.update_segment_for_worker(
                     job["job_id"],
@@ -433,6 +437,7 @@ def _process_segment(
                 },
             )
             record_segment_retry(error_classification)
+            _sleep_for_retry(backoff_seconds)
             continue
 
         repo.update_segment_for_worker(
@@ -525,7 +530,7 @@ def _update_processing_progress(
     _publish_progress(job, segment_index=segment_index, trusted_token=trusted_token)
 
 
-def _finalize_job(repo: JobRepository, job_id: str, *, trusted_token: str | None) -> dict[str, Any]:
+def _finalize_job(repo: JobRepository, job_id: str, *, trusted_token: str | None) -> tuple[dict[str, Any], bool]:
     job = repo.get_job_for_worker(job_id)
     if job is None:
         raise RuntimeError(f"Unknown job {job_id}")
@@ -533,11 +538,14 @@ def _finalize_job(repo: JobRepository, job_id: str, *, trusted_token: str | None
     failed_segments = [item["segment_index"] for item in segments if item["status"] == "failed"]
     completed_segments = [item["segment_index"] for item in segments if item["status"] == "completed"]
     if job["status"] == JobStatus.CANCEL_REQUESTED.value:
-        return _cancel_job(
-            repo,
-            job_id,
-            segment_index=max(len(segments) - 1, 0),
-            trusted_token=trusted_token,
+        return (
+            _cancel_job(
+                repo,
+                job_id,
+                segment_index=max(len(segments) - 1, 0),
+                trusted_token=trusted_token,
+            ),
+            False,
         )
     if failed_segments and completed_segments:
         status = JobStatus.PARTIAL
@@ -606,98 +614,113 @@ def _finalize_job(repo: JobRepository, job_id: str, *, trusted_token: str | None
         "total_cost_usd": round((gpu_runtime_seconds * 0.012) + ((len(completed_segments) + int(bool(result_uri))) * 0.001), 4),
     }
     slo_summary = evaluate_job_slo({**job, "stage_timings": stage_timings})
-
-    finalized = repo.update_job_for_worker(
-        job_id,
-        patch={
-            "status": status.value,
-            "result_uri": result_uri,
-            "warnings": warnings,
-            "last_error": None if status != JobStatus.FAILED else "Processing failed after retry exhaustion.",
-            "current_operation": "Completed" if status == JobStatus.COMPLETED else "Completed with segment failures",
-            "completed_at": job.get("updated_at"),
-            "eta_seconds": 0,
-            "progress_percent": 100.0,
-            "quality_summary": quality_summary,
-            "reproducibility_summary": reproducibility_summary,
-            "stage_timings": stage_timings,
-            "cache_summary": cache_summary,
-            "gpu_summary": gpu_summary,
-            "cost_summary": cost_summary,
-            "slo_summary": slo_summary,
-        },
-    )
-    record_job_stage_timings(stage_timings)
-    evaluate_runtime_snapshot(
+    released_pool = release_gpu(job_id, gpu_runtime_seconds=gpu_runtime_seconds)
+    gpu_summary.update(
         {
-            "queue_depth": 0,
-            "queue_age_seconds": 0.0,
-            "desired_warm_instances": int(gpu_summary.get("desired_warm_instances") or 0),
-            "active_warm_instances": int(gpu_summary.get("active_warm_instances") or 0),
-            "busy_instances": int(gpu_summary.get("busy_instances") or 0),
-            "idle_instances": max(
-                int(gpu_summary.get("active_warm_instances") or 0) - int(gpu_summary.get("busy_instances") or 0),
-                0,
-            ),
-            "utilization_percent": float(gpu_summary.get("utilization_percent") or 0.0),
-        },
-        cache_summary,
+            "desired_warm_instances": released_pool["desired_warm_instances"],
+            "active_warm_instances": released_pool["active_warm_instances"],
+            "busy_instances": released_pool["busy_instances"],
+            "utilization_percent": released_pool["utilization_percent"],
+        }
     )
-    if status in {JobStatus.COMPLETED, JobStatus.PARTIAL}:
-        try:
-            manifest_payload = finalize_manifest_payload(
-                manifest_id=job_id,
-                generated_at=finalized["updated_at"],
-                job=finalized,
-                segments=repo.list_segments(job_id),
-            )
-            ManifestRepository().upsert_manifest_for_worker(job_id=job_id, manifest=manifest_payload)
-            finalized = repo.update_job_for_worker(
-                job_id,
-                patch={
-                    "manifest_available": True,
-                    "manifest_uri": manifest_payload["manifest_uri"],
-                    "manifest_sha256": manifest_payload["manifest_sha256"],
-                    "manifest_generated_at": manifest_payload["generated_at"],
-                    "manifest_size_bytes": manifest_payload["size_bytes"],
-                },
-            )
-        except Exception as exc:
-            finalized = repo.update_job_for_worker(
-                job_id,
-                patch={
-                    "status": JobStatus.FAILED.value,
-                    "last_error": f"Manifest generation failed: {exc}",
-                    "warnings": (warnings or []) + ["Manifest generation failed after processing completed."],
-                    "current_operation": "Manifest generation failed",
-                },
-            )
-            status = JobStatus.FAILED
-    record_job_runtime_event(status.value)
-    if status in {JobStatus.COMPLETED, JobStatus.PARTIAL}:
-        BillingService().consume_minutes(
-            user_id=finalized["owner_user_id"],
-            plan_tier=finalized["plan_tier"],
-            minutes=billable_minutes_for_duration(
-                finalized["estimated_duration_seconds"],
-                finalized["fidelity_tier"],
-            ),
+
+    try:
+        finalized = repo.update_job_for_worker(
+            job_id,
+            patch={
+                "status": status.value,
+                "result_uri": result_uri,
+                "warnings": warnings,
+                "last_error": None if status != JobStatus.FAILED else "Processing failed after retry exhaustion.",
+                "current_operation": "Completed" if status == JobStatus.COMPLETED else "Completed with segment failures",
+                "completed_at": job.get("updated_at"),
+                "eta_seconds": 0,
+                "progress_percent": 100.0,
+                "quality_summary": quality_summary,
+                "reproducibility_summary": reproducibility_summary,
+                "stage_timings": stage_timings,
+                "cache_summary": cache_summary,
+                "gpu_summary": gpu_summary,
+                "cost_summary": cost_summary,
+                "slo_summary": slo_summary,
+            },
         )
-    elif status == JobStatus.FAILED:
+        record_job_stage_timings(stage_timings)
+        evaluate_runtime_snapshot(released_pool, cache_summary)
+        if status in {JobStatus.COMPLETED, JobStatus.PARTIAL}:
+            try:
+                manifest_payload = finalize_manifest_payload(
+                    manifest_id=job_id,
+                    generated_at=finalized["updated_at"],
+                    job=finalized,
+                    segments=repo.list_segments(job_id),
+                )
+                ManifestRepository().upsert_manifest_for_worker(job_id=job_id, manifest=manifest_payload)
+                finalized = repo.update_job_for_worker(
+                    job_id,
+                    patch={
+                        "manifest_available": True,
+                        "manifest_uri": manifest_payload["manifest_uri"],
+                        "manifest_sha256": manifest_payload["manifest_sha256"],
+                        "manifest_generated_at": manifest_payload["generated_at"],
+                        "manifest_size_bytes": manifest_payload["size_bytes"],
+                    },
+                )
+            except Exception as exc:
+                finalized = repo.update_job_for_worker(
+                    job_id,
+                    patch={
+                        "status": JobStatus.FAILED.value,
+                        "last_error": f"Manifest generation failed: {exc}",
+                        "warnings": (warnings or []) + ["Manifest generation failed after processing completed."],
+                        "current_operation": "Manifest generation failed",
+                    },
+                )
+                status = JobStatus.FAILED
+        record_job_runtime_event(status.value)
+        if status in {JobStatus.COMPLETED, JobStatus.PARTIAL}:
+            BillingService().consume_minutes(
+                user_id=finalized["owner_user_id"],
+                plan_tier=finalized["plan_tier"],
+                minutes=billable_minutes_for_duration(
+                    finalized["estimated_duration_seconds"],
+                    finalized["fidelity_tier"],
+                ),
+            )
+        elif status == JobStatus.FAILED:
+            BillingService().consume_minutes(
+                user_id=finalized["owner_user_id"],
+                plan_tier=finalized["plan_tier"],
+                minutes=0,
+            )
+        return finalized, True
+    except Exception as exc:
+        failed = repo.update_job_for_worker(
+            job_id,
+            patch={
+                "status": JobStatus.FAILED.value,
+                "last_error": f"Finalize failed after GPU release: {exc}",
+                "warnings": warnings + ["Finalize failed after GPU release."],
+                "current_operation": "Finalize failed after GPU release",
+                "completed_at": job.get("updated_at"),
+                "eta_seconds": 0,
+                "progress_percent": 100.0,
+                "quality_summary": quality_summary,
+                "reproducibility_summary": reproducibility_summary,
+                "stage_timings": stage_timings,
+                "cache_summary": cache_summary,
+                "gpu_summary": gpu_summary,
+                "cost_summary": cost_summary,
+                "slo_summary": slo_summary,
+            },
+        )
+        record_job_runtime_event(JobStatus.FAILED.value)
         BillingService().consume_minutes(
-            user_id=finalized["owner_user_id"],
-            plan_tier=finalized["plan_tier"],
+            user_id=failed["owner_user_id"],
+            plan_tier=failed["plan_tier"],
             minutes=0,
         )
-    released_pool = release_gpu(job_id, gpu_runtime_seconds=gpu_runtime_seconds)
-    finalized["gpu_summary"] = {
-        **(finalized.get("gpu_summary") or {}),
-        "desired_warm_instances": released_pool["desired_warm_instances"],
-        "active_warm_instances": released_pool["active_warm_instances"],
-        "busy_instances": released_pool["busy_instances"],
-        "utilization_percent": released_pool["utilization_percent"],
-    }
-    return finalized
+        return failed, True
 
 
 def _cancel_job(repo: JobRepository, job_id: str, *, segment_index: int, trusted_token: str | None = None) -> dict[str, Any]:

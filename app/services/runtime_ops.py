@@ -166,10 +166,14 @@ def _desired_warm_pool(queue_depth: int) -> int:
 def reconcile_gpu_pool(*, queue_depth: int, queue_age_seconds: float = 0.0) -> dict[str, Any]:
     repo = RuntimeOpsRepository()
     leases = repo.list_gpu_leases()
-    active = [lease for lease in leases if lease.get("lease_state") != "released"]
-    idle = [lease for lease in active if lease.get("lease_state") == "idle"]
+    active_warm = [
+        lease
+        for lease in leases
+        if lease.get("lease_state") != "released" and lease.get("is_warm") is True
+    ]
+    idle_warm = [lease for lease in active_warm if lease.get("lease_state") == "idle"]
     desired = _desired_warm_pool(queue_depth)
-    while len(active) < desired:
+    while len(active_warm) < desired:
         worker_id = f"warm-{uuid4().hex[:8]}"
         lease = repo.upsert_gpu_lease(
             worker_id=worker_id,
@@ -187,27 +191,27 @@ def reconcile_gpu_pool(*, queue_depth: int, queue_age_seconds: float = 0.0) -> d
                 ).isoformat(),
             },
         )
-        active.append(lease)
-        idle.append(lease)
-    if len(active) > desired:
-        removable = [
-            lease
-            for lease in idle
-            if (lease.get("is_warm") is True)
-        ][: max(len(active) - desired, 0)]
+        active_warm.append(lease)
+        idle_warm.append(lease)
+    if len(active_warm) > desired:
+        removable = idle_warm[: max(len(active_warm) - desired, 0)]
         for lease in removable:
             repo.delete_gpu_lease(str(lease["worker_id"]))
-        active = [lease for lease in repo.list_gpu_leases() if lease.get("lease_state") != "released"]
-    busy = [lease for lease in active if lease.get("lease_state") == "busy"]
+        active_warm = [
+            lease
+            for lease in repo.list_gpu_leases()
+            if lease.get("lease_state") != "released" and lease.get("is_warm") is True
+        ]
+    busy_warm = [lease for lease in active_warm if lease.get("lease_state") == "busy"]
     snapshot = {
         "queue_depth": queue_depth,
         "queue_age_seconds": round(queue_age_seconds, 3),
         "desired_warm_instances": desired,
-        "active_warm_instances": len(active),
-        "busy_instances": len(busy),
-        "idle_instances": max(len(active) - len(busy), 0),
+        "active_warm_instances": len(active_warm),
+        "busy_instances": len(busy_warm),
+        "idle_instances": max(len(active_warm) - len(busy_warm), 0),
     }
-    utilization = round((len(busy) / max(len(active), 1)) * 100, 2) if active else 0.0
+    utilization = round((len(busy_warm) / max(len(active_warm), 1)) * 100, 2) if active_warm else 0.0
     snapshot["utilization_percent"] = utilization
     record_runtime_snapshot(snapshot)
     return snapshot
@@ -221,7 +225,10 @@ def allocate_gpu(job: dict[str, Any]) -> dict[str, Any]:
     target_gpu = "RTX 6000" if str(job.get("plan_tier", "")).lower() == "museum" else "L4"
     repo = RuntimeOpsRepository()
     leases = repo.list_gpu_leases()
-    selected = next((lease for lease in leases if lease.get("lease_state") == "idle"), None)
+    selected = next(
+        (lease for lease in leases if lease.get("lease_state") == "idle" and lease.get("is_warm") is True),
+        None,
+    )
     warm_start = selected is not None
     allocation_latency_ms = (
         settings.gpu_warm_allocation_latency_ms if warm_start else settings.gpu_cold_allocation_latency_ms
@@ -451,17 +458,21 @@ def evaluate_runtime_snapshot(snapshot: dict[str, Any], cache_summary: dict[str,
 def current_runtime_snapshot() -> dict[str, Any]:
     incidents = incident_history()
     leases = RuntimeOpsRepository().list_gpu_leases()
-    active = [lease for lease in leases if lease.get("lease_state") != "released"]
-    busy = [lease for lease in active if lease.get("lease_state") == "busy"]
-    queue_depth = max((int(lease.get("queue_depth_snapshot") or 0) for lease in active), default=0)
-    utilization_percent = round((len(busy) / max(len(active), 1)) * 100, 2) if active else 0.0
+    active_warm = [
+        lease
+        for lease in leases
+        if lease.get("lease_state") != "released" and lease.get("is_warm") is True
+    ]
+    busy_warm = [lease for lease in active_warm if lease.get("lease_state") == "busy"]
+    queue_depth = max((int(lease.get("queue_depth_snapshot") or 0) for lease in active_warm), default=0)
+    utilization_percent = round((len(busy_warm) / max(len(active_warm), 1)) * 100, 2) if active_warm else 0.0
     snapshot = {
         "queue_depth": queue_depth,
         "queue_age_seconds": 0.0,
         "desired_warm_instances": max(settings.gpu_pool_min_warm_instances, 0),
-        "active_warm_instances": len(active),
-        "busy_instances": len(busy),
-        "idle_instances": max(len(active) - len(busy), 0),
+        "active_warm_instances": len(active_warm),
+        "busy_instances": len(busy_warm),
+        "idle_instances": max(len(active_warm) - len(busy_warm), 0),
         "utilization_percent": utilization_percent,
         "alert_routes": alert_routes(),
         "incidents": incidents,
