@@ -16,6 +16,25 @@ def _sha256(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def build_pipeline_variant_fingerprint(
+    *,
+    processing_mode: str,
+    config: dict[str, Any],
+    era_profile: dict[str, Any],
+    effective_fidelity_profile: dict[str, Any],
+) -> dict[str, str]:
+    return {
+        "processing_mode": processing_mode,
+        "config_hash": _sha256(json.dumps(config, sort_keys=True, separators=(",", ":"))),
+        "model_digest": MODEL_DIGEST,
+        "era_profile_digest": _sha256(json.dumps(era_profile, sort_keys=True, separators=(",", ":"))),
+        "fidelity_profile_digest": _sha256(
+            json.dumps(effective_fidelity_profile, sort_keys=True, separators=(",", ":"))
+        ),
+        "encoder_digest": ENCODER_DIGEST,
+    }
+
+
 def build_segments(
     *,
     user_id: str,
@@ -28,14 +47,17 @@ def build_segments(
     effective_fidelity_profile: dict[str, Any] | None = None,
     config: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    duration_seconds = int(estimated_duration_seconds)
+    duration_seconds = ceil(float(estimated_duration_seconds))
     if duration_seconds < 1:
         raise ValueError("estimated_duration_seconds must be >= 1")
     segment_count = max(ceil(duration_seconds / SEGMENT_DURATION_SECONDS), 1)
-    config_hash = _sha256(json.dumps(config, sort_keys=True, separators=(",", ":")))
-    era_profile_digest = _sha256(json.dumps(era_profile, sort_keys=True, separators=(",", ":")))
     effective_fidelity_profile = effective_fidelity_profile or {"tier": fidelity_tier}
-    fidelity_profile_digest = _sha256(json.dumps(effective_fidelity_profile, sort_keys=True, separators=(",", ":")))
+    pipeline_variant = build_pipeline_variant_fingerprint(
+        processing_mode=processing_mode,
+        config=config,
+        era_profile=era_profile,
+        effective_fidelity_profile=effective_fidelity_profile,
+    )
 
     segments: list[dict[str, Any]] = []
     for segment_index in range(segment_count):
@@ -52,12 +74,12 @@ def build_segments(
                 segment_duration_seconds * 1000,
                 fidelity_tier,
                 reproducibility_mode,
-                processing_mode,
-                config_hash,
-                MODEL_DIGEST,
-                era_profile_digest,
-                fidelity_profile_digest,
-                ENCODER_DIGEST,
+                pipeline_variant["processing_mode"],
+                pipeline_variant["config_hash"],
+                pipeline_variant["model_digest"],
+                pipeline_variant["era_profile_digest"],
+                pipeline_variant["fidelity_profile_digest"],
+                pipeline_variant["encoder_digest"],
             ],
             separators=(",", ":"),
             ensure_ascii=False,

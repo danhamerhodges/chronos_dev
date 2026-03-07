@@ -35,6 +35,95 @@ def _request_patch(payload: dict[str, Any], *, nullable_keys: set[str] | None = 
     }
 
 
+_SUPABASE_JOB_JSON_FIELDS = {
+    "failed_segments",
+    "warnings",
+    "config",
+    "era_profile",
+    "effective_fidelity_profile",
+    "quality_summary",
+    "reproducibility_summary",
+    "stage_timings",
+    "cache_summary",
+    "gpu_summary",
+    "cost_summary",
+    "slo_summary",
+}
+
+_SUPABASE_JOB_UPDATE_FIELDS = {
+    "cache_summary",
+    "cancel_requested_at",
+    "completed_at",
+    "completed_segment_count",
+    "cost_summary",
+    "current_operation",
+    "effective_fidelity_profile",
+    "era_profile",
+    "eta_seconds",
+    "failed_segment_count",
+    "failed_segments",
+    "gpu_summary",
+    "last_error",
+    "manifest_available",
+    "manifest_generated_at",
+    "manifest_sha256",
+    "manifest_size_bytes",
+    "manifest_uri",
+    "progress_percent",
+    "quality_summary",
+    "reproducibility_summary",
+    "result_uri",
+    "slo_summary",
+    "stage_timings",
+    "started_at",
+    "status",
+    "warnings",
+}
+
+_SUPABASE_SEGMENT_JSON_FIELDS = {
+    "retry_backoffs_seconds",
+    "quality_metrics",
+    "reproducibility_proof",
+    "uncertainty_callouts",
+}
+
+_SUPABASE_SEGMENT_UPDATE_FIELDS = {
+    "allocation_latency_ms",
+    "attempt_count",
+    "cache_hit_latency_ms",
+    "cache_namespace",
+    "cache_status",
+    "cached_output_uri",
+    "gpu_type",
+    "last_error_classification",
+    "output_uri",
+    "quality_metrics",
+    "reproducibility_proof",
+    "retry_backoffs_seconds",
+    "status",
+    "uncertainty_callouts",
+}
+
+
+def _validated_update_assignments(
+    *,
+    patch: dict[str, Any],
+    allowed_fields: set[str],
+    json_fields: set[str],
+) -> tuple[list[str], list[Any]]:
+    from psycopg.types.json import Jsonb
+
+    assignments: list[str] = []
+    values: list[Any] = []
+    for key, value in patch.items():
+        if key not in allowed_fields:
+            allowed = ", ".join(sorted(allowed_fields))
+            raise ValueError(f"Unsupported worker patch field '{key}'. Allowed fields: {allowed}")
+        assignments.append(f"{key} = %s")
+        values.append(Jsonb(value) if key in json_fields else value)
+    return assignments, values
+
+
 def phase2_backend_name() -> str:
     integration_enabled = os.getenv("CHRONOS_RUN_SUPABASE_INTEGRATION") == "1"
     has_direct_db = bool(
@@ -836,6 +925,11 @@ class _SupabaseEraDetectionRepository(_SupabaseRepositoryBase):
     ) -> dict[str, Any]:
         if access_token:
             headers = self._client.user_scoped_headers(access_token)
+            existing_job_rows = self._client.rest_select(
+                "media_jobs",
+                params={"select": "id", "external_job_id": f"eq.{job_id}", "limit": "1"},
+                headers=headers,
+            )
             row = self._client.rest_upsert(
                 "media_jobs",
                 payload={
@@ -1382,6 +1476,11 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
     ) -> dict[str, Any]:
         if access_token:
             headers = self._client.user_scoped_headers(access_token)
+            existing_job_rows = self._client.rest_select(
+                "media_jobs",
+                params={"select": "id", "external_job_id": f"eq.{job_id}", "limit": "1"},
+                headers=headers,
+            )
             row = self._client.rest_upsert(
                 "media_jobs",
                 payload={
@@ -1467,7 +1566,7 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
             )[0]
             try:
                 for segment in segments:
-                    self._client.rest_insert(
+                    self._client.rest_upsert(
                         "job_segments",
                         payload={
                             "id": str(uuid4()),
@@ -1486,14 +1585,16 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
                             "cache_status": "miss",
                             "uncertainty_callouts": [],
                         },
+                        on_conflict="job_id,segment_index",
                         headers=headers,
                     )
             except Exception:
-                self._client.rest_delete(
-                    "media_jobs",
-                    params={"external_job_id": f"eq.{job_id}"},
-                    headers=headers,
-                )
+                if not existing_job_rows:
+                    self._client.rest_delete(
+                        "media_jobs",
+                        params={"external_job_id": f"eq.{job_id}"},
+                        headers=headers,
+                    )
                 raise
             return self._job_from_row(row)
         from psycopg.types.json import Jsonb
@@ -1721,6 +1822,21 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
     def request_cancellation(self, job_id: str, *, owner_user_id: str, access_token: str | None = None) -> dict[str, Any] | None:
         if access_token:
             headers = self._client.user_scoped_headers(access_token)
+            current_rows = self._client.rest_select(
+                "media_jobs",
+                params={"select": "*", "external_job_id": f"eq.{job_id}", "limit": "1"},
+                headers=headers,
+            )
+            if not current_rows:
+                return None
+            current_row = current_rows[0]
+            if current_row["status"] in {
+                JobStatus.COMPLETED.value,
+                JobStatus.FAILED.value,
+                JobStatus.PARTIAL.value,
+                JobStatus.CANCELLED.value,
+            }:
+                return self._job_from_row(current_row)
             rows = self._client.rest_update(
                 "media_jobs",
                 payload={
@@ -1753,27 +1869,11 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
         return self.get_job(job_id)
 
     def update_job_for_worker(self, job_id: str, *, patch: dict[str, Any]) -> dict[str, Any]:
-        from psycopg.types.json import Jsonb
-
-        assignments = []
-        values: list[Any] = []
-        json_fields = {
-            "failed_segments",
-            "warnings",
-            "config",
-            "era_profile",
-            "effective_fidelity_profile",
-            "quality_summary",
-            "reproducibility_summary",
-            "stage_timings",
-            "cache_summary",
-            "gpu_summary",
-            "cost_summary",
-            "slo_summary",
-        }
-        for key, value in patch.items():
-            assignments.append(f"{key} = %s")
-            values.append(Jsonb(value) if key in json_fields else value)
+        assignments, values = _validated_update_assignments(
+            patch=patch,
+            allowed_fields=_SUPABASE_JOB_UPDATE_FIELDS,
+            json_fields=_SUPABASE_JOB_JSON_FIELDS,
+        )
         assignments.append("updated_at = now()")
         values.append(job_id)
         query = f"update public.media_jobs set {', '.join(assignments)} where external_job_id = %s returning *"
@@ -1785,14 +1885,11 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
         return self._job_from_row(row)
 
     def update_segment_for_worker(self, job_id: str, segment_index: int, *, patch: dict[str, Any]) -> dict[str, Any]:
-        from psycopg.types.json import Jsonb
-
-        assignments = []
-        values: list[Any] = []
-        json_fields = {"retry_backoffs_seconds", "quality_metrics", "reproducibility_proof", "uncertainty_callouts"}
-        for key, value in patch.items():
-            assignments.append(f"{key} = %s")
-            values.append(Jsonb(value) if key in json_fields else value)
+        assignments, values = _validated_update_assignments(
+            patch=patch,
+            allowed_fields=_SUPABASE_SEGMENT_UPDATE_FIELDS,
+            json_fields=_SUPABASE_SEGMENT_JSON_FIELDS,
+        )
         assignments.append("updated_at = now()")
         values.extend([job_id, segment_index])
         query = (

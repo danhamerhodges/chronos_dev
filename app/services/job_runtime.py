@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import socket
+import time
 from collections import defaultdict
 from typing import Any
 from urllib.parse import urlparse
@@ -30,6 +31,7 @@ from app.services.job_dispatcher import (
     requeue_dispatch_message,
     reset_job_dispatcher_state,
 )
+from app.services.job_pipeline import build_pipeline_variant_fingerprint
 from app.services.job_worker import (
     authorize_trusted_worker,
     default_trusted_worker_token,
@@ -58,6 +60,7 @@ _WEBHOOK_DELIVERIES: list[dict[str, Any]] = []
 _SEGMENT_FAILURE_PLANS: dict[tuple[str, int], list[str]] = defaultdict(list)
 _REPRODUCIBILITY_FAILURE_PLANS: dict[tuple[str, int], int] = defaultdict(int)
 _DEAD_LETTER_QUEUE: list[str] = []
+_VALID_PLAN_TIERS = frozenset({"hobbyist", "pro", "museum"})
 
 
 def reset_job_runtime_state() -> None:
@@ -125,7 +128,10 @@ def process_job(job_id: str, *, trusted_token: str | None = None) -> dict[str, A
 
     gpu_allocated = False
     gpu_released = False
+    validated_plan_tier: str | None = None
     try:
+        validated_plan_tier = _validate_plan_tier(job.get("plan_tier"))
+        job = {**job, "plan_tier": validated_plan_tier}
         if job["status"] == JobStatus.CANCEL_REQUESTED.value:
             cancelled = _cancel_job(repo, job_id, segment_index=0, trusted_token=trusted_token)
             _deliver_webhooks(cancelled, WebhookEventType.CANCELLED.value)
@@ -209,11 +215,12 @@ def process_job(job_id: str, *, trusted_token: str | None = None) -> dict[str, A
         )
         if job_id not in _DEAD_LETTER_QUEUE:
             _DEAD_LETTER_QUEUE.append(job_id)
-        BillingService().consume_minutes(
-            user_id=failed["owner_user_id"],
-            plan_tier=failed["plan_tier"],
-            minutes=0,
-        )
+        if validated_plan_tier is not None:
+            BillingService().consume_minutes(
+                user_id=failed["owner_user_id"],
+                plan_tier=validated_plan_tier,
+                minutes=0,
+            )
         record_job_runtime_event("failed")
         _publish_progress(failed, segment_index=0, trusted_token=trusted_token)
         _deliver_webhooks(failed, WebhookEventType.FAILED.value)
@@ -236,6 +243,12 @@ def _process_segment(
     reproducibility_mode = ReproducibilityMode(job.get("reproducibility_mode", ReproducibilityMode.PERCEPTUAL_EQUIVALENCE.value))
     fidelity_profile = job.get("effective_fidelity_profile") or fidelity_profile_for(FidelityTier(job["fidelity_tier"]))
     version_namespace = f"{fidelity_profile['tier']}:{settings.build_sha}:{settings.gemini_model}"
+    pipeline_variant = build_pipeline_variant_fingerprint(
+        processing_mode=str(job.get("processing_mode", "balanced")),
+        config=job.get("config") or {},
+        era_profile=job.get("era_profile") or {},
+        effective_fidelity_profile=fidelity_profile,
+    )
     cache_entry, cache_state = lookup_segment_cache(
         job=job,
         segment=segment,
@@ -352,6 +365,7 @@ def _process_segment(
                 effective_fidelity_profile=fidelity_profile,
                 reproducibility_mode=reproducibility_mode.value,
                 version_namespace=version_namespace,
+                pipeline_variant=pipeline_variant,
             )
             cache_store = store_segment_cache(
                 cache_key=cache_key,
@@ -581,14 +595,9 @@ def _finalize_job(repo: JobRepository, job_id: str, *, trusted_token: str | None
         "download_ms": 40 if status in {JobStatus.COMPLETED, JobStatus.PARTIAL} else None,
     }
     stage_timings["total_ms"] = _timing_total(stage_timings)
-    released_pool = release_gpu(job_id, gpu_runtime_seconds=gpu_runtime_seconds)
     gpu_summary = {
         **(job.get("gpu_summary") or {}),
         "gpu_runtime_seconds": gpu_runtime_seconds,
-        "desired_warm_instances": released_pool["desired_warm_instances"],
-        "active_warm_instances": released_pool["active_warm_instances"],
-        "busy_instances": released_pool["busy_instances"],
-        "utilization_percent": released_pool["utilization_percent"],
     }
     cost_summary = {
         "gpu_seconds": gpu_runtime_seconds,
@@ -619,7 +628,21 @@ def _finalize_job(repo: JobRepository, job_id: str, *, trusted_token: str | None
         },
     )
     record_job_stage_timings(stage_timings)
-    evaluate_runtime_snapshot(released_pool, cache_summary)
+    evaluate_runtime_snapshot(
+        {
+            "queue_depth": 0,
+            "queue_age_seconds": 0.0,
+            "desired_warm_instances": int(gpu_summary.get("desired_warm_instances") or 0),
+            "active_warm_instances": int(gpu_summary.get("active_warm_instances") or 0),
+            "busy_instances": int(gpu_summary.get("busy_instances") or 0),
+            "idle_instances": max(
+                int(gpu_summary.get("active_warm_instances") or 0) - int(gpu_summary.get("busy_instances") or 0),
+                0,
+            ),
+            "utilization_percent": float(gpu_summary.get("utilization_percent") or 0.0),
+        },
+        cache_summary,
+    )
     if status in {JobStatus.COMPLETED, JobStatus.PARTIAL}:
         try:
             manifest_payload = finalize_manifest_payload(
@@ -666,6 +689,14 @@ def _finalize_job(repo: JobRepository, job_id: str, *, trusted_token: str | None
             plan_tier=finalized["plan_tier"],
             minutes=0,
         )
+    released_pool = release_gpu(job_id, gpu_runtime_seconds=gpu_runtime_seconds)
+    finalized["gpu_summary"] = {
+        **(finalized.get("gpu_summary") or {}),
+        "desired_warm_instances": released_pool["desired_warm_instances"],
+        "active_warm_instances": released_pool["active_warm_instances"],
+        "busy_instances": released_pool["busy_instances"],
+        "utilization_percent": released_pool["utilization_percent"],
+    }
     return finalized
 
 
@@ -785,13 +816,14 @@ def _deliver_webhooks(job: dict[str, Any], event_type: str) -> None:
                 record_webhook_attempt(delivery["status"])
                 if attempt == 3:
                     break
+                time.sleep(RETRY_BACKOFF_SECONDS[attempt - 1])
 
 
 def _send_webhook_request(webhook_url: str, payload: dict[str, Any]) -> None:
     if settings.environment == "test":
         return
     _assert_safe_webhook_target(webhook_url)
-    with httpx.Client(timeout=5.0, follow_redirects=False) as client:
+    with httpx.Client(timeout=5.0, follow_redirects=False, trust_env=False) as client:
         response = client.post(webhook_url, json=payload)
         if 300 <= response.status_code < 400:
             raise RuntimeError("Webhook target redirects are not allowed.")
@@ -867,3 +899,11 @@ def _current_gpu_runtime_seconds(repo: JobRepository, job_id: str) -> int:
         for segment in repo.list_segments(job_id)
         if segment.get("status") in {"completed", "failed"} and segment.get("cache_status") != "hit"
     )
+
+
+def _validate_plan_tier(plan_tier: Any) -> str:
+    normalized = str(plan_tier or "").strip().lower()
+    if normalized not in _VALID_PLAN_TIERS:
+        allowed = ", ".join(sorted(_VALID_PLAN_TIERS))
+        raise ValueError(f"Unsupported plan_tier '{plan_tier}'. Allowed tiers: {allowed}")
+    return normalized

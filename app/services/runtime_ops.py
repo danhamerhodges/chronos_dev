@@ -23,6 +23,7 @@ from app.observability.monitoring import (
     record_runtime_snapshot,
     record_slo_evaluation,
 )
+from app.services.job_pipeline import build_pipeline_variant_fingerprint
 
 _MEMORY_SEGMENT_CACHE: dict[str, dict[str, Any]] = {}
 _SLO_HISTORY: list[dict[str, Any]] = []
@@ -63,6 +64,7 @@ def build_segment_cache_key(
     effective_fidelity_profile: dict[str, Any],
     reproducibility_mode: str,
     version_namespace: str,
+    pipeline_variant: dict[str, str] | None = None,
 ) -> str:
     payload = {
         "user_id": user_id,
@@ -74,6 +76,8 @@ def build_segment_cache_key(
         "reproducibility_mode": reproducibility_mode,
         "version_namespace": version_namespace,
     }
+    if pipeline_variant:
+        payload["pipeline_variant"] = pipeline_variant
     digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
     return f"{settings.segment_cache_namespace}:{digest}"
 
@@ -85,6 +89,12 @@ def lookup_segment_cache(
     effective_fidelity_profile: dict[str, Any],
     version_namespace: str,
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    pipeline_variant = build_pipeline_variant_fingerprint(
+        processing_mode=str(job.get("processing_mode", "balanced")),
+        config=job.get("config") or {},
+        era_profile=job.get("era_profile") or {},
+        effective_fidelity_profile=effective_fidelity_profile,
+    )
     cache_key = build_segment_cache_key(
         user_id=str(job["owner_user_id"]),
         source_asset_checksum=str(job["source_asset_checksum"]),
@@ -92,6 +102,7 @@ def lookup_segment_cache(
         effective_fidelity_profile=effective_fidelity_profile,
         reproducibility_mode=str(job["reproducibility_mode"]),
         version_namespace=version_namespace,
+        pipeline_variant=pipeline_variant,
     )
     started = datetime.now(timezone.utc)
     backend = _segment_cache_backend()

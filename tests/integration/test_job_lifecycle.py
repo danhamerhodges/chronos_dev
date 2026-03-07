@@ -180,3 +180,56 @@ def test_process_job_releases_gpu_on_exception_before_finalize(monkeypatch) -> N
     assert result is not None
     assert result["status"] == "failed"
     assert released == [("job-fail-after-allocate", 0)]
+
+
+def test_process_job_rejects_invalid_plan_tier_before_runtime_processing(monkeypatch) -> None:
+    class StubRepo:
+        def __init__(self) -> None:
+            self.job = {
+                "job_id": "job-invalid-tier",
+                "status": "queued",
+                "started_at": None,
+                "updated_at": "2026-03-07T00:00:00+00:00",
+                "segment_count": 1,
+                "progress_percent": 0.0,
+                "eta_seconds": 0,
+                "owner_user_id": "invalid-user",
+                "plan_tier": "enterprise",
+                "fidelity_tier": "Restore",
+                "current_operation": "Queued",
+                "stage_timings": {},
+            }
+
+        def get_job_for_worker(self, job_id: str) -> dict[str, object]:
+            del job_id
+            return dict(self.job)
+
+        def update_job_for_worker(self, job_id: str, *, patch: dict[str, object]) -> dict[str, object]:
+            del job_id
+            self.job.update(patch)
+            self.job["updated_at"] = "2026-03-07T00:00:01+00:00"
+            return dict(self.job)
+
+        def list_segments(self, job_id: str) -> list[dict[str, object]]:
+            del job_id
+            return []
+
+    repo = StubRepo()
+    billed: list[dict[str, object]] = []
+
+    monkeypatch.setattr(job_runtime, "JobRepository", lambda: repo)
+    monkeypatch.setattr(job_runtime, "authorize_trusted_worker", lambda token: "trusted")
+    monkeypatch.setattr(job_runtime, "_publish_progress", lambda *args, **kwargs: None)
+    monkeypatch.setattr(job_runtime, "_deliver_webhooks", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        job_runtime,
+        "BillingService",
+        lambda: SimpleNamespace(consume_minutes=lambda **kwargs: billed.append(kwargs)),
+    )
+
+    result = job_runtime.process_job("job-invalid-tier", trusted_token="trusted")
+
+    assert result is not None
+    assert result["status"] == "failed"
+    assert "Unsupported plan_tier" in result["last_error"]
+    assert billed == []

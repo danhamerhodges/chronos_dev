@@ -9,6 +9,7 @@ from app.db.phase2_store import (
     ManifestRepository,
     UserProfileRepository,
     WebhookSubscriptionRepository,
+    _SupabaseJobRepository,
     phase2_backend_name,
 )
 
@@ -257,6 +258,152 @@ def test_supabase_webhook_subscription_repository_uses_direct_db_for_enabled_lis
     assert "any(event_types)" in captured["query"]
     assert captured["params"] == ("user-phase3", "completed")
     assert subscriptions[0]["webhook_url"] == "https://hooks.example.test/jobs"
+
+
+def test_supabase_job_repository_rest_retry_does_not_delete_existing_job_on_segment_failure(monkeypatch) -> None:
+    repo = _SupabaseJobRepository()
+    calls: list[tuple[str, object]] = []
+
+    class StubClient:
+        def user_scoped_headers(self, access_token: str) -> dict[str, str]:
+            return {"Authorization": f"Bearer {access_token}"}
+
+        def rest_select(self, table_name: str, *, params: dict[str, str], headers: dict[str, str]) -> list[dict[str, object]]:
+            calls.append(("select", table_name, params, headers))
+            return [{"id": "existing-job"}]
+
+        def rest_upsert(
+            self,
+            table_name: str,
+            *,
+            payload: dict[str, object],
+            on_conflict: str,
+            headers: dict[str, str],
+        ) -> list[dict[str, object]]:
+            calls.append(("upsert", table_name, on_conflict, payload))
+            if table_name == "media_jobs":
+                return [
+                    {
+                        "external_job_id": "job-existing",
+                        "external_user_id": "user-phase3",
+                        "org_id": "org-7",
+                        "media_uri": "gs://chronos-dev/input.mov",
+                        "original_filename": "input.mov",
+                        "mime_type": "video/mp4",
+                        "status": "queued",
+                        "created_at": "2026-03-07T00:00:00+00:00",
+                        "updated_at": "2026-03-07T00:00:00+00:00",
+                    }
+                ]
+            if payload["segment_index"] == 1:
+                raise RuntimeError("segment write failed")
+            return [payload]
+
+        def rest_delete(self, table_name: str, *, params: dict[str, str], headers: dict[str, str]) -> None:
+            calls.append(("delete", table_name, params, headers))
+
+    monkeypatch.setattr(repo, "_client", StubClient())
+
+    with pytest.raises(RuntimeError, match="segment write failed"):
+        repo.create_job(
+            job_id="job-existing",
+            owner_user_id="user-phase3",
+            plan_tier="pro",
+            org_id="org-7",
+            media_uri="gs://chronos-dev/input.mov",
+            original_filename="input.mov",
+            mime_type="video/mp4",
+            source_asset_checksum="abc12345def67890",
+            fidelity_tier="Restore",
+            processing_mode="balanced",
+            era_profile={"capture_medium": "film_scan"},
+            config={"stabilization": "medium"},
+            estimated_duration_seconds=25,
+            segments=[
+                {
+                    "segment_index": 0,
+                    "segment_start_seconds": 0,
+                    "segment_end_seconds": 10,
+                    "segment_duration_seconds": 10,
+                    "idempotency_key": "seg-0",
+                },
+                {
+                    "segment_index": 1,
+                    "segment_start_seconds": 10,
+                    "segment_end_seconds": 20,
+                    "segment_duration_seconds": 10,
+                    "idempotency_key": "seg-1",
+                },
+            ],
+            access_token="token-1",
+        )
+
+    segment_upserts = [entry for entry in calls if entry[0] == "upsert" and entry[1] == "job_segments"]
+    assert len(segment_upserts) == 2
+    assert all(entry[2] == "job_id,segment_index" for entry in segment_upserts)
+    assert not any(entry[0] == "delete" and entry[1] == "media_jobs" for entry in calls)
+
+
+def test_supabase_job_repository_rest_cancellation_keeps_terminal_job_immutable(monkeypatch) -> None:
+    repo = _SupabaseJobRepository()
+    updates: list[tuple[str, dict[str, str]]] = []
+
+    class StubClient:
+        def user_scoped_headers(self, access_token: str) -> dict[str, str]:
+            return {"Authorization": f"Bearer {access_token}"}
+
+        def rest_select(self, table_name: str, *, params: dict[str, str], headers: dict[str, str]) -> list[dict[str, object]]:
+            assert table_name == "media_jobs"
+            return [
+                {
+                    "external_job_id": "job-complete",
+                    "external_user_id": "user-phase3",
+                    "org_id": "org-7",
+                    "media_uri": "gs://chronos-dev/input.mov",
+                    "original_filename": "input.mov",
+                    "mime_type": "video/mp4",
+                    "status": "completed",
+                    "created_at": "2026-03-07T00:00:00+00:00",
+                    "updated_at": "2026-03-07T00:00:00+00:00",
+                }
+            ]
+
+        def rest_update(
+            self,
+            table_name: str,
+            *,
+            payload: dict[str, object],
+            params: dict[str, str],
+            headers: dict[str, str],
+        ) -> list[dict[str, object]]:
+            updates.append((table_name, params))
+            return []
+
+    monkeypatch.setattr(repo, "_client", StubClient())
+
+    result = repo.request_cancellation(
+        "job-complete",
+        owner_user_id="user-phase3",
+        access_token="token-1",
+    )
+
+    assert result is not None
+    assert result["status"] == "completed"
+    assert updates == []
+
+
+def test_supabase_job_repository_rejects_unknown_worker_job_patch_field() -> None:
+    repo = _SupabaseJobRepository()
+
+    with pytest.raises(ValueError, match="Unsupported worker patch field 'drop_table'"):
+        repo.update_job_for_worker("job-1", patch={"drop_table": "jobs"})
+
+
+def test_supabase_job_repository_rejects_unknown_worker_segment_patch_field() -> None:
+    repo = _SupabaseJobRepository()
+
+    with pytest.raises(ValueError, match="Unsupported worker patch field 'drop_table'"):
+        repo.update_segment_for_worker("job-1", 0, patch={"drop_table": "segments"})
 
 
 def test_supabase_job_repository_checks_ownership_before_direct_db_cancellation(monkeypatch) -> None:

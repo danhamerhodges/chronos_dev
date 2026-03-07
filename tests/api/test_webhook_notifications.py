@@ -32,6 +32,7 @@ def test_webhook_notifications_fire_for_started_and_completed_events() -> None:
 
 def test_webhook_delivery_retries_up_to_three_attempts(monkeypatch) -> None:
     attempts = {"count": 0}
+    sleeps: list[int] = []
 
     def flaky_sender(url: str, payload: dict[str, object]) -> None:
         del url, payload
@@ -40,6 +41,7 @@ def test_webhook_delivery_retries_up_to_three_attempts(monkeypatch) -> None:
             raise RuntimeError("temporary webhook failure")
 
     monkeypatch.setattr(job_runtime, "_send_webhook_request", flaky_sender)
+    monkeypatch.setattr(job_runtime.time, "sleep", lambda seconds: sleeps.append(seconds))
     WebhookSubscriptionRepository().upsert(
         owner_user_id="retry-webhook-user",
         webhook_url="https://hooks.example.test/retry",
@@ -56,6 +58,7 @@ def test_webhook_delivery_retries_up_to_three_attempts(monkeypatch) -> None:
 
     assert [item["status"] for item in deliveries] == ["retrying", "retrying", "delivered"]
     assert [item["attempt"] for item in deliveries] == [1, 2, 3]
+    assert sleeps == [1, 2]
 
 
 def test_completion_webhook_payload_includes_packet_3b_fields(monkeypatch) -> None:
@@ -105,6 +108,7 @@ def test_webhook_sender_rejects_private_targets(monkeypatch) -> None:
 
 def test_webhook_sender_rejects_redirect_targets(monkeypatch) -> None:
     monkeypatch.setattr(job_runtime, "settings", SimpleNamespace(environment="staging"))
+    client_kwargs: dict[str, object] = {}
     monkeypatch.setattr(
         job_runtime.socket,
         "getaddrinfo",
@@ -113,7 +117,8 @@ def test_webhook_sender_rejects_redirect_targets(monkeypatch) -> None:
 
     class RedirectClient:
         def __init__(self, *args, **kwargs) -> None:
-            pass
+            del args
+            client_kwargs.update(kwargs)
 
         def __enter__(self):
             return self
@@ -129,3 +134,4 @@ def test_webhook_sender_rejects_redirect_targets(monkeypatch) -> None:
 
     with pytest.raises(RuntimeError, match="redirects are not allowed"):
         job_runtime._send_webhook_request("https://hooks.example.test/jobs", {"job_id": "job-1"})
+    assert client_kwargs["trust_env"] is False

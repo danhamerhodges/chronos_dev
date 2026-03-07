@@ -57,6 +57,21 @@ def test_pipeline_rejects_non_positive_durations() -> None:
         )
 
 
+def test_pipeline_rounds_fractional_durations_up_to_cover_trailing_media() -> None:
+    segments = build_segments(
+        user_id="pipeline-user",
+        source_asset_checksum="abc12345def67890",
+        estimated_duration_seconds=10.2,
+        fidelity_tier="Restore",
+        processing_mode="balanced",
+        era_profile={"capture_medium": "film_scan"},
+        config={"stabilization": "medium"},
+    )
+
+    assert len(segments) == 2
+    assert segments[-1]["segment_end_seconds"] == 11
+
+
 def test_pipeline_idempotency_seed_is_unambiguous_when_fields_contain_delimiters() -> None:
     baseline = build_segments(
         user_id="user|a",
