@@ -119,6 +119,27 @@ def test_redact_sensitive_diff_content_redacts_secret_like_lines() -> None:
     assert 'sk-test-secret-value' not in redacted
 
 
+def test_redact_sensitive_diff_content_redacts_common_secret_patterns() -> None:
+    module = _load_module()
+    diff = "\n".join(
+        [
+            "diff --git a/app/config.py b/app/config.py",
+            "--- a/app/config.py",
+            "+++ b/app/config.py",
+            '+AUTHORIZATION = "Bearer super-secret-token"',
+            '+DB_PASSWORD = "super-secret-password"',
+            "+PRIVATE_KEY = '-----BEGIN PRIVATE KEY-----'",
+        ]
+    )
+
+    redacted = module.redact_sensitive_diff_content(diff)
+
+    assert redacted.count("[REDACTED SENSITIVE CONTENT]") == 3
+    assert "super-secret-token" not in redacted
+    assert "super-secret-password" not in redacted
+    assert "BEGIN PRIVATE KEY" not in redacted
+
+
 def test_select_reviewable_diff_paths_omits_sensitive_and_excess_paths() -> None:
     module = _load_module()
     changed_files = [
@@ -185,7 +206,14 @@ def test_upsert_pr_comment_paginates_before_patching(monkeypatch: pytest.MonkeyP
         if method == "GET" and path.endswith("page=1"):
             return [{"id": idx, "body": "other comment"} for idx in range(100)]
         if method == "GET" and path.endswith("page=2"):
-            return [{"id": 777, "body": f"{module.REVIEW_MARKER}\nold body", "user": {"login": "github-actions"}}]
+            return [
+                {
+                    "id": 777,
+                    "body": f"{module.REVIEW_MARKER}\nold body",
+                    "user": {"login": "codex-review[bot]", "type": "Bot"},
+                    "performed_via_github_app": {"slug": "github-actions"},
+                }
+            ]
         if method == "PATCH":
             return {"id": 777, "html_url": "https://example.com/comment/777", "body": body["body"]}
         raise AssertionError(f"Unexpected request: {method} {path}")
@@ -206,6 +234,34 @@ def test_upsert_pr_comment_paginates_before_patching(monkeypatch: pytest.MonkeyP
     ]
     assert seen_paths[2][0] == "PATCH"
     assert seen_paths[2][1] == "/repos/danhamerhodges/chronos_dev/issues/comments/777"
+
+
+def test_upsert_pr_comment_uses_legacy_bot_login_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_module()
+
+    def fake_github_request(method: str, path: str, token: str, body=None):
+        if method == "GET":
+            return [
+                {
+                    "id": 303,
+                    "body": f"{module.REVIEW_MARKER}\nold body",
+                    "user": {"login": "github-actions[bot]", "type": "Bot"},
+                }
+            ]
+        if method == "PATCH":
+            return {"id": 303, "html_url": "https://example.com/comment/303", "body": body["body"]}
+        raise AssertionError(f"Unexpected request: {method} {path}")
+
+    monkeypatch.setattr(module, "github_request", fake_github_request)
+
+    result = module.upsert_pr_comment(
+        repo_full_name="danhamerhodges/chronos_dev",
+        issue_number=3,
+        token="ghs_test",
+        body="updated body",
+    )
+
+    assert result["html_url"] == "https://example.com/comment/303"
 
 
 def test_upsert_pr_comment_does_not_overwrite_non_bot_marker_comment(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -232,6 +288,38 @@ def test_upsert_pr_comment_does_not_overwrite_non_bot_marker_comment(monkeypatch
     assert result["html_url"] == "https://example.com/comment/202"
     assert seen_paths[-1][0] == "POST"
     assert "/repos/danhamerhodges/chronos_dev/issues/3/comments" == seen_paths[-1][1]
+
+
+def test_upsert_pr_comment_does_not_overwrite_other_bot_marker_comment(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_module()
+    seen_paths: list[tuple[str, str, object | None]] = []
+
+    def fake_github_request(method: str, path: str, token: str, body=None):
+        seen_paths.append((method, path, body))
+        if method == "GET":
+            return [
+                {
+                    "id": 404,
+                    "body": f"{module.REVIEW_MARKER}\nforeign automation",
+                    "user": {"login": "other-bot[bot]", "type": "Bot"},
+                    "performed_via_github_app": {"slug": "other-app"},
+                }
+            ]
+        if method == "POST":
+            return {"id": 505, "html_url": "https://example.com/comment/505", "body": body["body"]}
+        raise AssertionError(f"Unexpected request: {method} {path}")
+
+    monkeypatch.setattr(module, "github_request", fake_github_request)
+
+    result = module.upsert_pr_comment(
+        repo_full_name="danhamerhodges/chronos_dev",
+        issue_number=3,
+        token="ghs_test",
+        body="new body",
+    )
+
+    assert result["html_url"] == "https://example.com/comment/505"
+    assert seen_paths[-1][0] == "POST"
 
 
 def test_main_returns_zero_for_intentional_skip(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:

@@ -26,7 +26,8 @@ MAX_COMMENT_BODY_CHARS = 60_000
 MAX_ERROR_TEXT_CHARS = 300
 OPENAI_BASE_URL = "https://api.openai.com/v1/responses"
 GITHUB_API_BASE = "https://api.github.com"
-BOT_AUTHOR_LOGINS = {"github-actions", "github-actions[bot]"}
+GITHUB_ACTIONS_APP_SLUG = "github-actions"
+LEGACY_BOT_AUTHOR_LOGINS = {"github-actions", "github-actions[bot]"}
 SENSITIVE_PATH_SUFFIXES = (
     ".env",
     ".key",
@@ -343,18 +344,20 @@ def list_issue_comments(*, owner: str, repo: str, issue_number: int, token: str)
         page += 1
 
 
+def is_owned_review_comment(comment: dict[str, Any]) -> bool:
+    if REVIEW_MARKER not in comment.get("body", ""):
+        return False
+    app = comment.get("performed_via_github_app") or {}
+    if app.get("slug") == GITHUB_ACTIONS_APP_SLUG:
+        return True
+    user = comment.get("user") or {}
+    return user.get("type") == "Bot" and user.get("login") in LEGACY_BOT_AUTHOR_LOGINS
+
+
 def upsert_pr_comment(*, repo_full_name: str, issue_number: int, token: str, body: str) -> dict[str, Any]:
     owner, repo = repo_full_name.split("/", 1)
     comments = list_issue_comments(owner=owner, repo=repo, issue_number=issue_number, token=token)
-    existing = next(
-        (
-            item
-            for item in comments
-            if REVIEW_MARKER in item.get("body", "")
-            and item.get("user", {}).get("login") in BOT_AUTHOR_LOGINS
-        ),
-        None,
-    )
+    existing = next((item for item in comments if is_owned_review_comment(item)), None)
     if existing:
         return github_request("PATCH", f"/repos/{owner}/{repo}/issues/comments/{existing['id']}", token, {"body": body})
     return github_request("POST", f"/repos/{owner}/{repo}/issues/{issue_number}/comments", token, {"body": body})

@@ -39,3 +39,14 @@ def test_staging_deploy_workflow_is_non_placeholder() -> None:
     assert "verify_cloud_run_runtime.py" in workflow
     assert "workload_identity_provider" in workflow
     assert "placeholder" not in workflow.lower()
+
+
+def test_codex_pr_review_workflow_guards_same_repo_and_non_draft_runs() -> None:
+    root = Path(__file__).resolve().parents[2]
+    workflow = (root / ".github/workflows/codex-pr-review.yml").read_text(encoding="utf-8")
+
+    assert "pull_request:" in workflow
+    assert "github.event.pull_request.draft == false" in workflow
+    assert "github.event.pull_request.head.repo.full_name == github.repository" in workflow
+    assert "OPENAI_API_KEY" in workflow
+    assert "OPENAI_PROJECT_ID" in workflow
