@@ -11,6 +11,7 @@ try:
     from fastapi.testclient import TestClient
     from app.main import app
     from app.db.phase2_store import reset_phase2_store
+    from app.services.job_runtime import reset_job_runtime_state
     from app.services.rate_limits import reset_rate_limits
 
     client = TestClient(app)
@@ -24,4 +25,5 @@ def reset_phase2_state() -> None:
     if client is None:
         return
     reset_phase2_store()
+    reset_job_runtime_state()
     reset_rate_limits()

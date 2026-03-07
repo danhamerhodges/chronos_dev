@@ -65,7 +65,7 @@ If an ID/title conflicts with the above, this matrix must be updated immediately
 |---|---|---|
 | **Phase 1: Foundation & Core Infrastructure** | 6 requirements | 10% |
 | **Phase 2: API Foundation & Data Layer** | 6 requirements | 10% |
-| **Phase 3: Core Processing Pipeline & AI Integration** | 12 requirements | 20% |
+| **Phase 3: Core Processing Pipeline & AI Integration** | 12 requirements | 25% |
 | **Phase 4: User-Facing Features & Application Logic** | 14 requirements | 24% |
 | **Phase 5: Advanced Features & UX Refinement** | 11 requirements | 19% |
 | **Phase 6: Production Readiness & Launch** | 10 requirements | 17% |
@@ -105,7 +105,7 @@ If an ID/title conflicts with the above, this matrix must be updated immediately
 
 ---
 
-## Phase 3: Core Processing Pipeline & AI Integration (12 requirements, 20%)
+## Phase 3: Core Processing Pipeline & AI Integration (12 requirements, 25%)
 
 | Req ID | Requirement Name | Dependencies | Test Files | Verification | Risk |
 |---|---|---|---|---|---|
@@ -114,13 +114,13 @@ If an ID/title conflicts with the above, this matrix must be updated immediately
 | **ENG-006** | Quality Metrics Calculation | ENG-003, ENG-005 | `tests/quality/test_metrics_calculation.py`, `tests/quality/test_e_hf_s_ls_t_tc.py` | Automated | High |
 | **ENG-007** | Reproducibility Proof | ENG-003, ENG-006 | `tests/processing/test_av1_fgs.py`, `tests/processing/test_reproducibility.py` | Automated | High |
 | **ENG-008** | GPU Pool Management | ENG-003, OPS-003 | `tests/infrastructure/test_gpu_pool.py`, `tests/infrastructure/test_autoscaler.py` | Automated + Load | High |
-| **ENG-009** | Deduplication Cache | ENG-003 | `tests/infrastructure/test_deduplication_cache.py`, `tests/integration/test_cache_hit_rate.py` | Automated | Medium |
+| **ENG-009** | Deduplication Cache | ENG-003 | `tests/infrastructure/test_cache_dedup.py`, `tests/integration/test_partial_results.py` | Automated | Medium |
 | **ENG-010** | Transformation Manifest Generation | ENG-003, ENG-006, ENG-007 | `tests/processing/test_manifest_generation.py`, `tests/api/test_transformation_manifest.py` | Automated | High |
 | **ENG-011** | Async Processing | ENG-002, ENG-003 | `tests/api/test_async_processing.py`, `tests/api/test_progress_updates.py` | Automated + Load | High |
 | **ENG-012** | Error Recovery | ENG-003, ENG-011 | `tests/processing/test_error_recovery.py`, `tests/integration/test_partial_results.py` | Automated | High |
 | **NFR-002** | Processing Time SLO | ENG-003, ENG-007 | `tests/load/test_processing_performance.py` | Automated | High |
 | **SEC-007** | Customer-Managed Encryption Keys (CMEK) | ENG-005, ENG-006 | `tests/security/test_model_security.py` | Manual | Medium |
-| **OPS-003** | Incident Response | ENG-008 | `tests/ops/test_gpu_management.py` | Automated | High |
+| **OPS-003** | Incident Response | ENG-008 | `tests/ops/test_incident_response.py`, `infra/runbooks/incident-response.md` | Automated + Manual | High |
 
 **Phase Goal:** Build and validate core AI/ML processing pipeline
 
@@ -281,7 +281,7 @@ Source evidence:
 |---|---:|---|---|
 | Phase 1: Foundation & Core Infrastructure | 6/6 | ✅ Complete (baseline scope) | Baseline scaffolding and validation confirmed in `docs/phase1_readiness_report.md` |
 | Phase 2: API Foundation & Data Layer | 0/6 | 🔄 In Progress (kickoff/planning) | Phase 2 kickoff packet required before implementation |
-| Phase 3: Core Processing Pipeline & AI Integration | 0/12 | ⏸️ Not Started | Dependent on Phase 2 completion |
+| Phase 3: Core Processing Pipeline & AI Integration | 11/12 | 🔄 In Progress | Packets 3A, 3B, and 3C implemented locally; SEC-007 remains deferred to its canonical `GA+3 months` milestone |
 | Phase 4: User-Facing Features & Application Logic | 0/14 | ⏸️ Not Started | Dependent on Phase 3 completion |
 | Phase 5: Advanced Features & UX Refinement | 0/11 | ⏸️ Not Started | Dependent on Phase 4 completion |
 | Phase 6: Production Readiness & Launch | 0/10 | ⏸️ Not Started | Dependent on Phase 5 completion |
@@ -303,18 +303,39 @@ Source evidence:
 
 ### Phase 2 Progress: API Foundation & Data Layer
 
-**Requirements:** 0 of 6 complete (0%)  
-**Status:** In Progress (planning/kickoff)  
-**Completion Date:** Target TBD / Actual N/A
+**Requirements:** 6 of 6 complete (merged to `main`)  
+**Status:** Complete (merged via PR #1)  
+**Completion Date:** Target TBD / Actual 2026-03-06 (`main` at `709687a`)
 
 | Req ID | Status | Notes |
 |---|---|---|
-| ENG-001 | ⏳ Not Started | Kickoff packet required |
-| ENG-002 | ⏳ Not Started | Kickoff packet required |
-| ENG-004 | ⏳ Not Started | Kickoff packet required |
-| FR-002 | ⏳ Not Started | Kickoff packet required |
-| SEC-009 | ⏳ Not Started | Kickoff packet required |
-| NFR-007 | ⏳ Not Started | Kickoff packet required |
+| ENG-001 | ✅ Complete | JSON Schema validation merged to `main` in PR #1 |
+| ENG-002 | ✅ Complete | Approved Phase 2 API subset merged; canonical ENG-002 endpoint scope remains broader in Engineering Requirements |
+| ENG-004 | ✅ Complete | Era-detection service, provider fallback, and persistence merged to `main` |
+| FR-002 | ✅ Complete | `/v1/detect-era` contract, manual override, and integration coverage merged |
+| SEC-009 | ✅ Complete | Log retention, PII redaction, and log-deletion flows merged to `main` |
+| NFR-007 | ✅ Complete | Billing limits, overage approval, and usage controls merged to `main` |
+
+### Phase 3 Progress: Core Processing Pipeline & AI Integration
+
+**Requirements:** 11 of 12 complete on current branch (92%)  
+**Status:** In Progress (Packets 3A, 3A.1, 3A.2, 3B, and 3C implemented locally; only the deferred `SEC-007` milestone remains outside the current branch scope)  
+**Completion Date:** Target TBD / Actual TBD
+
+| Req ID | Status | Notes |
+|---|---|---|
+| ENG-003 | ✅ Complete | Job/segment pipeline, deterministic segmentation, persisted output pointers, and processing tests implemented on current branch |
+| ENG-005 | ✅ Complete | Reference-first fidelity profile enforcement, persistence, and validation implemented locally |
+| ENG-006 | ✅ Complete | Deterministic reference metric calculation, sampling metadata, and threshold reporting implemented locally |
+| ENG-007 | ✅ Complete | Perceptual-equivalence + deterministic reproducibility proofs, rerun handling, and rollup reporting implemented locally |
+| ENG-008 | ✅ Complete | GPU warm-pool reconciliation, allocation latency tracking, autoscaling signals, and runtime ops hooks implemented locally |
+| ENG-009 | ✅ Complete | Redis-compatible per-user segment dedup cache with degraded mode, invalidation namespace, and cache reporting implemented locally |
+| ENG-010 | ✅ Complete | Manifest generation, persistence, retrieval API, and schema-backed payload contract implemented locally |
+| ENG-011 | ✅ Complete | `/v1/jobs` API, Pub/Sub-capable dispatch boundary, trusted worker ingress, progress contract, cancellation, and webhook delivery tests implemented on current branch |
+| ENG-012 | ✅ Complete | Retry/backoff, segment isolation, partial-results handling, and worker-contract coverage implemented on current branch |
+| NFR-002 | ✅ Complete | End-to-end SLO accounting, five-stage timing plus queue/allocation tracking, alert hooks, and runtime summaries implemented locally |
+| SEC-007 | ⏸️ Deferred | Canonically tracked as `GA+3 months` |
+| OPS-003 | ✅ Complete | Incident persistence, severity mapping, alert routing hooks, and runbook references implemented locally |
 
 ## Progress Tracking Template
 

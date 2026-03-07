@@ -8,6 +8,7 @@ from datetime import date, datetime, timezone
 from typing import Any
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
+from app.models.status import JobStatus
 from app.config import settings
 from app.db.client import SupabaseClient
 
@@ -58,10 +59,15 @@ class Phase2Store:
     users: dict[str, dict[str, Any]] = field(default_factory=dict)
     usage: dict[str, dict[str, Any]] = field(default_factory=dict)
     jobs: dict[str, dict[str, Any]] = field(default_factory=dict)
+    job_segments: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    job_manifests: dict[str, dict[str, Any]] = field(default_factory=dict)
+    gpu_leases: dict[str, dict[str, Any]] = field(default_factory=dict)
+    incidents: dict[str, dict[str, Any]] = field(default_factory=dict)
     era_detections: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     log_settings: dict[str, dict[str, Any]] = field(default_factory=dict)
     deletion_requests: dict[str, dict[str, Any]] = field(default_factory=dict)
     deletion_proofs: dict[str, dict[str, Any]] = field(default_factory=dict)
+    webhook_subscriptions: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
 
 _STORE = Phase2Store()
@@ -71,10 +77,15 @@ def reset_phase2_store() -> None:
     _STORE.users.clear()
     _STORE.usage.clear()
     _STORE.jobs.clear()
+    _STORE.job_segments.clear()
+    _STORE.job_manifests.clear()
+    _STORE.gpu_leases.clear()
+    _STORE.incidents.clear()
     _STORE.era_detections.clear()
     _STORE.log_settings.clear()
     _STORE.deletion_requests.clear()
     _STORE.deletion_proofs.clear()
+    _STORE.webhook_subscriptions.clear()
 
 
 class _MemoryUserProfileRepository:
@@ -228,6 +239,304 @@ class _MemoryComplianceRepository:
         _STORE.deletion_requests[deletion_request_id] = request_record
         _STORE.deletion_proofs[deletion_proof_id] = proof_record
         return dict(request_record)
+
+
+class _MemoryJobRepository:
+    def create_job(
+        self,
+        *,
+        job_id: str,
+        owner_user_id: str,
+        plan_tier: str,
+        org_id: str,
+        media_uri: str,
+        original_filename: str,
+        mime_type: str,
+        source_asset_checksum: str,
+        fidelity_tier: str,
+        processing_mode: str,
+        era_profile: dict[str, Any],
+        config: dict[str, Any],
+        estimated_duration_seconds: int,
+        segments: list[dict[str, Any]],
+        effective_fidelity_tier: str | None = None,
+        effective_fidelity_profile: dict[str, Any] | None = None,
+        reproducibility_mode: str = "perceptual_equivalence",
+        access_token: str | None = None,
+    ) -> dict[str, Any]:
+        del access_token
+        created_at = _utc_now()
+        record = {
+            "job_id": job_id,
+            "owner_user_id": owner_user_id,
+            "plan_tier": plan_tier,
+            "org_id": org_id,
+            "media_uri": media_uri,
+            "original_filename": original_filename,
+            "mime_type": mime_type,
+            "source_asset_checksum": source_asset_checksum,
+            "fidelity_tier": fidelity_tier,
+            "effective_fidelity_tier": effective_fidelity_tier or fidelity_tier,
+            "effective_fidelity_profile": effective_fidelity_profile or {},
+            "reproducibility_mode": reproducibility_mode,
+            "processing_mode": processing_mode,
+            "era_profile": era_profile,
+            "config": config,
+            "estimated_duration_seconds": estimated_duration_seconds,
+            "segment_duration_seconds": 10,
+            "segment_count": len(segments),
+            "completed_segment_count": 0,
+            "failed_segment_count": 0,
+            "progress_percent": 0.0,
+            "eta_seconds": estimated_duration_seconds,
+            "status": JobStatus.QUEUED.value,
+            "current_operation": "Queued for processing",
+            "progress_topic": f"job_progress:{job_id}",
+            "result_uri": None,
+            "manifest_available": False,
+            "manifest_uri": None,
+            "manifest_sha256": None,
+            "manifest_generated_at": None,
+            "manifest_size_bytes": 0,
+            "quality_summary": {"e_hf": 0.0, "s_ls_db": 0.0, "t_tc": 0.0, "thresholds_met": False},
+            "reproducibility_summary": None,
+            "stage_timings": {
+                "upload_ms": None,
+                "era_detection_ms": None,
+                "queue_wait_ms": None,
+                "allocation_ms": None,
+                "processing_ms": None,
+                "encoding_ms": None,
+                "download_ms": None,
+                "total_ms": None,
+            },
+            "cache_summary": {
+                "hits": 0,
+                "misses": 0,
+                "bypassed": 0,
+                "degraded": False,
+                "hit_rate": 0.0,
+                "saved_gpu_seconds": 0,
+            },
+            "gpu_summary": {
+                "gpu_type": None,
+                "warm_start": None,
+                "allocation_latency_ms": None,
+                "gpu_runtime_seconds": 0,
+                "desired_warm_instances": 0,
+                "active_warm_instances": 0,
+                "busy_instances": 0,
+                "utilization_percent": 0.0,
+            },
+            "cost_summary": {
+                "gpu_seconds": 0,
+                "storage_operations": 0,
+                "api_calls": 0,
+                "total_cost_usd": 0.0,
+            },
+            "slo_summary": {
+                "target_total_ms": estimated_duration_seconds * 2000,
+                "actual_total_ms": None,
+                "p95_ratio": None,
+                "compliant": None,
+                "degraded": False,
+                "error_budget_burn_percent": 0.0,
+                "museum_sla_applies": plan_tier.lower() == "museum",
+            },
+            "failed_segments": [],
+            "warnings": [],
+            "last_error": None,
+            "queued_at": created_at,
+            "created_at": created_at,
+            "started_at": None,
+            "completed_at": None,
+            "cancel_requested_at": None,
+            "updated_at": created_at,
+        }
+        _STORE.jobs[job_id] = record
+        _STORE.job_segments[job_id] = [
+            {
+                "job_id": job_id,
+                "segment_index": segment["segment_index"],
+                "segment_start_seconds": segment["segment_start_seconds"],
+                "segment_end_seconds": segment["segment_end_seconds"],
+                "segment_duration_seconds": segment["segment_duration_seconds"],
+                "status": "queued",
+                "attempt_count": 0,
+                "idempotency_key": segment["idempotency_key"],
+                "last_error_classification": None,
+                "retry_backoffs_seconds": [],
+                "output_uri": None,
+                "cache_status": "miss",
+                "cache_hit_latency_ms": None,
+                "cache_namespace": None,
+                "cached_output_uri": None,
+                "gpu_type": None,
+                "allocation_latency_ms": None,
+                "quality_metrics": None,
+                "reproducibility_proof": None,
+                "uncertainty_callouts": [],
+                "updated_at": created_at,
+            }
+            for segment in segments
+        ]
+        return dict(record)
+
+    def get_job(self, job_id: str, *, owner_user_id: str | None = None, access_token: str | None = None) -> dict[str, Any] | None:
+        del access_token
+        record = _STORE.jobs.get(job_id)
+        if record is None:
+            return None
+        if owner_user_id and record["owner_user_id"] != owner_user_id:
+            return None
+        return dict(record)
+
+    def list_jobs(
+        self,
+        *,
+        owner_user_id: str,
+        access_token: str | None = None,
+    ) -> list[dict[str, Any]]:
+        del access_token
+        rows = [dict(record) for record in _STORE.jobs.values() if record["owner_user_id"] == owner_user_id]
+        return sorted(rows, key=lambda item: item["created_at"], reverse=True)
+
+    def list_segments(self, job_id: str, *, owner_user_id: str | None = None, access_token: str | None = None) -> list[dict[str, Any]]:
+        del access_token
+        job = _STORE.jobs.get(job_id)
+        if job is None:
+            return []
+        if owner_user_id and job["owner_user_id"] != owner_user_id:
+            return []
+        return [dict(segment) for segment in _STORE.job_segments.get(job_id, [])]
+
+    def request_cancellation(
+        self,
+        job_id: str,
+        *,
+        owner_user_id: str,
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        del access_token
+        record = _STORE.jobs.get(job_id)
+        if record is None or record["owner_user_id"] != owner_user_id:
+            return None
+        if record["status"] not in {
+            JobStatus.COMPLETED.value,
+            JobStatus.FAILED.value,
+            JobStatus.PARTIAL.value,
+            JobStatus.CANCELLED.value,
+        }:
+            record["status"] = JobStatus.CANCEL_REQUESTED.value
+            record["cancel_requested_at"] = _utc_now()
+            record["updated_at"] = record["cancel_requested_at"]
+            _STORE.jobs[job_id] = record
+        return dict(record)
+
+    def get_job_for_worker(self, job_id: str) -> dict[str, Any] | None:
+        return self.get_job(job_id)
+
+    def update_job_for_worker(self, job_id: str, *, patch: dict[str, Any]) -> dict[str, Any]:
+        record = dict(_STORE.jobs[job_id])
+        record.update(patch)
+        record["updated_at"] = _utc_now()
+        _STORE.jobs[job_id] = record
+        return dict(record)
+
+    def update_segment_for_worker(self, job_id: str, segment_index: int, *, patch: dict[str, Any]) -> dict[str, Any]:
+        segments = list(_STORE.job_segments.get(job_id, []))
+        for idx, segment in enumerate(segments):
+            if segment["segment_index"] == segment_index:
+                updated = dict(segment)
+                updated.update(patch)
+                updated["updated_at"] = _utc_now()
+                segments[idx] = updated
+                _STORE.job_segments[job_id] = segments
+                return dict(updated)
+        raise KeyError(f"Unknown segment {segment_index} for job {job_id}")
+
+
+class _MemoryWebhookSubscriptionRepository:
+    def upsert(
+        self,
+        *,
+        owner_user_id: str,
+        webhook_url: str,
+        event_types: list[str],
+        enabled: bool = True,
+    ) -> dict[str, Any]:
+        subscriptions = list(_STORE.webhook_subscriptions.get(owner_user_id, []))
+        existing = next((item for item in subscriptions if item["webhook_url"] == webhook_url), None)
+        record = {
+            "id": existing["id"] if existing else str(uuid4()),
+            "owner_user_id": owner_user_id,
+            "webhook_url": webhook_url,
+            "event_types": list(event_types),
+            "enabled": enabled,
+            "created_at": existing["created_at"] if existing else _utc_now(),
+            "updated_at": _utc_now(),
+        }
+        subscriptions = [item for item in subscriptions if item["webhook_url"] != webhook_url]
+        subscriptions.append(record)
+        _STORE.webhook_subscriptions[owner_user_id] = subscriptions
+        return dict(record)
+
+    def list_enabled(self, *, owner_user_id: str, event_type: str) -> list[dict[str, Any]]:
+        return [
+            dict(item)
+            for item in _STORE.webhook_subscriptions.get(owner_user_id, [])
+            if item["enabled"] and event_type in item["event_types"]
+        ]
+
+
+class _MemoryManifestRepository:
+    def upsert_manifest_for_worker(self, *, job_id: str, manifest: dict[str, Any]) -> dict[str, Any]:
+        _STORE.job_manifests[job_id] = dict(manifest)
+        return dict(manifest)
+
+    def get_manifest(
+        self,
+        job_id: str,
+        *,
+        owner_user_id: str | None = None,
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        del access_token
+        job = _STORE.jobs.get(job_id)
+        if job is None:
+            return None
+        if owner_user_id and job["owner_user_id"] != owner_user_id:
+            return None
+        manifest = _STORE.job_manifests.get(job_id)
+        return dict(manifest) if manifest else None
+
+
+class _MemoryRuntimeOpsRepository:
+    def list_gpu_leases(self) -> list[dict[str, Any]]:
+        return [dict(item) for item in _STORE.gpu_leases.values()]
+
+    def upsert_gpu_lease(self, *, worker_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        record = dict(payload)
+        record["worker_id"] = worker_id
+        record.setdefault("created_at", _utc_now())
+        record["updated_at"] = _utc_now()
+        _STORE.gpu_leases[worker_id] = record
+        return dict(record)
+
+    def delete_gpu_lease(self, worker_id: str) -> None:
+        _STORE.gpu_leases.pop(worker_id, None)
+
+    def list_incidents(self) -> list[dict[str, Any]]:
+        return sorted((dict(item) for item in _STORE.incidents.values()), key=lambda item: item["opened_at"], reverse=True)
+
+    def upsert_incident(self, *, incident_key: str, payload: dict[str, Any]) -> dict[str, Any]:
+        existing = _STORE.incidents.get(incident_key, {})
+        record = {**existing, **payload, "incident_key": incident_key}
+        record.setdefault("incident_id", existing.get("incident_id", str(uuid4())))
+        record.setdefault("opened_at", existing.get("opened_at", _utc_now()))
+        record["updated_at"] = _utc_now()
+        _STORE.incidents[incident_key] = record
+        return dict(record)
 
 
 class _SupabaseRepositoryBase:
@@ -781,39 +1090,24 @@ class _SupabaseEraDetectionRepository(_SupabaseRepositoryBase):
 
 class _SupabaseLogSettingsRepository(_SupabaseRepositoryBase):
     def upsert(self, *, org_id: str, payload: dict[str, Any], updated_by: str, access_token: str | None = None) -> dict[str, Any]:
-        from psycopg.types.json import Jsonb
-
-        with self._connect() as conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                insert into public.org_log_settings (
-                    org_id, retention_days, redaction_mode, categories,
-                    export_targets, updated_by, external_updated_by, updated_at
-                )
-                values (%s, %s, %s, %s, %s, %s, %s, now())
-                on conflict (org_id) do update
-                set retention_days = excluded.retention_days,
-                    redaction_mode = excluded.redaction_mode,
-                    categories = excluded.categories,
-                    export_targets = excluded.export_targets,
-                    updated_by = excluded.updated_by,
-                    external_updated_by = excluded.external_updated_by,
-                    updated_at = now()
-                returning *
-                """,
-                (
-                    org_id,
-                    payload["retention_days"],
-                    payload["redaction_mode"],
-                    Jsonb(payload["categories"]),
-                    Jsonb(payload["export_targets"]),
-                    _stable_uuid(updated_by),
-                    updated_by,
-                ),
-            )
-            row = cur.fetchone()
-        if row is None:
-            raise RuntimeError("Failed to upsert log settings")
+        if not access_token:
+            raise ValueError("User-scoped access token is required for org log settings writes.")
+        headers = self._client.user_scoped_headers(access_token)
+        row = self._client.rest_upsert(
+            "org_log_settings",
+            payload={
+                "org_id": org_id,
+                "retention_days": payload["retention_days"],
+                "redaction_mode": payload["redaction_mode"],
+                "categories": payload["categories"],
+                "export_targets": payload["export_targets"],
+                "updated_by": _stable_uuid(updated_by),
+                "external_updated_by": updated_by,
+                "updated_at": _utc_now(),
+            },
+            on_conflict="org_id",
+            headers=headers,
+        )[0]
         return {
             "org_id": row["org_id"],
             "retention_days": row["retention_days"],
@@ -825,11 +1119,21 @@ class _SupabaseLogSettingsRepository(_SupabaseRepositoryBase):
         }
 
     def get(self, org_id: str, *, access_token: str | None = None) -> dict[str, Any] | None:
-        with self._connect() as conn, conn.cursor() as cur:
-            cur.execute("select * from public.org_log_settings where org_id = %s limit 1", (org_id,))
-            row = cur.fetchone()
-        if row is None:
+        if not access_token:
+            raise ValueError("User-scoped access token is required for org log settings reads.")
+        headers = self._client.user_scoped_headers(access_token)
+        rows = self._client.rest_select(
+            "org_log_settings",
+            params={
+                "select": "*",
+                "org_id": f"eq.{org_id}",
+                "limit": "1",
+            },
+            headers=headers,
+        )
+        if not rows:
             return None
+        row = rows[0]
         return {
             "org_id": row["org_id"],
             "retention_days": row["retention_days"],
@@ -839,7 +1143,6 @@ class _SupabaseLogSettingsRepository(_SupabaseRepositoryBase):
             "updated_by": row.get("external_updated_by"),
             "updated_at": row["updated_at"],
         }
-
 
 class _SupabaseComplianceRepository(_SupabaseRepositoryBase):
     def create_deletion_request(self, *, user_id: str, payload: dict[str, Any], access_token: str | None = None) -> dict[str, Any]:
@@ -947,6 +1250,810 @@ class _SupabaseComplianceRepository(_SupabaseRepositoryBase):
         }
 
 
+class _SupabaseJobRepository(_SupabaseRepositoryBase):
+    def _job_from_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "job_id": row["external_job_id"],
+            "owner_user_id": row["external_user_id"],
+            "plan_tier": row.get("plan_tier", "hobbyist"),
+            "org_id": row["org_id"],
+            "media_uri": row["media_uri"],
+            "original_filename": row["original_filename"],
+            "mime_type": row["mime_type"],
+            "source_asset_checksum": row.get("source_asset_checksum", ""),
+            "fidelity_tier": row.get("fidelity_tier", "Restore"),
+            "effective_fidelity_tier": row.get("effective_fidelity_tier", row.get("fidelity_tier", "Restore")),
+            "effective_fidelity_profile": row.get("effective_fidelity_profile") or {},
+            "reproducibility_mode": row.get("reproducibility_mode", "perceptual_equivalence"),
+            "processing_mode": row.get("processing_mode", "balanced"),
+            "era_profile": row.get("era_profile") or {},
+            "config": row.get("config") or {},
+            "estimated_duration_seconds": row.get("estimated_duration_seconds", 60),
+            "segment_duration_seconds": row.get("segment_duration_seconds", 10),
+            "segment_count": row.get("segment_count", 0),
+            "completed_segment_count": row.get("completed_segment_count", 0),
+            "failed_segment_count": row.get("failed_segment_count", 0),
+            "progress_percent": float(row.get("progress_percent", 0.0) or 0.0),
+            "eta_seconds": int(row.get("eta_seconds", 0) or 0),
+            "status": row["status"],
+            "current_operation": row.get("current_operation") or "",
+            "progress_topic": row.get("progress_topic") or f"job_progress:{row['external_job_id']}",
+            "result_uri": row.get("result_uri"),
+            "manifest_available": bool(row.get("manifest_available", False)),
+            "manifest_uri": row.get("manifest_uri"),
+            "manifest_sha256": row.get("manifest_sha256"),
+            "manifest_generated_at": row.get("manifest_generated_at"),
+            "manifest_size_bytes": row.get("manifest_size_bytes", 0),
+            "quality_summary": row.get("quality_summary") or {"e_hf": 0.0, "s_ls_db": 0.0, "t_tc": 0.0, "thresholds_met": False},
+            "reproducibility_summary": row.get("reproducibility_summary"),
+            "stage_timings": row.get("stage_timings")
+            or {
+                "upload_ms": None,
+                "era_detection_ms": None,
+                "queue_wait_ms": None,
+                "allocation_ms": None,
+                "processing_ms": None,
+                "encoding_ms": None,
+                "download_ms": None,
+                "total_ms": None,
+            },
+            "cache_summary": row.get("cache_summary")
+            or {"hits": 0, "misses": 0, "bypassed": 0, "degraded": False, "hit_rate": 0.0, "saved_gpu_seconds": 0},
+            "gpu_summary": row.get("gpu_summary")
+            or {
+                "gpu_type": None,
+                "warm_start": None,
+                "allocation_latency_ms": None,
+                "gpu_runtime_seconds": 0,
+                "desired_warm_instances": 0,
+                "active_warm_instances": 0,
+                "busy_instances": 0,
+                "utilization_percent": 0.0,
+            },
+            "cost_summary": row.get("cost_summary")
+            or {"gpu_seconds": 0, "storage_operations": 0, "api_calls": 0, "total_cost_usd": 0.0},
+            "slo_summary": row.get("slo_summary")
+            or {
+                "target_total_ms": int(row.get("estimated_duration_seconds", 60) or 60) * 2000,
+                "actual_total_ms": None,
+                "p95_ratio": None,
+                "compliant": None,
+                "degraded": False,
+                "error_budget_burn_percent": 0.0,
+                "museum_sla_applies": row.get("plan_tier", "hobbyist") == "museum",
+            },
+            "failed_segments": row.get("failed_segments") or [],
+            "warnings": row.get("warnings") or [],
+            "last_error": row.get("last_error"),
+            "queued_at": row.get("queued_at") or row["created_at"],
+            "created_at": row["created_at"],
+            "started_at": row.get("started_at"),
+            "completed_at": row.get("completed_at"),
+            "cancel_requested_at": row.get("cancel_requested_at"),
+            "updated_at": row.get("updated_at") or row["created_at"],
+        }
+
+    def _segment_from_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "job_id": row["external_job_id"],
+            "segment_index": row["segment_index"],
+            "segment_start_seconds": row["segment_start_seconds"],
+            "segment_end_seconds": row["segment_end_seconds"],
+            "segment_duration_seconds": row["segment_duration_seconds"],
+            "status": row["status"],
+            "attempt_count": row.get("attempt_count", 0),
+            "idempotency_key": row["idempotency_key"],
+            "last_error_classification": row.get("last_error_classification"),
+            "retry_backoffs_seconds": row.get("retry_backoffs_seconds") or [],
+            "output_uri": row.get("output_uri"),
+            "cache_status": row.get("cache_status", "miss"),
+            "cache_hit_latency_ms": row.get("cache_hit_latency_ms"),
+            "cache_namespace": row.get("cache_namespace"),
+            "cached_output_uri": row.get("cached_output_uri"),
+            "gpu_type": row.get("gpu_type"),
+            "allocation_latency_ms": row.get("allocation_latency_ms"),
+            "quality_metrics": row.get("quality_metrics"),
+            "reproducibility_proof": row.get("reproducibility_proof"),
+            "uncertainty_callouts": row.get("uncertainty_callouts") or [],
+            "updated_at": row.get("updated_at") or row["created_at"],
+        }
+
+    def create_job(
+        self,
+        *,
+        job_id: str,
+        owner_user_id: str,
+        plan_tier: str,
+        org_id: str,
+        media_uri: str,
+        original_filename: str,
+        mime_type: str,
+        source_asset_checksum: str,
+        fidelity_tier: str,
+        processing_mode: str,
+        era_profile: dict[str, Any],
+        config: dict[str, Any],
+        estimated_duration_seconds: int,
+        segments: list[dict[str, Any]],
+        effective_fidelity_tier: str | None = None,
+        effective_fidelity_profile: dict[str, Any] | None = None,
+        reproducibility_mode: str = "perceptual_equivalence",
+        access_token: str | None = None,
+    ) -> dict[str, Any]:
+        if access_token:
+            headers = self._client.user_scoped_headers(access_token)
+            row = self._client.rest_upsert(
+                "media_jobs",
+                payload={
+                    "id": _stable_uuid(job_id),
+                    "owner_user_id": owner_user_id,
+                    "external_user_id": owner_user_id,
+                    "external_job_id": job_id,
+                    "org_id": org_id,
+                    "plan_tier": plan_tier,
+                    "media_uri": media_uri,
+                    "original_filename": original_filename,
+                    "mime_type": mime_type,
+                    "status": JobStatus.QUEUED.value,
+                    "source_asset_checksum": source_asset_checksum,
+                    "fidelity_tier": fidelity_tier,
+                    "effective_fidelity_tier": effective_fidelity_tier or fidelity_tier,
+                    "effective_fidelity_profile": effective_fidelity_profile or {},
+                    "reproducibility_mode": reproducibility_mode,
+                    "processing_mode": processing_mode,
+                    "era_profile": era_profile,
+                    "config": config,
+                    "estimated_duration_seconds": estimated_duration_seconds,
+                    "segment_duration_seconds": 10,
+                    "segment_count": len(segments),
+                    "completed_segment_count": 0,
+                    "failed_segment_count": 0,
+                    "progress_percent": 0.0,
+                    "eta_seconds": estimated_duration_seconds,
+                    "current_operation": "Queued for processing",
+                    "progress_topic": f"job_progress:{job_id}",
+                    "failed_segments": [],
+                    "warnings": [],
+                    "manifest_available": False,
+                    "quality_summary": {"e_hf": 0.0, "s_ls_db": 0.0, "t_tc": 0.0, "thresholds_met": False},
+                    "stage_timings": {
+                        "upload_ms": None,
+                        "era_detection_ms": None,
+                        "queue_wait_ms": None,
+                        "allocation_ms": None,
+                        "processing_ms": None,
+                        "encoding_ms": None,
+                        "download_ms": None,
+                        "total_ms": None,
+                    },
+                    "cache_summary": {
+                        "hits": 0,
+                        "misses": 0,
+                        "bypassed": 0,
+                        "degraded": False,
+                        "hit_rate": 0.0,
+                        "saved_gpu_seconds": 0,
+                    },
+                    "gpu_summary": {
+                        "gpu_type": None,
+                        "warm_start": None,
+                        "allocation_latency_ms": None,
+                        "gpu_runtime_seconds": 0,
+                        "desired_warm_instances": 0,
+                        "active_warm_instances": 0,
+                        "busy_instances": 0,
+                        "utilization_percent": 0.0,
+                    },
+                    "cost_summary": {
+                        "gpu_seconds": 0,
+                        "storage_operations": 0,
+                        "api_calls": 0,
+                        "total_cost_usd": 0.0,
+                    },
+                    "slo_summary": {
+                        "target_total_ms": estimated_duration_seconds * 2000,
+                        "actual_total_ms": None,
+                        "p95_ratio": None,
+                        "compliant": None,
+                        "degraded": False,
+                        "error_budget_burn_percent": 0.0,
+                        "museum_sla_applies": plan_tier.lower() == "museum",
+                    },
+                    "queued_at": _utc_now(),
+                    "updated_at": _utc_now(),
+                },
+                on_conflict="external_job_id",
+                headers=headers,
+            )[0]
+            try:
+                for segment in segments:
+                    self._client.rest_insert(
+                        "job_segments",
+                        payload={
+                            "id": str(uuid4()),
+                            "job_id": _stable_uuid(job_id),
+                            "external_job_id": job_id,
+                            "owner_user_id": owner_user_id,
+                            "external_user_id": owner_user_id,
+                            "segment_index": segment["segment_index"],
+                            "segment_start_seconds": segment["segment_start_seconds"],
+                            "segment_end_seconds": segment["segment_end_seconds"],
+                            "segment_duration_seconds": segment["segment_duration_seconds"],
+                            "status": "queued",
+                            "attempt_count": 0,
+                            "idempotency_key": segment["idempotency_key"],
+                            "retry_backoffs_seconds": [],
+                            "cache_status": "miss",
+                            "uncertainty_callouts": [],
+                        },
+                        headers=headers,
+                    )
+            except Exception:
+                self._client.rest_delete(
+                    "media_jobs",
+                    params={"external_job_id": f"eq.{job_id}"},
+                    headers=headers,
+                )
+                raise
+            return self._job_from_row(row)
+        from psycopg.types.json import Jsonb
+
+        queued_at = _utc_now()
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into public.media_jobs (
+                    id, owner_user_id, external_user_id, external_job_id, org_id, plan_tier,
+                    media_uri, original_filename, mime_type, status, source_asset_checksum,
+                    fidelity_tier, processing_mode, era_profile, config,
+                    effective_fidelity_tier, effective_fidelity_profile, reproducibility_mode,
+                    estimated_duration_seconds, segment_duration_seconds, segment_count,
+                    completed_segment_count, failed_segment_count, progress_percent,
+                    eta_seconds, current_operation, progress_topic, failed_segments,
+                    warnings, manifest_available, quality_summary, stage_timings,
+                    cache_summary, gpu_summary, cost_summary, slo_summary, queued_at, updated_at
+                )
+                values (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    0, 0, 0, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                )
+                on conflict (external_job_id) do update
+                set org_id = excluded.org_id,
+                    plan_tier = excluded.plan_tier,
+                    media_uri = excluded.media_uri,
+                    original_filename = excluded.original_filename,
+                    mime_type = excluded.mime_type,
+                    source_asset_checksum = excluded.source_asset_checksum,
+                    fidelity_tier = excluded.fidelity_tier,
+                    effective_fidelity_tier = excluded.effective_fidelity_tier,
+                    effective_fidelity_profile = excluded.effective_fidelity_profile,
+                    reproducibility_mode = excluded.reproducibility_mode,
+                    processing_mode = excluded.processing_mode,
+                    era_profile = excluded.era_profile,
+                    config = excluded.config,
+                    estimated_duration_seconds = excluded.estimated_duration_seconds,
+                    segment_duration_seconds = excluded.segment_duration_seconds,
+                    segment_count = excluded.segment_count,
+                    eta_seconds = excluded.eta_seconds,
+                    current_operation = excluded.current_operation,
+                    progress_topic = excluded.progress_topic,
+                    failed_segments = excluded.failed_segments,
+                    warnings = excluded.warnings,
+                    manifest_available = excluded.manifest_available,
+                    quality_summary = excluded.quality_summary,
+                    stage_timings = excluded.stage_timings,
+                    cache_summary = excluded.cache_summary,
+                    gpu_summary = excluded.gpu_summary,
+                    cost_summary = excluded.cost_summary,
+                    slo_summary = excluded.slo_summary,
+                    queued_at = excluded.queued_at,
+                    updated_at = excluded.updated_at
+                returning *
+                """,
+                (
+                    _stable_uuid(job_id),
+                    _stable_uuid(owner_user_id),
+                    owner_user_id,
+                    job_id,
+                    org_id,
+                    plan_tier,
+                    media_uri,
+                    original_filename,
+                    mime_type,
+                    JobStatus.QUEUED.value,
+                    source_asset_checksum,
+                    fidelity_tier,
+                    effective_fidelity_tier or fidelity_tier,
+                    Jsonb(effective_fidelity_profile or {}),
+                    reproducibility_mode,
+                    processing_mode,
+                    Jsonb(era_profile),
+                    Jsonb(config),
+                    estimated_duration_seconds,
+                    10,
+                    len(segments),
+                    estimated_duration_seconds,
+                    "Queued for processing",
+                    f"job_progress:{job_id}",
+                    Jsonb([]),
+                    Jsonb([]),
+                    False,
+                    Jsonb({"e_hf": 0.0, "s_ls_db": 0.0, "t_tc": 0.0, "thresholds_met": False}),
+                    Jsonb(
+                        {
+                            "upload_ms": None,
+                            "era_detection_ms": None,
+                            "queue_wait_ms": None,
+                            "allocation_ms": None,
+                            "processing_ms": None,
+                            "encoding_ms": None,
+                            "download_ms": None,
+                            "total_ms": None,
+                        }
+                    ),
+                    Jsonb({"hits": 0, "misses": 0, "bypassed": 0, "degraded": False, "hit_rate": 0.0, "saved_gpu_seconds": 0}),
+                    Jsonb(
+                        {
+                            "gpu_type": None,
+                            "warm_start": None,
+                            "allocation_latency_ms": None,
+                            "gpu_runtime_seconds": 0,
+                            "desired_warm_instances": 0,
+                            "active_warm_instances": 0,
+                            "busy_instances": 0,
+                            "utilization_percent": 0.0,
+                        }
+                    ),
+                    Jsonb({"gpu_seconds": 0, "storage_operations": 0, "api_calls": 0, "total_cost_usd": 0.0}),
+                    Jsonb(
+                        {
+                            "target_total_ms": estimated_duration_seconds * 2000,
+                            "actual_total_ms": None,
+                            "p95_ratio": None,
+                            "compliant": None,
+                            "degraded": False,
+                            "error_budget_burn_percent": 0.0,
+                            "museum_sla_applies": plan_tier.lower() == "museum",
+                        }
+                    ),
+                    queued_at,
+                    queued_at,
+                ),
+            )
+            row = cur.fetchone()
+            if row is None:
+                raise RuntimeError("Failed to create async job")
+            for segment in segments:
+                cur.execute(
+                    """
+                    insert into public.job_segments (
+                        id, job_id, external_job_id, owner_user_id, external_user_id,
+                        segment_index, segment_start_seconds, segment_end_seconds,
+                        segment_duration_seconds, status, attempt_count, idempotency_key,
+                        retry_backoffs_seconds, cache_status, uncertainty_callouts
+                    )
+                    values (%s, %s, %s, %s, %s, %s, %s, %s, %s, 'queued', 0, %s, %s, 'miss', %s)
+                    on conflict (job_id, segment_index) do update
+                    set segment_start_seconds = excluded.segment_start_seconds,
+                        segment_end_seconds = excluded.segment_end_seconds,
+                        segment_duration_seconds = excluded.segment_duration_seconds,
+                        idempotency_key = excluded.idempotency_key,
+                        retry_backoffs_seconds = excluded.retry_backoffs_seconds,
+                        cache_status = excluded.cache_status,
+                        uncertainty_callouts = excluded.uncertainty_callouts,
+                        updated_at = now()
+                    """,
+                    (
+                        str(uuid4()),
+                        _stable_uuid(job_id),
+                        job_id,
+                        _stable_uuid(owner_user_id),
+                        owner_user_id,
+                        segment["segment_index"],
+                        segment["segment_start_seconds"],
+                        segment["segment_end_seconds"],
+                        segment["segment_duration_seconds"],
+                        segment["idempotency_key"],
+                        [],
+                        [],
+                    ),
+                )
+        return self._job_from_row(row)
+
+    def get_job(self, job_id: str, *, owner_user_id: str | None = None, access_token: str | None = None) -> dict[str, Any] | None:
+        if access_token:
+            headers = self._client.user_scoped_headers(access_token)
+            rows = self._client.rest_select(
+                "media_jobs",
+                params={"select": "*", "external_job_id": f"eq.{job_id}", "limit": "1"},
+                headers=headers,
+            )
+            if not rows:
+                return None
+            return self._job_from_row(rows[0])
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("select * from public.media_jobs where external_job_id = %s limit 1", (job_id,))
+            row = cur.fetchone()
+        if row is None:
+            return None
+        if owner_user_id and row["external_user_id"] != owner_user_id:
+            return None
+        return self._job_from_row(row)
+
+    def list_jobs(self, *, owner_user_id: str, access_token: str | None = None) -> list[dict[str, Any]]:
+        if access_token:
+            headers = self._client.user_scoped_headers(access_token)
+            rows = self._client.rest_select(
+                "media_jobs",
+                params={"select": "*", "order": "created_at.desc"},
+                headers=headers,
+            )
+            return [self._job_from_row(row) for row in rows]
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "select * from public.media_jobs where external_user_id = %s order by created_at desc",
+                (owner_user_id,),
+            )
+            rows = cur.fetchall()
+        return [self._job_from_row(row) for row in rows]
+
+    def list_segments(self, job_id: str, *, owner_user_id: str | None = None, access_token: str | None = None) -> list[dict[str, Any]]:
+        if access_token:
+            headers = self._client.user_scoped_headers(access_token)
+            rows = self._client.rest_select(
+                "job_segments",
+                params={"select": "*", "external_job_id": f"eq.{job_id}", "order": "segment_index.asc"},
+                headers=headers,
+            )
+            return [self._segment_from_row(row) for row in rows]
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "select * from public.job_segments where external_job_id = %s order by segment_index asc",
+                (job_id,),
+            )
+            rows = cur.fetchall()
+        segments = [self._segment_from_row(row) for row in rows]
+        if owner_user_id:
+            job = self.get_job(job_id, owner_user_id=owner_user_id)
+            return segments if job else []
+        return segments
+
+    def request_cancellation(self, job_id: str, *, owner_user_id: str, access_token: str | None = None) -> dict[str, Any] | None:
+        if access_token:
+            headers = self._client.user_scoped_headers(access_token)
+            rows = self._client.rest_update(
+                "media_jobs",
+                payload={
+                    "status": JobStatus.CANCEL_REQUESTED.value,
+                    "cancel_requested_at": _utc_now(),
+                    "updated_at": _utc_now(),
+                },
+                params={"external_job_id": f"eq.{job_id}", "select": "*"},
+                headers=headers,
+            )
+            if not rows:
+                return None
+            return self._job_from_row(rows[0])
+        updated = self.update_job_for_worker(
+            job_id,
+            patch={"status": JobStatus.CANCEL_REQUESTED.value, "cancel_requested_at": _utc_now()},
+        )
+        if updated["owner_user_id"] != owner_user_id:
+            return None
+        return updated
+
+    def get_job_for_worker(self, job_id: str) -> dict[str, Any] | None:
+        return self.get_job(job_id)
+
+    def update_job_for_worker(self, job_id: str, *, patch: dict[str, Any]) -> dict[str, Any]:
+        from psycopg.types.json import Jsonb
+
+        assignments = []
+        values: list[Any] = []
+        json_fields = {
+            "failed_segments",
+            "warnings",
+            "config",
+            "era_profile",
+            "effective_fidelity_profile",
+            "quality_summary",
+            "reproducibility_summary",
+            "stage_timings",
+            "cache_summary",
+            "gpu_summary",
+            "cost_summary",
+            "slo_summary",
+        }
+        for key, value in patch.items():
+            assignments.append(f"{key} = %s")
+            values.append(Jsonb(value) if key in json_fields else value)
+        assignments.append("updated_at = now()")
+        values.append(job_id)
+        query = f"update public.media_jobs set {', '.join(assignments)} where external_job_id = %s returning *"
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(query, tuple(values))
+            row = cur.fetchone()
+        if row is None:
+            raise RuntimeError(f"Job {job_id} not found")
+        return self._job_from_row(row)
+
+    def update_segment_for_worker(self, job_id: str, segment_index: int, *, patch: dict[str, Any]) -> dict[str, Any]:
+        from psycopg.types.json import Jsonb
+
+        assignments = []
+        values: list[Any] = []
+        json_fields = {"retry_backoffs_seconds", "quality_metrics", "reproducibility_proof", "uncertainty_callouts"}
+        for key, value in patch.items():
+            assignments.append(f"{key} = %s")
+            values.append(Jsonb(value) if key in json_fields else value)
+        assignments.append("updated_at = now()")
+        values.extend([job_id, segment_index])
+        query = (
+            f"update public.job_segments set {', '.join(assignments)} "
+            "where external_job_id = %s and segment_index = %s returning *"
+        )
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(query, tuple(values))
+            row = cur.fetchone()
+        if row is None:
+            raise RuntimeError(f"Segment {segment_index} for job {job_id} not found")
+        return self._segment_from_row(row)
+
+
+class _SupabaseWebhookSubscriptionRepository(_SupabaseRepositoryBase):
+    def upsert(
+        self,
+        *,
+        owner_user_id: str,
+        webhook_url: str,
+        event_types: list[str],
+        enabled: bool = True,
+    ) -> dict[str, Any]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into public.webhook_subscriptions (
+                    id, owner_user_id, external_user_id, webhook_url, event_types, enabled, updated_at
+                )
+                values (%s, %s, %s, %s, %s, %s, now())
+                on conflict (external_user_id, webhook_url) do update
+                set event_types = excluded.event_types,
+                    enabled = excluded.enabled,
+                    updated_at = now()
+                returning *
+                """,
+                (
+                    str(uuid4()),
+                    _stable_uuid(owner_user_id),
+                    owner_user_id,
+                    webhook_url,
+                    event_types,
+                    enabled,
+                ),
+            )
+            row = cur.fetchone()
+        if row is None:
+            raise RuntimeError("Failed to upsert webhook subscription")
+        return {
+            "id": row["id"],
+            "owner_user_id": row["external_user_id"],
+            "webhook_url": row["webhook_url"],
+            "event_types": row.get("event_types") or [],
+            "enabled": row["enabled"],
+            "created_at": row["created_at"],
+            "updated_at": row.get("updated_at") or row["created_at"],
+        }
+
+    def list_enabled(self, *, owner_user_id: str, event_type: str) -> list[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                select *
+                from public.webhook_subscriptions
+                where external_user_id = %s
+                  and enabled = true
+                  and %s = any(event_types)
+                order by created_at asc
+                """,
+                (owner_user_id, event_type),
+            )
+            rows = cur.fetchall()
+        return [
+            {
+                "id": row["id"],
+                "owner_user_id": row["external_user_id"],
+                "webhook_url": row["webhook_url"],
+                "event_types": row.get("event_types") or [],
+                "enabled": row["enabled"],
+                "created_at": row["created_at"],
+                "updated_at": row.get("updated_at") or row["created_at"],
+            }
+            for row in rows
+        ]
+
+
+class _SupabaseManifestRepository(_SupabaseRepositoryBase):
+    def upsert_manifest_for_worker(self, *, job_id: str, manifest: dict[str, Any]) -> dict[str, Any]:
+        from psycopg.types.json import Jsonb
+
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into public.job_manifests (
+                    id, job_id, external_job_id, owner_user_id, external_user_id,
+                    manifest_uri, manifest_sha256, payload, generated_at, size_bytes
+                )
+                select
+                    %s, public.media_jobs.id, public.media_jobs.external_job_id, public.media_jobs.owner_user_id,
+                    public.media_jobs.external_user_id, %s, %s, %s, %s, %s
+                from public.media_jobs
+                where public.media_jobs.external_job_id = %s
+                on conflict (job_id) do update
+                set manifest_uri = excluded.manifest_uri,
+                    manifest_sha256 = excluded.manifest_sha256,
+                    payload = excluded.payload,
+                    generated_at = excluded.generated_at,
+                    size_bytes = excluded.size_bytes,
+                    updated_at = now()
+                returning *
+                """,
+                (
+                    str(uuid4()),
+                    manifest["manifest_uri"],
+                    manifest["manifest_sha256"],
+                    Jsonb(manifest),
+                    manifest["generated_at"],
+                    manifest.get("size_bytes", 0),
+                    job_id,
+                ),
+            )
+            row = cur.fetchone()
+        if row is None:
+            raise RuntimeError(f"Manifest upsert failed for job {job_id}")
+        return row["payload"]
+
+    def get_manifest(
+        self,
+        job_id: str,
+        *,
+        owner_user_id: str | None = None,
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        if access_token:
+            headers = self._client.user_scoped_headers(access_token)
+            rows = self._client.rest_select(
+                "job_manifests",
+                params={"select": "payload", "external_job_id": f"eq.{job_id}", "limit": "1"},
+                headers=headers,
+            )
+            return rows[0]["payload"] if rows else None
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "select payload, external_user_id from public.job_manifests where external_job_id = %s limit 1",
+                (job_id,),
+            )
+            row = cur.fetchone()
+        if row is None:
+            return None
+        if owner_user_id and row["external_user_id"] != owner_user_id:
+            return None
+        return row["payload"]
+
+
+class _SupabaseRuntimeOpsRepository(_SupabaseRepositoryBase):
+    def list_gpu_leases(self) -> list[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("select * from public.gpu_worker_leases order by created_at asc")
+            rows = cur.fetchall()
+        return [dict(row) for row in rows]
+
+    def upsert_gpu_lease(self, *, worker_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        from psycopg.types.json import Jsonb
+
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into public.gpu_worker_leases (
+                    id, worker_id, gpu_type, lease_state, is_warm, current_job_id,
+                    queue_depth_snapshot, metadata, allocated_at, released_at, expires_at, updated_at
+                )
+                values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
+                on conflict (worker_id) do update
+                set gpu_type = excluded.gpu_type,
+                    lease_state = excluded.lease_state,
+                    is_warm = excluded.is_warm,
+                    current_job_id = excluded.current_job_id,
+                    queue_depth_snapshot = excluded.queue_depth_snapshot,
+                    metadata = excluded.metadata,
+                    allocated_at = excluded.allocated_at,
+                    released_at = excluded.released_at,
+                    expires_at = excluded.expires_at,
+                    updated_at = now()
+                returning *
+                """,
+                (
+                    str(uuid4()),
+                    worker_id,
+                    payload.get("gpu_type"),
+                    payload.get("lease_state"),
+                    payload.get("is_warm", True),
+                    payload.get("current_job_id"),
+                    payload.get("queue_depth_snapshot", 0),
+                    Jsonb(payload.get("metadata") or {}),
+                    payload.get("allocated_at"),
+                    payload.get("released_at"),
+                    payload.get("expires_at"),
+                ),
+            )
+            row = cur.fetchone()
+        if row is None:
+            raise RuntimeError("Failed to upsert GPU lease")
+        return dict(row)
+
+    def delete_gpu_lease(self, worker_id: str) -> None:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("delete from public.gpu_worker_leases where worker_id = %s", (worker_id,))
+
+    def list_incidents(self) -> list[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("select * from public.incident_events order by opened_at desc")
+            rows = cur.fetchall()
+        return [dict(row) for row in rows]
+
+    def upsert_incident(self, *, incident_key: str, payload: dict[str, Any]) -> dict[str, Any]:
+        from psycopg.types.json import Jsonb
+
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into public.incident_events (
+                    id, incident_key, severity, incident_state, source_signal, runbook_key,
+                    issue_tracker_url, status_page_url, communication_status, detection_delay_seconds,
+                    resolution_time_seconds, postmortem_due_at, metadata, opened_at, acknowledged_at, resolved_at, updated_at
+                )
+                values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now())
+                on conflict (incident_key) do update
+                set severity = excluded.severity,
+                    incident_state = excluded.incident_state,
+                    source_signal = excluded.source_signal,
+                    runbook_key = excluded.runbook_key,
+                    issue_tracker_url = excluded.issue_tracker_url,
+                    status_page_url = excluded.status_page_url,
+                    communication_status = excluded.communication_status,
+                    detection_delay_seconds = excluded.detection_delay_seconds,
+                    resolution_time_seconds = excluded.resolution_time_seconds,
+                    postmortem_due_at = excluded.postmortem_due_at,
+                    metadata = excluded.metadata,
+                    acknowledged_at = excluded.acknowledged_at,
+                    resolved_at = excluded.resolved_at,
+                    updated_at = now()
+                returning *
+                """,
+                (
+                    str(uuid4()),
+                    incident_key,
+                    payload.get("severity"),
+                    payload.get("incident_state"),
+                    payload.get("source_signal"),
+                    payload.get("runbook_key"),
+                    payload.get("issue_tracker_url"),
+                    payload.get("status_page_url"),
+                    payload.get("communication_status"),
+                    payload.get("detection_delay_seconds"),
+                    payload.get("resolution_time_seconds"),
+                    payload.get("postmortem_due_at"),
+                    Jsonb(payload.get("metadata") or {}),
+                    payload.get("opened_at", _utc_now()),
+                    payload.get("acknowledged_at"),
+                    payload.get("resolved_at"),
+                ),
+            )
+            row = cur.fetchone()
+        if row is None:
+            raise RuntimeError("Failed to upsert incident record")
+        return dict(row)
+
+
 def _user_profile_backend() -> _MemoryUserProfileRepository | _SupabaseUserProfileRepository:
     return _SupabaseUserProfileRepository() if phase2_backend_name() == "supabase" else _MemoryUserProfileRepository()
 
@@ -965,6 +2072,22 @@ def _log_settings_backend() -> _MemoryLogSettingsRepository | _SupabaseLogSettin
 
 def _compliance_backend() -> _MemoryComplianceRepository | _SupabaseComplianceRepository:
     return _SupabaseComplianceRepository() if phase2_backend_name() == "supabase" else _MemoryComplianceRepository()
+
+
+def _job_backend() -> _MemoryJobRepository | _SupabaseJobRepository:
+    return _SupabaseJobRepository() if phase2_backend_name() == "supabase" else _MemoryJobRepository()
+
+
+def _webhook_subscription_backend() -> _MemoryWebhookSubscriptionRepository | _SupabaseWebhookSubscriptionRepository:
+    return _SupabaseWebhookSubscriptionRepository() if phase2_backend_name() == "supabase" else _MemoryWebhookSubscriptionRepository()
+
+
+def _manifest_backend() -> _MemoryManifestRepository | _SupabaseManifestRepository:
+    return _SupabaseManifestRepository() if phase2_backend_name() == "supabase" else _MemoryManifestRepository()
+
+
+def _runtime_ops_backend() -> _MemoryRuntimeOpsRepository | _SupabaseRuntimeOpsRepository:
+    return _SupabaseRuntimeOpsRepository() if phase2_backend_name() == "supabase" else _MemoryRuntimeOpsRepository()
 
 
 class UserProfileRepository:
@@ -1068,3 +2191,144 @@ class ComplianceRepository:
 
     def create_deletion_request(self, *, user_id: str, payload: dict[str, Any], access_token: str | None = None) -> dict[str, Any]:
         return self._backend.create_deletion_request(user_id=user_id, payload=payload, access_token=access_token)
+
+
+class JobRepository:
+    def __init__(self) -> None:
+        self._backend = _job_backend()
+
+    def create_job(
+        self,
+        *,
+        job_id: str,
+        owner_user_id: str,
+        plan_tier: str,
+        org_id: str,
+        media_uri: str,
+        original_filename: str,
+        mime_type: str,
+        source_asset_checksum: str,
+        fidelity_tier: str,
+        processing_mode: str,
+        era_profile: dict[str, Any],
+        config: dict[str, Any],
+        estimated_duration_seconds: int,
+        segments: list[dict[str, Any]],
+        effective_fidelity_tier: str | None = None,
+        effective_fidelity_profile: dict[str, Any] | None = None,
+        reproducibility_mode: str = "perceptual_equivalence",
+        access_token: str | None = None,
+    ) -> dict[str, Any]:
+        return self._backend.create_job(
+            job_id=job_id,
+            owner_user_id=owner_user_id,
+            plan_tier=plan_tier,
+            org_id=org_id,
+            media_uri=media_uri,
+            original_filename=original_filename,
+            mime_type=mime_type,
+            source_asset_checksum=source_asset_checksum,
+            fidelity_tier=fidelity_tier,
+            effective_fidelity_tier=effective_fidelity_tier,
+            effective_fidelity_profile=effective_fidelity_profile,
+            reproducibility_mode=reproducibility_mode,
+            processing_mode=processing_mode,
+            era_profile=era_profile,
+            config=config,
+            estimated_duration_seconds=estimated_duration_seconds,
+            segments=segments,
+            access_token=access_token,
+        )
+
+    def get_job(self, job_id: str, *, owner_user_id: str | None = None, access_token: str | None = None) -> dict[str, Any] | None:
+        return self._backend.get_job(job_id, owner_user_id=owner_user_id, access_token=access_token)
+
+    def list_jobs(self, *, owner_user_id: str, access_token: str | None = None) -> list[dict[str, Any]]:
+        return self._backend.list_jobs(owner_user_id=owner_user_id, access_token=access_token)
+
+    def list_segments(
+        self,
+        job_id: str,
+        *,
+        owner_user_id: str | None = None,
+        access_token: str | None = None,
+    ) -> list[dict[str, Any]]:
+        return self._backend.list_segments(job_id, owner_user_id=owner_user_id, access_token=access_token)
+
+    def request_cancellation(
+        self,
+        job_id: str,
+        *,
+        owner_user_id: str,
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        return self._backend.request_cancellation(job_id, owner_user_id=owner_user_id, access_token=access_token)
+
+    def get_job_for_worker(self, job_id: str) -> dict[str, Any] | None:
+        return self._backend.get_job_for_worker(job_id)
+
+    def update_job_for_worker(self, job_id: str, *, patch: dict[str, Any]) -> dict[str, Any]:
+        return self._backend.update_job_for_worker(job_id, patch=patch)
+
+    def update_segment_for_worker(self, job_id: str, segment_index: int, *, patch: dict[str, Any]) -> dict[str, Any]:
+        return self._backend.update_segment_for_worker(job_id, segment_index, patch=patch)
+
+
+class ManifestRepository:
+    def __init__(self) -> None:
+        self._backend = _manifest_backend()
+
+    def upsert_manifest_for_worker(self, *, job_id: str, manifest: dict[str, Any]) -> dict[str, Any]:
+        return self._backend.upsert_manifest_for_worker(job_id=job_id, manifest=manifest)
+
+    def get_manifest(
+        self,
+        job_id: str,
+        *,
+        owner_user_id: str | None = None,
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        return self._backend.get_manifest(job_id, owner_user_id=owner_user_id, access_token=access_token)
+
+
+class WebhookSubscriptionRepository:
+    def __init__(self) -> None:
+        self._backend = _webhook_subscription_backend()
+
+    def upsert(
+        self,
+        *,
+        owner_user_id: str,
+        webhook_url: str,
+        event_types: list[str],
+        enabled: bool = True,
+    ) -> dict[str, Any]:
+        return self._backend.upsert(
+            owner_user_id=owner_user_id,
+            webhook_url=webhook_url,
+            event_types=event_types,
+            enabled=enabled,
+        )
+
+    def list_enabled(self, *, owner_user_id: str, event_type: str) -> list[dict[str, Any]]:
+        return self._backend.list_enabled(owner_user_id=owner_user_id, event_type=event_type)
+
+
+class RuntimeOpsRepository:
+    def __init__(self) -> None:
+        self._backend = _runtime_ops_backend()
+
+    def list_gpu_leases(self) -> list[dict[str, Any]]:
+        return self._backend.list_gpu_leases()
+
+    def upsert_gpu_lease(self, *, worker_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._backend.upsert_gpu_lease(worker_id=worker_id, payload=payload)
+
+    def delete_gpu_lease(self, worker_id: str) -> None:
+        self._backend.delete_gpu_lease(worker_id)
+
+    def list_incidents(self) -> list[dict[str, Any]]:
+        return self._backend.list_incidents()
+
+    def upsert_incident(self, *, incident_key: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._backend.upsert_incident(incident_key=incident_key, payload=payload)

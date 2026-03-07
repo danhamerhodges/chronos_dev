@@ -1,10 +1,12 @@
 openapi: 3.1.0
 info:
-  title: ChronosRefine Phase 2 API
-  version: 0.2.0
+  title: ChronosRefine API
+  version: 0.4.0
   description: >
-    Phase 2 foundation subset covering ENG-001, ENG-002, ENG-004, FR-002,
-    NFR-007, and SEC-009.
+    Phase 2 foundation plus Phase 3 Packets 3A, 3B, and 3C covering ENG-001,
+    ENG-002, ENG-003, ENG-004, ENG-005, ENG-006, ENG-007, ENG-008,
+    ENG-009, ENG-010, ENG-011, ENG-012, FR-002, NFR-002, NFR-007,
+    OPS-003, and SEC-009.
 servers:
   - url: https://api.chronosrefine.example
     description: Production placeholder
@@ -14,6 +16,9 @@ tags:
   - name: health
   - name: version
   - name: era-detection
+  - name: jobs
+  - name: manifests
+  - name: ops
   - name: users
   - name: security
 paths:
@@ -125,6 +130,124 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/UserProfileResponse"
+  /v1/jobs:
+    post:
+      tags: [jobs]
+      summary: Submit an async restoration job
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobCreateRequest"
+      responses:
+        "202":
+          description: Job accepted and queued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobCreateResponse"
+    get:
+      tags: [jobs]
+      summary: List async jobs for the current user
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current user jobs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobListResponse"
+  /v1/jobs/{job_id}:
+    get:
+      tags: [jobs]
+      summary: Get job status, progress, and segment details
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Job detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobDetailResponse"
+        "404":
+          description: Job not found for the current user
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+    delete:
+      tags: [jobs]
+      summary: Request cooperative cancellation for an async job
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Cancellation requested
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobCancelResponse"
+  /v1/manifests/{job_id}:
+    get:
+      tags: [manifests]
+      summary: Download the transformation manifest for a completed or partial job
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Transformation manifest
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TransformationManifestResponse"
+        "404":
+          description: Manifest not found for the current user
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+  /v1/ops/runtime:
+    get:
+      tags: [ops]
+      summary: Get the admin runtime operations snapshot
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Runtime operations snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RuntimeOpsSnapshotResponse"
+        "403":
+          description: Missing ops permission
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
   /v1/users/me/usage:
     get:
       tags: [users]
@@ -547,3 +670,378 @@ components:
           type: integer
         status:
           type: string
+    JobCreateRequest:
+      type: object
+      required:
+        [media_uri, estimated_duration_seconds, source_asset_checksum, fidelity_tier, processing_mode, era_profile]
+      properties:
+        media_uri:
+          type: string
+        original_filename:
+          type: string
+        mime_type:
+          type: string
+        estimated_duration_seconds:
+          type: integer
+        source_asset_checksum:
+          type: string
+        fidelity_tier:
+          type: string
+          enum: [Enhance, Restore, Conserve]
+        reproducibility_mode:
+          type: string
+          enum: [perceptual_equivalence, deterministic, bit_identical]
+        processing_mode:
+          type: string
+        config:
+          type: object
+          additionalProperties: true
+        era_profile:
+          $ref: "#/components/schemas/EraProfileInput"
+    JobProgressResponse:
+      type: object
+      required:
+        [job_id, segment_index, segment_count, percent_complete, eta_seconds, status, current_operation, updated_at]
+      properties:
+        job_id:
+          type: string
+        segment_index:
+          type: integer
+        segment_count:
+          type: integer
+        percent_complete:
+          type: number
+        eta_seconds:
+          type: integer
+        status:
+          type: string
+          enum: [queued, processing, completed, failed, partial, cancel_requested, cancelled]
+        current_operation:
+          type: string
+        updated_at:
+          type: string
+    JobSegmentResponse:
+      type: object
+      required:
+        [job_id, segment_index, segment_start_seconds, segment_end_seconds, segment_duration_seconds, status, attempt_count, idempotency_key, updated_at]
+      properties:
+        job_id:
+          type: string
+        segment_index:
+          type: integer
+        segment_start_seconds:
+          type: integer
+        segment_end_seconds:
+          type: integer
+        segment_duration_seconds:
+          type: integer
+        status:
+          type: string
+          enum: [queued, processing, completed, failed, cancelled]
+        attempt_count:
+          type: integer
+        idempotency_key:
+          type: string
+        last_error_classification:
+          type: string
+        retry_backoffs_seconds:
+          type: array
+          items:
+            type: integer
+        output_uri:
+          type: string
+        updated_at:
+          type: string
+    JobSummaryResponse:
+      type: object
+      required:
+        [job_id, media_uri, original_filename, mime_type, fidelity_tier, effective_fidelity_tier, reproducibility_mode, processing_mode, estimated_duration_seconds, status, progress_topic, created_at, updated_at, progress]
+      properties:
+        job_id:
+          type: string
+        media_uri:
+          type: string
+        original_filename:
+          type: string
+        mime_type:
+          type: string
+        fidelity_tier:
+          type: string
+          enum: [Enhance, Restore, Conserve]
+        effective_fidelity_tier:
+          type: string
+          enum: [Enhance, Restore, Conserve]
+        reproducibility_mode:
+          type: string
+          enum: [perceptual_equivalence, deterministic, bit_identical]
+        processing_mode:
+          type: string
+        estimated_duration_seconds:
+          type: integer
+        status:
+          type: string
+          enum: [queued, processing, completed, failed, partial, cancel_requested, cancelled]
+        progress_topic:
+          type: string
+        result_uri:
+          type: string
+        manifest_available:
+          type: boolean
+        manifest:
+          $ref: "#/components/schemas/ManifestSummaryResponse"
+        quality_summary:
+          $ref: "#/components/schemas/QualitySummaryResponse"
+        reproducibility_summary:
+          $ref: "#/components/schemas/ReproducibilitySummaryResponse"
+        stage_timings:
+          $ref: "#/components/schemas/StageTimingResponse"
+        failed_segments:
+          type: array
+          items:
+            type: integer
+        warnings:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+        updated_at:
+          type: string
+        progress:
+          $ref: "#/components/schemas/JobProgressResponse"
+    JobCreateResponse:
+      allOf:
+        - $ref: "#/components/schemas/JobSummaryResponse"
+        - type: object
+          required: [queued_at]
+          properties:
+            queued_at:
+              type: string
+    JobDetailResponse:
+      allOf:
+        - $ref: "#/components/schemas/JobSummaryResponse"
+        - type: object
+          properties:
+            started_at:
+              type: string
+            completed_at:
+              type: string
+            cancel_requested_at:
+              type: string
+            last_error:
+              type: string
+            segments:
+              type: array
+              items:
+                $ref: "#/components/schemas/JobSegmentResponse"
+    RuntimeOpsSnapshotResponse:
+      type: object
+      properties:
+        desired_warm_instances:
+          type: integer
+        active_warm_instances:
+          type: integer
+        busy_instances:
+          type: integer
+        idle_instances:
+          type: integer
+        alert_routes:
+          type: object
+          additionalProperties:
+            type: string
+    JobListResponse:
+      type: object
+      required: [jobs]
+      properties:
+        jobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/JobSummaryResponse"
+    JobCancelResponse:
+      type: object
+      required: [job_id, status, cancel_requested_at]
+      properties:
+        job_id:
+          type: string
+        status:
+          type: string
+          enum: [queued, processing, completed, failed, partial, cancel_requested, cancelled]
+        cancel_requested_at:
+          type: string
+    QualitySummaryResponse:
+      type: object
+      required: [e_hf, s_ls_db, t_tc, thresholds_met]
+      properties:
+        e_hf:
+          type: number
+        s_ls_db:
+          type: number
+        t_tc:
+          type: number
+        thresholds_met:
+          type: boolean
+    StageTimingResponse:
+      type: object
+      properties:
+        upload_ms:
+          type: integer
+          nullable: true
+        era_detection_ms:
+          type: integer
+          nullable: true
+        processing_ms:
+          type: integer
+          nullable: true
+        encoding_ms:
+          type: integer
+          nullable: true
+        download_ms:
+          type: integer
+          nullable: true
+        total_ms:
+          type: integer
+          nullable: true
+    ReproducibilitySummaryResponse:
+      type: object
+      required: [mode, verification_status, failed_segment_count, rerun_count, rollup, metric_epsilon_percent, environment_fingerprint]
+      properties:
+        mode:
+          type: string
+          enum: [perceptual_equivalence, deterministic, bit_identical]
+        verification_status:
+          type: string
+        failed_segment_count:
+          type: integer
+        rerun_count:
+          type: integer
+        rollup:
+          type: string
+        metric_epsilon_percent:
+          type: number
+        environment_fingerprint:
+          type: string
+    ManifestSummaryResponse:
+      type: object
+      required: [manifest_id, manifest_uri, manifest_sha256, generated_at, size_bytes]
+      properties:
+        manifest_id:
+          type: string
+        manifest_uri:
+          type: string
+        manifest_sha256:
+          type: string
+        generated_at:
+          type: string
+        size_bytes:
+          type: integer
+    TransformationManifestSamplingProtocol:
+      type: object
+      required: [frames_per_second, frames_sampled, sampled_timestamps_seconds, downscale_rule, roi_256, roi_512, roi_full_frame, roi_source]
+      properties:
+        frames_per_second:
+          type: number
+        frames_sampled:
+          type: integer
+        sampled_timestamps_seconds:
+          type: array
+          items:
+            type: number
+        downscale_rule:
+          type: string
+        roi_256:
+          type: object
+          additionalProperties: {type: integer}
+        roi_512:
+          type: object
+          additionalProperties: {type: integer}
+        roi_full_frame:
+          type: object
+          additionalProperties: {type: integer}
+        roi_source:
+          type: string
+    TransformationManifestSegment:
+      type: object
+      required: [segment_index, frame_range, quality_summary, uncertainty_callouts, sampling_protocol, reproducibility_proof]
+      properties:
+        segment_index:
+          type: integer
+        frame_range:
+          type: string
+        quality_summary:
+          $ref: "#/components/schemas/QualitySummaryResponse"
+        uncertainty_callouts:
+          type: array
+          items:
+            type: string
+        sampling_protocol:
+          $ref: "#/components/schemas/TransformationManifestSamplingProtocol"
+        reproducibility_proof:
+          type: object
+          additionalProperties: true
+        output_uri:
+          type: string
+    TransformationManifestResponse:
+      type: object
+      required:
+        [manifest_id, job_id, generated_at, user_id, era_profile, fidelity_tier, effective_fidelity_profile, reproducibility_mode, job_status, quality_summary, reproducibility_summary, stage_timings, processing_time_ms, gpu_usage, model_versions, environment, segments, uncertainty_callouts, warnings, manifest_uri, manifest_sha256, size_bytes]
+      properties:
+        manifest_id:
+          type: string
+        job_id:
+          type: string
+        generated_at:
+          type: string
+        user_id:
+          type: string
+        era_profile:
+          type: object
+          additionalProperties: true
+        fidelity_tier:
+          type: string
+          enum: [Enhance, Restore, Conserve]
+        effective_fidelity_profile:
+          type: object
+          additionalProperties: true
+        reproducibility_mode:
+          type: string
+          enum: [perceptual_equivalence, deterministic, bit_identical]
+        job_status:
+          type: string
+          enum: [queued, processing, completed, failed, partial, cancel_requested, cancelled]
+        quality_summary:
+          $ref: "#/components/schemas/QualitySummaryResponse"
+        reproducibility_summary:
+          $ref: "#/components/schemas/ReproducibilitySummaryResponse"
+        stage_timings:
+          $ref: "#/components/schemas/StageTimingResponse"
+        processing_time_ms:
+          type: integer
+        gpu_usage:
+          type: object
+          additionalProperties: true
+        model_versions:
+          type: object
+          additionalProperties: {type: string}
+        environment:
+          type: object
+          additionalProperties: true
+        segments:
+          type: array
+          items:
+            $ref: "#/components/schemas/TransformationManifestSegment"
+        uncertainty_callouts:
+          type: array
+          items:
+            type: string
+        warnings:
+          type: array
+          items:
+            type: string
+        result_uri:
+          type: string
+        manifest_uri:
+          type: string
+        manifest_sha256:
+          type: string
+        size_bytes:
+          type: integer

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 from urllib.parse import quote_plus
 from uuid import uuid5, NAMESPACE_URL
 
 import httpx
+import psycopg
 from supabase import Client, create_client
 
 from app.config import settings
@@ -27,6 +29,11 @@ class SupabaseClient:
         if not self.is_configured():
             raise ValueError("Supabase configuration is required")
         return create_client(self.base_url, self.anon_key)
+
+    def service_role_sdk_client(self) -> Client:
+        if not self.base_url or not settings.supabase_service_role_key:
+            raise ValueError("Supabase service role configuration is required")
+        return create_client(self.base_url, settings.supabase_service_role_key)
 
     def user_scoped_headers(self, access_token: str) -> dict[str, str]:
         if not self.is_configured():
@@ -72,8 +79,15 @@ class SupabaseClient:
             raise ValueError("Supabase configuration is required")
         return f"{self.base_url}/rest/v1/{table_name}"
 
+    def _require_rest_headers(self, headers: dict[str, str] | None) -> dict[str, str]:
+        if headers is None:
+            raise ValueError(
+                "Explicit REST headers are required. Use user_scoped_headers() or an explicit *_service_role method."
+            )
+        return headers
+
     def rest_select(self, table_name: str, *, params: dict[str, str], headers: dict[str, str] | None = None) -> list[dict[str, Any]]:
-        request_headers = headers or self.service_role_headers()
+        request_headers = self._require_rest_headers(headers)
         with httpx.Client(timeout=10.0) as client:
             response = client.get(self.rest_url(table_name), headers=request_headers, params=params)
             response.raise_for_status()
@@ -86,7 +100,7 @@ class SupabaseClient:
         payload: dict[str, Any],
         headers: dict[str, str] | None = None,
     ) -> list[dict[str, Any]]:
-        request_headers = headers or self.service_role_headers()
+        request_headers = self._require_rest_headers(headers)
         with httpx.Client(timeout=10.0) as client:
             response = client.post(self.rest_url(table_name), headers=request_headers, json=payload)
             response.raise_for_status()
@@ -100,7 +114,7 @@ class SupabaseClient:
         on_conflict: str,
         headers: dict[str, str] | None = None,
     ) -> list[dict[str, Any]]:
-        request_headers = dict(headers or self.service_role_headers())
+        request_headers = dict(self._require_rest_headers(headers))
         request_headers["Prefer"] = "resolution=merge-duplicates,return=representation"
         with httpx.Client(timeout=10.0) as client:
             response = client.post(
@@ -120,7 +134,7 @@ class SupabaseClient:
         params: dict[str, str],
         headers: dict[str, str] | None = None,
     ) -> list[dict[str, Any]]:
-        request_headers = headers or self.service_role_headers()
+        request_headers = self._require_rest_headers(headers)
         with httpx.Client(timeout=10.0) as client:
             response = client.patch(
                 self.rest_url(table_name),
@@ -138,7 +152,7 @@ class SupabaseClient:
         params: dict[str, str],
         headers: dict[str, str] | None = None,
     ) -> None:
-        request_headers = dict(headers or self.service_role_headers())
+        request_headers = dict(self._require_rest_headers(headers))
         request_headers["Prefer"] = "return=minimal"
         with httpx.Client(timeout=10.0) as client:
             response = client.delete(
@@ -147,6 +161,43 @@ class SupabaseClient:
                 params=params,
             )
             response.raise_for_status()
+
+    def rest_select_service_role(self, table_name: str, *, params: dict[str, str]) -> list[dict[str, Any]]:
+        return self.rest_select(table_name, params=params, headers=self.service_role_headers())
+
+    def rest_insert_service_role(self, table_name: str, *, payload: dict[str, Any]) -> list[dict[str, Any]]:
+        return self.rest_insert(table_name, payload=payload, headers=self.service_role_headers())
+
+    def rest_upsert_service_role(
+        self,
+        table_name: str,
+        *,
+        payload: dict[str, Any],
+        on_conflict: str,
+    ) -> list[dict[str, Any]]:
+        return self.rest_upsert(
+            table_name,
+            payload=payload,
+            on_conflict=on_conflict,
+            headers=self.service_role_headers(),
+        )
+
+    def rest_update_service_role(
+        self,
+        table_name: str,
+        *,
+        payload: dict[str, Any],
+        params: dict[str, str],
+    ) -> list[dict[str, Any]]:
+        return self.rest_update(
+            table_name,
+            payload=payload,
+            params=params,
+            headers=self.service_role_headers(),
+        )
+
+    def rest_delete_service_role(self, table_name: str, *, params: dict[str, str]) -> None:
+        self.rest_delete(table_name, params=params, headers=self.service_role_headers())
 
     def auth_user(self, access_token: str) -> dict[str, Any]:
         if not self.is_configured():
@@ -177,6 +228,13 @@ class SupabaseClient:
             "backups": "managed-daily-snapshots",
             "restore": "point-in-time-recovery-supported",
         }
+
+    def broadcast_realtime_service_role(self, *, topic: str, event: str, payload: dict[str, Any]) -> None:
+        with psycopg.connect(self.direct_db_dsn()) as conn, conn.cursor() as cur:
+            cur.execute(
+                "select realtime.send(%s::jsonb, %s, %s, %s)",
+                (json.dumps(payload, default=str), event, topic, True),
+            )
 
     def query_table(self, table_name: str, columns: str = "*", limit: int = 1) -> list[dict[str, Any]]:
         """Execute a bounded table query using the Supabase SDK."""

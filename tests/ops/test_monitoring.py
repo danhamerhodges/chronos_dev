@@ -21,8 +21,15 @@ def test_metrics_endpoint_prometheus_format() -> None:
 
 def test_alert_routes_declared() -> None:
     routes = alert_routes()
-    assert routes["pagerduty"] == "configured-via-env"
-    assert routes["slack"] == "configured-via-env"
+    assert routes["pagerduty"] in {"configured", "memory"}
+    assert routes["slack"] in {"configured", "memory"}
+
+
+def test_metrics_include_runtime_ops_gauges() -> None:
+    client = TestClient(app)
+    resp = client.get("/v1/metrics")
+    assert resp.status_code == 200
+    assert "runtime_gauge" in resp.text
 
 
 def test_monitoring_terraform_resources_declared() -> None:

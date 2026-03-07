@@ -147,7 +147,14 @@ else
   fail "Missing Python cache ignore entries in .gitignore"
 fi
 
-# 10) Top-level web_search placement sanity (if configured in repo config)
+# 10) Local override safety for service-role key
+if [[ -f .env.local ]] && rg -q '^SUPABASE_SERVICE_ROLE_KEY=test_service_role$' .env.local; then
+  fail ".env.local contains placeholder SUPABASE_SERVICE_ROLE_KEY override"
+else
+  pass ".env.local does not contain placeholder service-role override"
+fi
+
+# 11) Top-level web_search placement sanity (if configured in repo config)
 if rg -q '^\[sandbox_workspace_write\]' .codex/config.toml; then
   if awk '
     BEGIN{in_ws=0; bad=0}

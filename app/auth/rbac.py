@@ -26,6 +26,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "logs:read",
         "logs:write",
         "compliance:write",
+        "ops:read",
     },
     ANALYST.name: {
         "jobs:read",
@@ -36,6 +37,7 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
     },
     MEMBER.name: {
         "jobs:read",
+        "jobs:write",
         "billing:read",
         "users:read",
     },
