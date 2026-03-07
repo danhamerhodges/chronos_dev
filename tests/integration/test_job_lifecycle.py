@@ -234,3 +234,114 @@ def test_process_job_rejects_invalid_plan_tier_before_runtime_processing(monkeyp
     assert result["status"] == "failed"
     assert "Unsupported plan_tier" in result["last_error"]
     assert billed == []
+
+
+def test_process_job_sets_fresh_started_at_when_entering_processing(monkeypatch) -> None:
+    class StubRepo:
+        def __init__(self) -> None:
+            self.job = {
+                "job_id": "job-started-at",
+                "status": "queued",
+                "started_at": None,
+                "updated_at": "2026-03-07T00:00:00+00:00",
+                "segment_count": 0,
+                "progress_percent": 0.0,
+                "eta_seconds": 0,
+                "owner_user_id": "lifecycle-user",
+                "plan_tier": "pro",
+                "fidelity_tier": "Restore",
+                "current_operation": "Queued",
+                "stage_timings": {},
+            }
+
+        def get_job_for_worker(self, job_id: str) -> dict[str, object]:
+            del job_id
+            return dict(self.job)
+
+        def update_job_for_worker(self, job_id: str, *, patch: dict[str, object]) -> dict[str, object]:
+            del job_id
+            self.job.update(patch)
+            self.job["updated_at"] = "2026-03-07T00:00:30+00:00"
+            return dict(self.job)
+
+        def list_segments(self, job_id: str) -> list[dict[str, object]]:
+            del job_id
+            return []
+
+    repo = StubRepo()
+    observed_started_at: list[object] = []
+
+    monkeypatch.setattr(job_runtime, "JobRepository", lambda: repo)
+    monkeypatch.setattr(job_runtime, "authorize_trusted_worker", lambda token: "trusted")
+    monkeypatch.setattr(job_runtime, "_utc_now", lambda: "2026-03-07T00:00:15+00:00")
+    monkeypatch.setattr(
+        job_runtime,
+        "allocate_gpu",
+        lambda job: {
+            "gpu_type": "L4",
+            "warm_start": True,
+            "allocation_latency_ms": 1,
+            "queue_wait_ms": 0,
+            "gpu_runtime_seconds": 0,
+            "desired_warm_instances": 1,
+            "active_warm_instances": 1,
+            "busy_instances": 1,
+            "utilization_percent": 100.0,
+            "worker_id": "worker-1",
+        },
+    )
+    monkeypatch.setattr(
+        job_runtime,
+        "_finalize_job",
+        lambda repo_arg, job_id, trusted_token=None: (
+            observed_started_at.append(repo_arg.job["started_at"]) or {
+                **repo_arg.job,
+                "job_id": job_id,
+                "status": "completed",
+                "segment_count": 0,
+                "progress_percent": 100.0,
+                "eta_seconds": 0,
+                "current_operation": "Completed",
+            },
+            True,
+        ),
+    )
+    monkeypatch.setattr(job_runtime, "_publish_progress", lambda *args, **kwargs: None)
+    monkeypatch.setattr(job_runtime, "_deliver_webhooks", lambda *args, **kwargs: None)
+    monkeypatch.setattr(job_runtime, "BillingService", lambda: SimpleNamespace(consume_minutes=lambda **kwargs: None))
+
+    result = job_runtime.process_job("job-started-at", trusted_token="trusted")
+
+    assert result is not None
+    assert observed_started_at == ["2026-03-07T00:00:15+00:00"]
+
+
+def test_cancel_job_uses_fresh_completion_timestamp(monkeypatch) -> None:
+    class StubRepo:
+        def __init__(self) -> None:
+            self.job = {
+                "job_id": "job-cancel-timestamp",
+                "status": "cancel_requested",
+                "owner_user_id": "cancel-user",
+                "plan_tier": "pro",
+                "updated_at": "2026-03-07T00:00:00+00:00",
+                "segment_count": 1,
+                "progress_percent": 50.0,
+                "eta_seconds": 5,
+                "current_operation": "Processing",
+            }
+
+        def update_job_for_worker(self, job_id: str, *, patch: dict[str, object]) -> dict[str, object]:
+            del job_id
+            self.job.update(patch)
+            self.job["updated_at"] = "2026-03-07T00:00:31+00:00"
+            return dict(self.job)
+
+    repo = StubRepo()
+    monkeypatch.setattr(job_runtime, "_utc_now", lambda: "2026-03-07T00:00:25+00:00")
+    monkeypatch.setattr(job_runtime, "_publish_progress", lambda *args, **kwargs: None)
+    monkeypatch.setattr(job_runtime, "BillingService", lambda: SimpleNamespace(consume_minutes=lambda **kwargs: None))
+
+    cancelled = job_runtime._cancel_job(repo, "job-cancel-timestamp", segment_index=0, trusted_token="trusted")
+
+    assert cancelled["completed_at"] == "2026-03-07T00:00:25+00:00"

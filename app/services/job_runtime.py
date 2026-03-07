@@ -6,6 +6,7 @@ import ipaddress
 import socket
 import time
 from collections import defaultdict
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
 
@@ -61,6 +62,10 @@ _SEGMENT_FAILURE_PLANS: dict[tuple[str, int], list[str]] = defaultdict(list)
 _REPRODUCIBILITY_FAILURE_PLANS: dict[tuple[str, int], int] = defaultdict(int)
 _DEAD_LETTER_QUEUE: list[str] = []
 _VALID_PLAN_TIERS = frozenset({"hobbyist", "pro", "museum"})
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def reset_job_runtime_state() -> None:
@@ -141,7 +146,7 @@ def process_job(job_id: str, *, trusted_token: str | None = None) -> dict[str, A
             job_id,
             patch={
                 "status": JobStatus.PROCESSING.value,
-                "started_at": job.get("started_at") or job.get("updated_at"),
+                "started_at": job.get("started_at") or _utc_now(),
                 "current_operation": "Preparing processing pipeline",
             },
         )
@@ -203,13 +208,14 @@ def process_job(job_id: str, *, trusted_token: str | None = None) -> dict[str, A
         _deliver_webhooks(completed, event_type)
         return completed
     except Exception as exc:
+        failure_time = _utc_now()
         failed = repo.update_job_for_worker(
             job_id,
             patch={
                 "status": JobStatus.FAILED.value,
                 "last_error": str(exc),
                 "current_operation": "Failed during worker execution",
-                "completed_at": job.get("updated_at"),
+                "completed_at": failure_time,
             },
         )
         if job_id not in _DEAD_LETTER_QUEUE:
@@ -625,6 +631,7 @@ def _finalize_job(repo: JobRepository, job_id: str, *, trusted_token: str | None
     )
 
     try:
+        completed_at = _utc_now()
         finalized = repo.update_job_for_worker(
             job_id,
             patch={
@@ -633,7 +640,7 @@ def _finalize_job(repo: JobRepository, job_id: str, *, trusted_token: str | None
                 "warnings": warnings,
                 "last_error": None if status != JobStatus.FAILED else "Processing failed after retry exhaustion.",
                 "current_operation": "Completed" if status == JobStatus.COMPLETED else "Completed with segment failures",
-                "completed_at": job.get("updated_at"),
+                "completed_at": completed_at,
                 "eta_seconds": 0,
                 "progress_percent": 100.0,
                 "quality_summary": quality_summary,
@@ -695,6 +702,7 @@ def _finalize_job(repo: JobRepository, job_id: str, *, trusted_token: str | None
             )
         return finalized, True
     except Exception as exc:
+        completed_at = _utc_now()
         failed = repo.update_job_for_worker(
             job_id,
             patch={
@@ -702,7 +710,7 @@ def _finalize_job(repo: JobRepository, job_id: str, *, trusted_token: str | None
                 "last_error": f"Finalize failed after GPU release: {exc}",
                 "warnings": warnings + ["Finalize failed after GPU release."],
                 "current_operation": "Finalize failed after GPU release",
-                "completed_at": job.get("updated_at"),
+                "completed_at": completed_at,
                 "eta_seconds": 0,
                 "progress_percent": 100.0,
                 "quality_summary": quality_summary,
@@ -728,7 +736,7 @@ def _cancel_job(repo: JobRepository, job_id: str, *, segment_index: int, trusted
         job_id,
         patch={
             "status": JobStatus.CANCELLED.value,
-            "completed_at": repo.get_job_for_worker(job_id)["updated_at"],
+            "completed_at": _utc_now(),
             "current_operation": "Cancellation acknowledged",
             "eta_seconds": 0,
         },

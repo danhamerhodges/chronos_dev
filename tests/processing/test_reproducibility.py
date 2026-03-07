@@ -63,12 +63,13 @@ def test_reproducibility_retry_branch_honors_backoff_sleep(monkeypatch) -> None:
         headers=fake_auth_header("repro-sleep-user", tier="pro"),
         json=valid_job_request(reproducibility_mode="deterministic"),
     ).json()
-    client.post(
+    response = client.post(
         f"/v1/testing/jobs/{created['job_id']}/segments/0/reproducibility-failures",
         headers=fake_auth_header("repro-sleep-user", tier="pro"),
         json={"failures": 2},
     )
 
+    assert response.status_code == 200
     run_all_jobs()
 
     assert sleeps == [1, 2]

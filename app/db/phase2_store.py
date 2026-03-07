@@ -615,6 +615,9 @@ class _MemoryRuntimeOpsRepository:
     def delete_gpu_lease(self, worker_id: str) -> None:
         _STORE.gpu_leases.pop(worker_id, None)
 
+    def queued_job_backlog_count(self) -> int:
+        return sum(1 for job in _STORE.jobs.values() if job["status"] == JobStatus.QUEUED.value)
+
     def list_incidents(self) -> list[dict[str, Any]]:
         return sorted((dict(item) for item in _STORE.incidents.values()), key=lambda item: item["opened_at"], reverse=True)
 
@@ -925,11 +928,6 @@ class _SupabaseEraDetectionRepository(_SupabaseRepositoryBase):
     ) -> dict[str, Any]:
         if access_token:
             headers = self._client.user_scoped_headers(access_token)
-            existing_job_rows = self._client.rest_select(
-                "media_jobs",
-                params={"select": "id", "external_job_id": f"eq.{job_id}", "limit": "1"},
-                headers=headers,
-            )
             row = self._client.rest_upsert(
                 "media_jobs",
                 payload={
@@ -2098,6 +2096,15 @@ class _SupabaseRuntimeOpsRepository(_SupabaseRepositoryBase):
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute("delete from public.gpu_worker_leases where worker_id = %s", (worker_id,))
 
+    def queued_job_backlog_count(self) -> int:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "select count(*) as queued_job_count from public.media_jobs where status = %s",
+                (JobStatus.QUEUED.value,),
+            )
+            row = cur.fetchone()
+        return int((row or {}).get("queued_job_count", 0) or 0)
+
     def list_incidents(self) -> list[dict[str, Any]]:
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute("select * from public.incident_events order by opened_at desc")
@@ -2430,6 +2437,9 @@ class RuntimeOpsRepository:
 
     def delete_gpu_lease(self, worker_id: str) -> None:
         self._backend.delete_gpu_lease(worker_id)
+
+    def queued_job_backlog_count(self) -> int:
+        return self._backend.queued_job_backlog_count()
 
     def list_incidents(self) -> list[dict[str, Any]]:
         return self._backend.list_incidents()

@@ -46,6 +46,68 @@ def _parse_iso8601(value: str | None) -> datetime | None:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
+def _lease_metadata(lease: dict[str, Any]) -> dict[str, Any]:
+    metadata = lease.get("metadata") or {}
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _lease_snapshot_float(lease: dict[str, Any], key: str, default: float = 0.0) -> float:
+    raw_value = _lease_metadata(lease).get(key, lease.get(key, default))
+    try:
+        return float(raw_value)
+    except (TypeError, ValueError):
+        return default
+
+
+def _lease_snapshot_int(lease: dict[str, Any], key: str, default: int = 0) -> int:
+    return int(_lease_snapshot_float(lease, key, float(default)))
+
+
+def _runtime_snapshot_metadata(
+    *,
+    lease: dict[str, Any] | None = None,
+    queue_age_seconds: float,
+    desired_warm_instances: int,
+) -> dict[str, Any]:
+    metadata = {**(_lease_metadata(lease or {}))}
+    metadata.update(
+        {
+            "mode": settings.gpu_pool_mode,
+            "queue_age_seconds": round(queue_age_seconds, 3),
+            "desired_warm_instances": desired_warm_instances,
+        }
+    )
+    return metadata
+
+
+def _lease_payload(
+    lease: dict[str, Any],
+    *,
+    queue_depth_snapshot: int,
+    queue_age_seconds: float,
+    desired_warm_instances: int,
+) -> dict[str, Any]:
+    return {
+        "gpu_type": lease.get("gpu_type", "L4"),
+        "lease_state": lease.get("lease_state", "idle"),
+        "is_warm": bool(lease.get("is_warm", True)),
+        "current_job_id": lease.get("current_job_id"),
+        "queue_depth_snapshot": queue_depth_snapshot,
+        "metadata": _runtime_snapshot_metadata(
+            lease=lease,
+            queue_age_seconds=queue_age_seconds,
+            desired_warm_instances=desired_warm_instances,
+        ),
+        "allocated_at": lease.get("allocated_at"),
+        "released_at": lease.get("released_at"),
+        "expires_at": lease.get("expires_at"),
+    }
+
+
+def _runnable_backlog_depth(repo: RuntimeOpsRepository) -> int:
+    return max(int(repo.queued_job_backlog_count() or 0), 1)
+
+
 def _segment_cache_backend():
     if settings.segment_cache_mode.lower() != "redis" or not settings.redis_url:
         return None
@@ -183,7 +245,10 @@ def reconcile_gpu_pool(*, queue_depth: int, queue_age_seconds: float = 0.0) -> d
                 "is_warm": True,
                 "current_job_id": None,
                 "queue_depth_snapshot": queue_depth,
-                "metadata": {"mode": settings.gpu_pool_mode, "queue_age_seconds": queue_age_seconds},
+                "metadata": _runtime_snapshot_metadata(
+                    queue_age_seconds=queue_age_seconds,
+                    desired_warm_instances=desired,
+                ),
                 "released_at": None,
                 "allocated_at": None,
                 "expires_at": (
@@ -202,6 +267,20 @@ def reconcile_gpu_pool(*, queue_depth: int, queue_age_seconds: float = 0.0) -> d
             for lease in repo.list_gpu_leases()
             if lease.get("lease_state") != "released" and lease.get("is_warm") is True
         ]
+    refreshed_warm: list[dict[str, Any]] = []
+    for lease in active_warm:
+        refreshed_warm.append(
+            repo.upsert_gpu_lease(
+                worker_id=str(lease["worker_id"]),
+                payload=_lease_payload(
+                    lease,
+                    queue_depth_snapshot=queue_depth,
+                    queue_age_seconds=queue_age_seconds,
+                    desired_warm_instances=desired,
+                ),
+            )
+        )
+    active_warm = refreshed_warm
     busy_warm = [lease for lease in active_warm if lease.get("lease_state") == "busy"]
     snapshot = {
         "queue_depth": queue_depth,
@@ -218,12 +297,13 @@ def reconcile_gpu_pool(*, queue_depth: int, queue_age_seconds: float = 0.0) -> d
 
 
 def allocate_gpu(job: dict[str, Any]) -> dict[str, Any]:
-    queue_wait_ms = 0
     queued_at = _parse_iso8601(str(job.get("queued_at"))) or datetime.now(timezone.utc)
     queue_wait_ms = max(int((datetime.now(timezone.utc) - queued_at).total_seconds() * 1000), 0)
-    pool = reconcile_gpu_pool(queue_depth=max(int(job.get("segment_count", 0) or 0), 1), queue_age_seconds=queue_wait_ms / 1000)
-    target_gpu = "RTX 6000" if str(job.get("plan_tier", "")).lower() == "museum" else "L4"
     repo = RuntimeOpsRepository()
+    queue_age_seconds = round(queue_wait_ms / 1000, 3)
+    queue_depth = _runnable_backlog_depth(repo)
+    pool = reconcile_gpu_pool(queue_depth=queue_depth, queue_age_seconds=queue_age_seconds)
+    target_gpu = "RTX 6000" if str(job.get("plan_tier", "")).lower() == "museum" else "L4"
     leases = repo.list_gpu_leases()
     selected = next(
         (lease for lease in leases if lease.get("lease_state") == "idle" and lease.get("is_warm") is True),
@@ -234,24 +314,51 @@ def allocate_gpu(job: dict[str, Any]) -> dict[str, Any]:
         settings.gpu_warm_allocation_latency_ms if warm_start else settings.gpu_cold_allocation_latency_ms
     )
     worker_id = str(selected["worker_id"]) if selected else f"cold-{uuid4().hex[:8]}"
-    repo.upsert_gpu_lease(
-        worker_id=worker_id,
-        payload={
-            "gpu_type": target_gpu,
-            "lease_state": "busy",
-            "is_warm": warm_start,
-            "current_job_id": job["job_id"],
-            "queue_depth_snapshot": pool["queue_depth"],
-            "metadata": {"plan_tier": job.get("plan_tier"), "warm_start": warm_start},
-            "allocated_at": _utc_now(),
-            "released_at": None,
-            "expires_at": (
-                datetime.now(timezone.utc) + timedelta(seconds=settings.gpu_pool_idle_timeout_seconds)
-            ).isoformat(),
-        },
-    )
-    record_gpu_allocation(gpu_type=target_gpu, warm=warm_start, latency_ms=allocation_latency_ms)
-    pool = reconcile_gpu_pool(queue_depth=pool["queue_depth"], queue_age_seconds=queue_wait_ms / 1000)
+    try:
+        repo.upsert_gpu_lease(
+            worker_id=worker_id,
+            payload={
+                "gpu_type": target_gpu,
+                "lease_state": "busy",
+                "is_warm": warm_start,
+                "current_job_id": job["job_id"],
+                "queue_depth_snapshot": pool["queue_depth"],
+                "metadata": {
+                    **_runtime_snapshot_metadata(
+                        lease=selected,
+                        queue_age_seconds=queue_age_seconds,
+                        desired_warm_instances=pool["desired_warm_instances"],
+                    ),
+                    "plan_tier": job.get("plan_tier"),
+                    "warm_start": warm_start,
+                },
+                "allocated_at": _utc_now(),
+                "released_at": None,
+                "expires_at": (
+                    datetime.now(timezone.utc) + timedelta(seconds=settings.gpu_pool_idle_timeout_seconds)
+                ).isoformat(),
+            },
+        )
+        record_gpu_allocation(gpu_type=target_gpu, warm=warm_start, latency_ms=allocation_latency_ms)
+        pool = reconcile_gpu_pool(queue_depth=pool["queue_depth"], queue_age_seconds=queue_age_seconds)
+    except Exception:
+        if selected is not None:
+            repo.upsert_gpu_lease(
+                worker_id=worker_id,
+                payload=_lease_payload(
+                    selected,
+                    queue_depth_snapshot=int(selected.get("queue_depth_snapshot") or queue_depth),
+                    queue_age_seconds=_lease_snapshot_float(selected, "queue_age_seconds", queue_age_seconds),
+                    desired_warm_instances=_lease_snapshot_int(
+                        selected,
+                        "desired_warm_instances",
+                        pool["desired_warm_instances"],
+                    ),
+                ),
+            )
+        else:
+            repo.delete_gpu_lease(worker_id)
+        raise
     return {
         "gpu_type": target_gpu,
         "warm_start": warm_start,
@@ -271,6 +378,8 @@ def release_gpu(job_id: str, *, gpu_runtime_seconds: int) -> dict[str, Any]:
     for lease in repo.list_gpu_leases():
         if lease.get("current_job_id") != job_id:
             continue
+        queue_depth_snapshot = int(lease.get("queue_depth_snapshot") or 0)
+        queue_age_seconds = _lease_snapshot_float(lease, "queue_age_seconds", 0.0)
         if lease.get("is_warm"):
             repo.upsert_gpu_lease(
                 worker_id=str(lease["worker_id"]),
@@ -279,8 +388,19 @@ def release_gpu(job_id: str, *, gpu_runtime_seconds: int) -> dict[str, Any]:
                     "lease_state": "idle",
                     "is_warm": True,
                     "current_job_id": None,
-                    "queue_depth_snapshot": lease.get("queue_depth_snapshot", 0),
-                    "metadata": {**(lease.get("metadata") or {}), "last_gpu_runtime_seconds": gpu_runtime_seconds},
+                    "queue_depth_snapshot": queue_depth_snapshot,
+                    "metadata": {
+                        **_runtime_snapshot_metadata(
+                            lease=lease,
+                            queue_age_seconds=queue_age_seconds,
+                            desired_warm_instances=_lease_snapshot_int(
+                                lease,
+                                "desired_warm_instances",
+                                max(settings.gpu_pool_min_warm_instances, 0),
+                            ),
+                        ),
+                        "last_gpu_runtime_seconds": gpu_runtime_seconds,
+                    },
                     "allocated_at": lease.get("allocated_at"),
                     "released_at": _utc_now(),
                     "expires_at": (
@@ -291,7 +411,7 @@ def release_gpu(job_id: str, *, gpu_runtime_seconds: int) -> dict[str, Any]:
         else:
             repo.delete_gpu_lease(str(lease["worker_id"]))
         break
-    return reconcile_gpu_pool(queue_depth=0)
+    return reconcile_gpu_pool(queue_depth=0, queue_age_seconds=0.0)
 
 
 def _route_alert(*, route: str, payload: dict[str, Any]) -> None:
@@ -465,11 +585,16 @@ def current_runtime_snapshot() -> dict[str, Any]:
     ]
     busy_warm = [lease for lease in active_warm if lease.get("lease_state") == "busy"]
     queue_depth = max((int(lease.get("queue_depth_snapshot") or 0) for lease in active_warm), default=0)
+    queue_age_seconds = round(max((_lease_snapshot_float(lease, "queue_age_seconds", 0.0) for lease in active_warm), default=0.0), 3)
+    desired_warm_instances = max(
+        max(settings.gpu_pool_min_warm_instances, 0),
+        max((_lease_snapshot_int(lease, "desired_warm_instances", 0) for lease in active_warm), default=0),
+    )
     utilization_percent = round((len(busy_warm) / max(len(active_warm), 1)) * 100, 2) if active_warm else 0.0
     snapshot = {
         "queue_depth": queue_depth,
-        "queue_age_seconds": 0.0,
-        "desired_warm_instances": max(settings.gpu_pool_min_warm_instances, 0),
+        "queue_age_seconds": queue_age_seconds,
+        "desired_warm_instances": desired_warm_instances,
         "active_warm_instances": len(active_warm),
         "busy_instances": len(busy_warm),
         "idle_instances": max(len(active_warm) - len(busy_warm), 0),
