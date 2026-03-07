@@ -9,6 +9,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import httpx
 
@@ -26,8 +27,15 @@ def _env_bool(name: str, default: bool) -> bool:
     return value.lower() not in {"0", "false", "no"}
 
 
-async def _run_async_job(http: httpx.AsyncClient, *, base_url: str, auth_headers: dict[str, str], trusted_token: str) -> dict[str, Any]:
-    created_response = await http.post(f"{base_url}/v1/jobs", headers=auth_headers, json=_valid_job_request())
+async def _run_async_job(
+    http: httpx.AsyncClient,
+    *,
+    base_url: str,
+    auth_headers: dict[str, str],
+    trusted_token: str,
+    job_request: dict[str, Any],
+) -> dict[str, Any]:
+    created_response = await http.post(f"{base_url}/v1/jobs", headers=auth_headers, json=job_request)
     created_response.raise_for_status()
     created = created_response.json()
     job_id = created["job_id"]
@@ -64,10 +72,26 @@ async def _run() -> None:
     trusted_token = _require_env("JOB_WORKER_TRUSTED_TOKEN")
     require_degraded = _env_bool("CHRONOS_PACKET3C_EXPECT_CACHE_DEGRADED", True)
     allow_runtime_snapshot_forbidden = _env_bool("CHRONOS_PACKET3C_ALLOW_RUNTIME_SNAPSHOT_FORBIDDEN", True)
+    shared_checksum = os.getenv("CHRONOS_PACKET3C_SOURCE_CHECKSUM", f"packet3c-cache-smoke-{uuid4().hex}")
+    first_request = _valid_job_request()
+    first_request["source_asset_checksum"] = shared_checksum
+    second_request = dict(first_request)
 
     async with httpx.AsyncClient(timeout=20.0) as http:
-        first_job = await _run_async_job(http, base_url=base_url, auth_headers=auth_headers, trusted_token=trusted_token)
-        second_job = await _run_async_job(http, base_url=base_url, auth_headers=auth_headers, trusted_token=trusted_token)
+        first_job = await _run_async_job(
+            http,
+            base_url=base_url,
+            auth_headers=auth_headers,
+            trusted_token=trusted_token,
+            job_request=first_request,
+        )
+        second_job = await _run_async_job(
+            http,
+            base_url=base_url,
+            auth_headers=auth_headers,
+            trusted_token=trusted_token,
+            job_request=second_request,
+        )
 
         degraded_alert_response = await http.post(
             f"{base_url}/internal/ops/alerts/evaluate",
@@ -92,6 +116,8 @@ async def _run() -> None:
     second_cache = second_job.get("cache_summary") or {}
     if require_degraded and not (first_cache.get("degraded") or second_cache.get("degraded")):
         raise SystemExit("Packet 3C smoke expected degraded cache mode, but no degraded cache summary was observed.")
+    if not require_degraded and second_cache.get("hits", 0) <= 0:
+        raise SystemExit("Packet 3C smoke expected a real Redis cache hit on the second job, but no cache hits were observed.")
 
     if "runtime_gauge" not in metrics_payload or "incident_total" not in metrics_payload:
         raise SystemExit("Packet 3C metrics payload is missing runtime gauge or incident metrics.")
