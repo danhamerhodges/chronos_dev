@@ -23,6 +23,7 @@ def test_agent_scripts_expose_help() -> None:
     root = Path(__file__).resolve().parents[2]
     scripts = [
         "scripts/agents/analyze_commit_size.py",
+        "scripts/agents/codex_pr_review.py",
         "scripts/agents/recommend_commit_timing.py",
         "scripts/agents/push_gate.py",
         "scripts/agents/pr_validation_orchestrator.py",
