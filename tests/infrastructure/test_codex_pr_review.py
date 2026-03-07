@@ -40,7 +40,7 @@ def test_render_comment_body_includes_marker_and_metadata() -> None:
     rendered = module.render_comment_body(
         review_text="## Findings\n- No material findings.",
         model="gpt-5.4",
-        project_id="proj_123",
+        project_header_status="enabled",
         changed_files_count=3,
         base_sha="abcdef1234567890",
         head_sha="fedcba0987654321",
@@ -53,6 +53,15 @@ def test_render_comment_body_includes_marker_and_metadata() -> None:
     assert "OpenAI project header: `enabled`" in rendered
     assert "Input truncation: `diff truncated`" in rendered
     assert "## Findings" in rendered
+
+
+def test_resolve_project_header_status_ignores_non_project_values() -> None:
+    module = _load_module()
+
+    project_id, status = module.resolve_project_header_status("chronos-dev")
+
+    assert project_id == ""
+    assert status == "ignored (invalid project id)"
 
 
 def test_trim_text_reports_truncation() -> None:

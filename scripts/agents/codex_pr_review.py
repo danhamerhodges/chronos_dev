@@ -74,6 +74,15 @@ def extract_output_text(response: dict[str, Any]) -> str:
     return "\n\n".join(parts).strip()
 
 
+def resolve_project_header_status(project_id: str) -> tuple[str, str]:
+    value = project_id.strip()
+    if not value:
+        return "", "not set"
+    if value.startswith("proj_"):
+        return value, "enabled"
+    return "", "ignored (invalid project id)"
+
+
 def collect_changed_files(base_sha: str, head_sha: str) -> list[dict[str, Any]]:
     output = run_git(["diff", "--numstat", f"{base_sha}..{head_sha}"])
     changed_files: list[dict[str, Any]] = []
@@ -236,14 +245,13 @@ def render_comment_body(
     *,
     review_text: str,
     model: str,
-    project_id: str,
+    project_header_status: str,
     changed_files_count: int,
     base_sha: str,
     head_sha: str,
     diff_truncated: bool,
     pr_body_truncated: bool,
 ) -> str:
-    scope_note = "enabled" if project_id else "not set"
     truncation_bits = []
     if pr_body_truncated:
         truncation_bits.append("PR body truncated")
@@ -256,7 +264,7 @@ def render_comment_body(
             "## Codex PR Review",
             "",
             f"- Model: `{model}`",
-            f"- OpenAI project header: `{scope_note}`",
+            f"- OpenAI project header: `{project_header_status}`",
             f"- Reviewed files: `{changed_files_count}`",
             f"- Base..Head: `{base_sha[:12]}..{head_sha[:12]}`",
             f"- Input truncation: `{truncation_line}`",
@@ -283,7 +291,7 @@ def main() -> int:
         repo_full_name = event.get("repository", {}).get("full_name", "")
         issue_number = int(pr.get("number", 0) or 0)
         github_token = os.getenv("GITHUB_TOKEN", "").strip()
-        project_id = os.getenv("OPENAI_PROJECT_ID", "").strip()
+        project_id, project_header_status = resolve_project_header_status(os.getenv("OPENAI_PROJECT_ID", ""))
         model = os.getenv("OPENAI_REVIEW_MODEL", "").strip() or DEFAULT_MODEL
 
         if not pr or not repo_full_name or not issue_number:
@@ -302,7 +310,7 @@ def main() -> int:
             comment_body = render_comment_body(
                 review_text=review_text,
                 model=model,
-                project_id=project_id,
+                project_header_status=project_header_status,
                 changed_files_count=len(review_bundle["changed_files"]),
                 base_sha=review_bundle["base_sha"],
                 head_sha=review_bundle["head_sha"],
@@ -321,7 +329,7 @@ def main() -> int:
                     f"Status: `commented`",
                     f"PR: `#{issue_number}`",
                     f"Model: `{model}`",
-                    f"OpenAI project header: `{'enabled' if project_id else 'not set'}`",
+                    f"OpenAI project header: `{project_header_status}`",
                     f"Reviewed files: `{len(review_bundle['changed_files'])}`",
                     f"Diff truncated: `{'yes' if review_bundle['diff_truncated'] else 'no'}`",
                     f"Comment URL: {comment.get('html_url', 'n/a')}",
@@ -331,7 +339,7 @@ def main() -> int:
             result = {
                 "status": "commented",
                 "model": model,
-                "project_header": bool(project_id),
+                "project_header": project_header_status,
                 "reviewed_files": len(review_bundle["changed_files"]),
                 "diff_truncated": review_bundle["diff_truncated"],
                 "comment_url": comment.get("html_url", ""),
