@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: ChronosRefine API
-  version: 0.4.0
+  version: 0.2.0
   description: >
     Phase 2 foundation plus Phase 3 Packets 3A, 3B, and 3C covering ENG-001,
     ENG-002, ENG-003, ENG-004, ENG-005, ENG-006, ENG-007, ENG-008,
@@ -14,6 +14,7 @@ servers:
     description: Local development
 tags:
   - name: health
+  - name: metrics
   - name: version
   - name: era-detection
   - name: jobs
@@ -21,6 +22,7 @@ tags:
   - name: ops
   - name: users
   - name: security
+  - name: testing
 paths:
   /health:
     get:
@@ -40,6 +42,17 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthResponse"
+  /v1/metrics:
+    get:
+      tags: [metrics]
+      summary: Prometheus-compatible service metrics
+      responses:
+        "200":
+          description: Prometheus text exposition format
+          content:
+            text/plain:
+              schema:
+                type: string
   /v1/version:
     get:
       tags: [version]
@@ -332,11 +345,18 @@ paths:
                 $ref: "#/components/schemas/DeleteLogsResponse"
   /v1/testing/reset-rate-limits:
     post:
-      tags: [security]
+      tags: [testing]
       summary: Reset per-user rate limits in test mode
+      description: Mounted only when `TEST_AUTH_OVERRIDE` is enabled and `ENVIRONMENT=test`.
+      security:
+        - bearerAuth: []
       responses:
         "200":
           description: Rate limit buckets cleared
+        "401":
+          description: Missing or invalid bearer token
+        "404":
+          description: Testing helpers disabled outside test mode
 components:
   securitySchemes:
     bearerAuth:

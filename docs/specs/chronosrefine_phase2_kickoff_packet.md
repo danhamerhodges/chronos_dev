@@ -2,10 +2,12 @@
 
 **Date:** 2026-03-05  
 **Phase:** Phase 2 - API Foundation & Data Layer  
-**Status:** Ready for implementation handoff  
+**Status:** Historical planning artifact; Phase 2 is complete on `main`  
 **Source of truth:** `docs/specs/*` canonical ordering in `AGENTS.md`
 
 ---
+
+**Repository note:** This packet is retained for historical context only. Current execution status, phase gating, and requirement sequencing must be taken from the canonical specs, coverage matrix, and implementation plan.
 
 ## 1) Objective
 
@@ -73,7 +75,7 @@ Confirmed against coverage matrix + implementation plan:
 - Add confidence threshold handling and manual override integration contract.
 - Add telemetry for accuracy/latency and model outputs.
 
-### Workstream D - Security + Cost Controls (`SEC-008`, `NFR-007`)
+### Workstream D - Security + Cost Controls (`SEC-009`, `NFR-007`)
 
 - Implement/validate log-retention, redaction, and deletion-policy expectations.
 - Add cost-control/budget guardrails and policy checks.
@@ -87,7 +89,7 @@ Confirmed against coverage matrix + implementation plan:
 |---|---|
 | ENG-001 | `tests/api/test_schema_validation.py` |
 | ENG-002 | `tests/api/test_endpoints.py` |
-| ENG-004 | `tests/ml/test_era_detection.py`, `tests/ml/test_gemini_integration.py` |
+| ENG-004 | `tests/ml/test_era_detection_service.py`, `tests/ml/test_gemini_integration.py` |
 | FR-002 | `tests/api/test_era_detection.py`, `tests/integration/test_era_detection_e2e.py` |
 | SEC-009 | `tests/security/test_log_retention.py`, `tests/security/test_pii_redaction.py`, `tests/compliance/test_gdpr_log_deletion.py` |
 | NFR-007 | `tests/billing/test_cost_control.py`, `tests/billing/test_budget_alerts.py` |

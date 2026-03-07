@@ -1,8 +1,18 @@
-# Chronos Phase 1 Bootstrap
+# ChronosRefine
 
-This repository contains the Phase 1 implementation baseline for ChronosRefine.
+This repository contains the current ChronosRefine codebase plus the canonical requirements set under `docs/specs/`.
 
-## Phase 1 Scope
+Current `main` includes the Phase 1 baseline plus merged Phase 2 and Phase 3 backend work. Phase 4 remains planning-only and should be kicked off from the canonical documents, not historical status notes.
+
+## Current Repo State
+
+- Canonical source of truth lives under `docs/specs/` in the ordering defined by `AGENTS.md`.
+- Phase 2 backend closeout is merged on `main`.
+- Phase 3 Packets 3A, 3B, and 3C are merged on `main`.
+- The checked-in API contract lives at `docs/api/openapi.yaml`.
+- Phase 3 closeout notes and the PRD are context-only and do not override canon.
+
+## Historical Phase 1 Scope
 
 - ENG-016: Supabase database baseline (schema, migrations, RLS, pooling notes, backup/restore pointers)
 - SEC-013: Supabase Auth baseline (email/password, OAuth hooks, magic links, RBAC/session policy scaffolding)
@@ -15,11 +25,12 @@ This repository contains the Phase 1 implementation baseline for ChronosRefine.
 
 1. Copy `.env.example` to `.env` and fill values.
 2. Copy `.env.test.example` to `.env.test` for test-only values.
-3. Run verification commands listed in `Makefile` targets or project docs.
+3. Run the verification commands below or the phase-specific commands referenced from the canonical docs.
 
-## Verification Commands
+## Common Verification Commands
 
 ```bash
+./scripts/validate_codex_setup.sh
 python3 scripts/validate_test_traceability.py
 pytest tests/infrastructure tests/database tests/auth tests/billing tests/ops -q
 pnpm -C web test

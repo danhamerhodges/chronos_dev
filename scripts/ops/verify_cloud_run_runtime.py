@@ -24,14 +24,23 @@ REQUIRED_SECRET_REFS = {
 
 REQUIRED_PLAIN_ENVS = {
     "ENVIRONMENT": "staging",
+    "SEGMENT_CACHE_MODE": "redis",
     "JOB_DISPATCH_MODE": "pubsub",
     "JOB_PROGRESS_MODE": "supabase",
+}
+
+REQUIRED_NONEMPTY_ENVS = {
+    "BUILD_SHA",
+    "BUILD_TIME",
+    "REDIS_URL",
 }
 
 FORBIDDEN_LITERAL_VALUES = {
     "SUPABASE_SERVICE_ROLE_KEY": {"test_service_role", "", None},
     "JOB_WORKER_TRUSTED_TOKEN": {"", None},
     "SUPABASE_DB_PASSWORD": {"", None},
+    "BUILD_SHA": {"local", "", None},
+    "BUILD_TIME": {"unknown", "", None},
 }
 
 
@@ -104,6 +113,32 @@ def _check_forbidden_literals(env_map: dict[str, dict[str, Any]]) -> list[str]:
     return failures
 
 
+def _check_required_nonempty_envs(env_map: dict[str, dict[str, Any]]) -> list[str]:
+    failures: list[str] = []
+    for env_name in REQUIRED_NONEMPTY_ENVS:
+        entry = env_map.get(env_name)
+        if entry is None:
+            failures.append(f"Missing runtime setting: {env_name}")
+            continue
+        value = entry.get("value")
+        if not isinstance(value, str) or not value.strip():
+            failures.append(f"{env_name} must be a non-empty literal env value")
+    return failures
+
+
+def _check_env_formats(env_map: dict[str, dict[str, Any]]) -> list[str]:
+    failures: list[str] = []
+    build_sha = (env_map.get("BUILD_SHA") or {}).get("value", "")
+    if isinstance(build_sha, str):
+        normalized = build_sha.removesuffix("-dirty")
+        if len(normalized) < 7 or any(ch not in "0123456789abcdef" for ch in normalized.lower()):
+            failures.append("BUILD_SHA must look like a git commit SHA")
+    redis_url = (env_map.get("REDIS_URL") or {}).get("value", "")
+    if isinstance(redis_url, str) and not redis_url.startswith("redis://"):
+        failures.append("REDIS_URL must use the redis:// scheme")
+    return failures
+
+
 def main() -> int:
     args = _parse_args()
     service = _describe_service(service=args.service, region=args.region, project=args.project)
@@ -112,7 +147,9 @@ def main() -> int:
     failures = []
     failures.extend(_check_secret_refs(env_map))
     failures.extend(_check_plain_envs(env_map))
+    failures.extend(_check_required_nonempty_envs(env_map))
     failures.extend(_check_forbidden_literals(env_map))
+    failures.extend(_check_env_formats(env_map))
 
     revision = service["status"].get("latestReadyRevisionName", "unknown")
     if failures:

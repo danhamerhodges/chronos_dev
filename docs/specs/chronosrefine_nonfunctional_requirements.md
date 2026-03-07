@@ -2,8 +2,10 @@
 
 **Purpose:** Performance, scalability, cost, and business requirements  
 **Audience:** All team members, product managers, finance  
-**Companion Documents:** ChronosRefine PRD (main document)  
+**Companion Documents:** Context-only PRD at `docs/specs/chronosrefine_prd_v9.md`  
 **Last Updated:** February 2026
+
+**Repo Note:** Test-file references for requirements not yet implemented on `main` are canonical target mappings and may not exist until the corresponding phase lands.
 
 **Change Note (February 2026):** Applied 9-patch accuracy/completeness pack + 7-patch regression fix pack + 6-patch high-priority regression fix pack:
 
@@ -527,8 +529,8 @@ Non-functional requirements define system qualities, performance targets, busine
 **Implementation Guidance:**
 - 📄 **Stripe Setup:** `docs/specs/chronosrefine_implementation_plan.md#phase-1-foundation--core-infrastructure` (to be cross-referenced)
 - 📄 **Subscription Plans:** `docs/specs/chronosrefine_prd_v9.md#pricing--business-model`
-- 📄 **Usage Metering:** `companion_docs/ChronosRefine_Billing_Spec.md` (to be created)
-- 📄 **Webhook Handlers:** `companion_docs/ChronosRefine_Stripe_Webhooks.md` (to be created)
+- 📄 **Usage Metering:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-007-cost-control-requirements`
+- 📄 **Webhook Handlers:** `docs/specs/chronosrefine_implementation_plan.md#phase-1-foundation--core-infrastructure`
 
 ---
 

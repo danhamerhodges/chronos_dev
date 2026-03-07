@@ -37,12 +37,13 @@ jobs:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
       - name: Deploy to Cloud Run staging
         run: |
+          BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           gcloud run deploy "${CLOUD_RUN_SERVICE}" \
             --project "${GCP_PROJECT_ID}" \
             --region "${GCP_REGION:-us-central1}" \
             --source . \
             --allow-unauthenticated \
-            --set-env-vars "ENVIRONMENT=staging,JOB_DISPATCH_MODE=pubsub,JOB_PROGRESS_MODE=supabase,JOB_PUBSUB_TOPIC=projects/${GCP_PROJECT_ID}/topics/chronos-async-jobs-smoke" \
+            --set-env-vars "ENVIRONMENT=staging,BUILD_SHA=${GITHUB_SHA},BUILD_TIME=${BUILD_TIME},JOB_DISPATCH_MODE=pubsub,JOB_PROGRESS_MODE=supabase,JOB_PUBSUB_TOPIC=projects/${GCP_PROJECT_ID}/topics/chronos-async-jobs-smoke,SEGMENT_CACHE_MODE=redis,REDIS_URL=redis://10.32.25.35:6379/0" \
             --set-secrets "SUPABASE_URL=SUPABASE_URL_DEV:latest,SUPABASE_ANON_KEY=SUPABASE_ANON_KEY_DEV:latest,SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest,SUPABASE_DB_HOST=SUPABASE_DB_HOST:latest,SUPABASE_DB_PORT=SUPABASE_DB_PORT:latest,SUPABASE_DB_NAME=SUPABASE_DB_NAME:latest,SUPABASE_DB_USER=SUPABASE_DB_USER:latest,SUPABASE_DB_PASSWORD=SUPABASE_DB_PASSWORD:latest,JOB_WORKER_TRUSTED_TOKEN=JOB_WORKER_TRUSTED_TOKEN:latest" \
             --quiet
       - name: Verify Cloud Run runtime hardening

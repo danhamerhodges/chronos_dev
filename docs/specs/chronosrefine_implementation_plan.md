@@ -1,15 +1,20 @@
 # ChronosRefine Implementation Plan
 
-**Version:** 10.3  
-**Last Updated:** February 2026  
+**Version:** 10.4  
+**Last Updated:** March 2026  
 **Status:** Handoff-Ready  
 **Audience:** Development Team, Product Manager, Engineering Manager
+
+**Change Note (v10.4 - March 2026):** Reconciled merged-state Phase 2/3 status notes, corrected Phase 4 scope drift, removed stale companion-doc references from Phase 4 gating, and approved Packet 4A as `FR-001`.
 
 ---
 
 ## 10. Implementation Plan
 
 This implementation plan is organized into a logical execution sequence designed to build foundational components first, mitigate risks early, and deliver incremental value at each phase. This approach provides the development team with a clear roadmap for building ChronosRefine with minimal risk and an optimal chance of success.
+
+**Status Note:** The per-phase checklists below remain gate artifacts. Current merged-state progress and kickoff readiness are tracked in `docs/specs/ChronosRefine Requirements Coverage Matrix.md`.
+**Repo Note:** Test-file references for future phases are target mappings and may not yet exist on `main` until the corresponding packet is implemented.
 
 ### Phase 1: Foundation & Core Infrastructure
 
@@ -30,7 +35,7 @@ This implementation plan is organized into a logical execution sequence designed
 -   Initialized project structure in a Git repository → **Test:** `tests/infrastructure/test_project_structure.py`
 -   Automated CI/CD pipeline for testing and deployment → **Req:** **OPS-001**, **Test:** `tests/ops/test_ci_cd_pipeline.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#ops-001-monitoring--alerting`
 -   Configured logging, monitoring, and alerting → **Req:** **OPS-001**, **OPS-002**, **Test:** `tests/ops/test_monitoring.py`, `tests/ops/test_logging.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#ops-001-monitoring--alerting`, `docs/specs/chronosrefine_security_operations_requirements.md#ops-002-slo-monitoring`
--   Secure GCP project setup with IAM policies defined in Terraform → **See:** `companion_docs/ChronosRefine_Infrastructure_Spec.md` (to be created)
+-   Secure GCP project setup with IAM policies defined in Terraform
 -   Supabase database and authentication configured → **Req:** **ENG-016**, **SEC-013**, **Test:** `tests/database/test_supabase_connection.py`, `tests/auth/test_supabase_auth.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-016-database-technology-selection-supabase`, `docs/specs/chronosrefine_security_operations_requirements.md#sec-013-authentication-provider-selection-supabase`
 -   Design system implemented with component library → **Req:** **DS-007**, **Test:** `tests/design_system/test_tokens.spec.ts`, **See:** `docs/specs/chronosrefine_design_requirements.md#ds-007-design-system-implementation`
 -   Stripe payment integration configured → **Req:** **NFR-012**, **Test:** `tests/billing/test_stripe_integration.py`, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-012-payment-provider-selection`
@@ -45,7 +50,7 @@ This implementation plan is organized into a logical execution sequence designed
 - [ ] Team can deploy a "Hello World" service end-to-end in < 10 minutes
 - [ ] Supabase database schema applied with migration scripts → **Req:** **ENG-016**, **Test:** `tests/database/test_schema_migrations.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-016-database-technology-selection-supabase`
 - [ ] Supabase Auth configured with email/password and OAuth → **Req:** **SEC-013**, **Test:** `tests/auth/test_email_password_auth.py`, `tests/auth/test_oauth_integration.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-013-authentication-provider-selection-supabase`
-- [ ] Design system tokens and component library implemented → **Req:** **DS-007**, **Test:** `tests/design_system/test_component_library.spec.ts`, **See:** `docs/specs/chronosrefine_design_requirements.md#ds-007-design-system-implementation`, `chronosrefine_companion_docs/ChronosRefine_Design_System_Specification.md`
+- [ ] Design system tokens and component library implemented → **Req:** **DS-007**, **Test:** `tests/design_system/test_component_library.spec.ts`, **See:** `docs/specs/chronosrefine_design_requirements.md#ds-007-design-system-implementation`
 - [ ] Stripe subscription plans created (Pro: $29/month, Museum: $500/month) → **Req:** **NFR-012**, **Test:** `tests/billing/test_subscription_lifecycle.py`, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-012-payment-provider-selection`
 - [ ] Stripe webhook integration tested → **Req:** **NFR-012**, **Test:** `tests/billing/test_stripe_webhooks.py`, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-012-payment-provider-selection`
 
@@ -74,14 +79,14 @@ This implementation plan is organized into a logical execution sequence designed
 **Deliverables:**
 -   Finalized JSON Schema for Era Profiles → **Req:** **ENG-001**, **Test:** `tests/api/test_schema_validation.py`, **See:** `docs/specs/chronosrefine_prd_v9.md#era-profile-schema`
 -   Phase 2 API foundation subset (`/v1/detect-era`, `/v1/eras`, `/v1/users/me`, `/v1/users/me/usage`, `/v1/users/me/approve-overage`, `/v1/orgs/{org_id}/settings/logs`, `/v1/user/delete_logs`, `/v1/health`, `/v1/version`) → **Req:** **ENG-002**, **Test:** `tests/api/test_endpoints.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-002-api-endpoint-implementation`
--   Era-detection model service, persistence, and fallback contract → **Req:** **ENG-004**, **FR-002**, **Test:** `tests/ml/test_era_detection.py`, `tests/ml/test_gemini_integration.py`, `tests/api/test_era_detection.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-004-era-detection-model`, `docs/specs/chronosrefine_functional_requirements.md#fr-002-era-detection`
+-   Era-detection model service, persistence, and fallback contract → **Req:** **ENG-004**, **FR-002**, **Test:** `tests/ml/test_era_detection_service.py`, `tests/ml/test_gemini_integration.py`, `tests/api/test_era_detection.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-004-era-detection-model`, `docs/specs/chronosrefine_functional_requirements.md#fr-002-era-detection`
 -   Validation logic that enforces all schema rules → **Req:** **ENG-001**, **Test:** `tests/api/test_schema_validation.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-001-json-schema-validation`
 -   PII redaction, log retention, and GDPR log-deletion flows configured → **Req:** **SEC-009**, **Test:** `tests/security/test_log_retention.py`, `tests/security/test_pii_redaction.py`, `tests/compliance/test_gdpr_log_deletion.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-009-log-retention--pii-redaction`
 
 **Exit Criteria:**
 - [ ] JSON Schema validates all 6 era profiles with 100% pass rate → **Req:** **ENG-001**, **Test:** `tests/api/test_schema_validation.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-001-json-schema-validation`
 - [ ] Phase 2 API subset documented in OpenAPI and covered by contract tests → **Req:** **ENG-002**, **Test:** `tests/api/test_endpoints.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-002-api-endpoint-implementation`
-- [ ] Era-detection model fallback and manual-confirmation contract validated → **Req:** **ENG-004**, **FR-002**, **Test:** `tests/ml/test_era_detection.py`, `tests/api/test_era_detection.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-004-era-detection-model`, `docs/specs/chronosrefine_functional_requirements.md#fr-002-era-detection`
+- [ ] Era-detection model fallback and manual-confirmation contract validated → **Req:** **ENG-004**, **FR-002**, **Test:** `tests/ml/test_era_detection_service.py`, `tests/api/test_era_detection.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-004-era-detection-model`, `docs/specs/chronosrefine_functional_requirements.md#fr-002-era-detection`
 - [ ] Schema validation correctly rejects invalid profiles (tested with 50+ negative test cases) → **Req:** **ENG-001**, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-001-json-schema-validation`
 - [ ] All three validation rules (A, B, C) enforced programmatically → **Req:** **ENG-001**, **See:** `docs/specs/chronosrefine_prd_v9.md#validation-rules`
 - [ ] Performance: Schema validation completes in <100ms for 95th percentile → **Req:** **ENG-001**, **Test:** `tests/load/test_schema_validation_performance.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-001-json-schema-validation`
@@ -103,7 +108,7 @@ This implementation plan is organized into a logical execution sequence designed
 **Requirements Implemented:** **ENG-003**, **ENG-005**, **ENG-006**, **ENG-007**, **ENG-008**, **ENG-009**, **ENG-010**, **ENG-011**, **ENG-012**, **NFR-002**, **SEC-007**, **OPS-003** (12 requirements)  
 **Coverage Matrix:** See `docs/specs/ChronosRefine Requirements Coverage Matrix.md`
 
-**Implementation Status Note:** Packet 3A is implemented in backend code on the current branch for **ENG-003**, **ENG-011**, and **ENG-012**. Packet 3A.1 adds a dispatcher abstraction, explicit worker entrypoint, and trusted background publish path aligned to the canonical `Cloud Run service -> Pub/Sub -> Cloud Run Jobs` topology. Packet 3A.2 adds env-gated runtime binding surfaces plus a dedicated live-smoke path in `scripts/smoke/async_jobs_runtime_smoke.sh`. Packet 3B adds reference-first fidelity profile enforcement, deterministic quality metrics, reproducibility proof generation, transformation manifest generation/download, and baseline per-job stage timing capture for **ENG-005**, **ENG-006**, **ENG-007**, **ENG-010**, and the instrumentation subset of **NFR-002**. Packet 3C extends the same runtime with GPU warm-pool reconciliation, Redis-compatible segment deduplication, incident persistence and alert routing hooks, expanded per-job runtime summaries, and full `NFR-002` SLO/accounting closure for the current branch. **SEC-007** remains a deferred Museum-tier milestone tracked for `GA+3 months`.
+**Implementation Status Note:** Packets 3A, 3A.1, 3A.2, 3B, and 3C are merged to `main` via PR #2 (`a5b0f6c`). The docs-only follow-up on `main` is `5ac15cd`. Current staging/runtime evidence remains context-only and is tracked in `docs/specs/chronosrefine_phase3_closeout_note.md`. **SEC-007** remains a deferred Museum-tier milestone tracked for `GA+3 months`.
 
 **Entry Criteria:**
 - [ ] Phase 2 merged to `main` and progress docs reconciled → **See:** `docs/specs/ChronosRefine Requirements Coverage Matrix.md#phase-2-progress-api-foundation--data-layer`
@@ -148,46 +153,89 @@ This implementation plan is organized into a logical execution sequence designed
 
 ### Phase 4: User-Facing Features & Application Logic
 
-**Objective:** Develop the user-facing features, including the web interface, authentication, and job management.
+**Objective:** Build the user-facing upload, configuration, launch, delivery, accessibility, preview-substrate, and cost-optimization features on top of the authenticated Phase 2/3 backend. Authentication/provider selection itself remains completed Phase 1 scope.
 
 **Requirements Implemented:** **FR-001**, **FR-003**, **FR-004**, **FR-005**, **ENG-013**, **ENG-014**, **ENG-015**, **DS-001**, **DS-002**, **DS-003**, **DS-004**, **DS-005**, **DS-006**, **NFR-003** (14 requirements)  
 **Coverage Matrix:** See `docs/specs/ChronosRefine Requirements Coverage Matrix.md`
 
+**Current Status Note:** Phase 4 has not started in code on `main`. Phase 4 planning must follow the canonical Phase 4 requirement IDs above and the higher-priority requirement specs, not older PRD-style Phase 4 prose. `FR-006` remains a Phase 5 functional requirement; Phase 4 includes only `ENG-014` as the technical preview-generation substrate.
+
 **Entry Criteria:**
-- [ ] Phase 3 complete: Core processing pipeline operational → **See:** `docs/specs/chronosrefine_implementation_plan.md#phase-3-core-processing-pipeline--ai-integration`
-- [ ] Design system specifications finalized → **Req:** **DS-007** (completed in Phase 1), **See:** `docs/specs/chronosrefine_design_requirements.md#ds-007-design-system-implementation`, `chronosrefine_companion_docs/ChronosRefine_Design_System_Specification.md`
-- [ ] OAuth 2.0 provider selected and configured → **Req:** **SEC-013** (completed in Phase 1), **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-013-authentication-provider-selection-supabase`
+- [x] Phase 3 is complete for kickoff on `main`; `SEC-007` remains deferred per canon and does not block Phase 4 kickoff → **See:** `docs/specs/chronosrefine_implementation_plan.md#phase-3-core-processing-pipeline--ai-integration`
+- [x] Design system baseline is already in place from Phase 1 → **Req:** **DS-007**, **See:** `docs/specs/chronosrefine_design_requirements.md#ds-007-design-system-implementation`
+- [x] Authentication/provider selection is already completed in Phase 1 and is a dependency, not new Phase 4 scope → **Req:** **SEC-013**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-013-authentication-provider-selection-supabase`
 
 **Deliverables:**
--   Secure user authentication and authorization system → **Req:** **SEC-013** (completed in Phase 1), **Test:** `tests/auth/test_oauth_integration.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-013-authentication-provider-selection-supabase`
--   Web interface for file upload, job management, and results viewing → **Req:** **FR-001**, **FR-004**, **FR-005**, **Test:** `tests/ui/test_upload_interface.spec.ts`, `tests/ui/test_job_management.spec.ts`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-001-video-upload-and-validation`, `docs/specs/chronosrefine_functional_requirements.md#fr-004-processing-and-restoration`, `docs/specs/chronosrefine_functional_requirements.md#fr-005-output-delivery`
--   API endpoints for all user-facing actions → **Req:** **ENG-002**, **Test:** `tests/api/test_endpoints.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-002-api-endpoint-implementation`
--   Implementation of the resumable upload functionality → **Req:** **FR-001**, **Test:** `tests/upload/test_resumable_upload.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-001-video-upload-and-validation`
--   Preview generation system → **Req:** **FR-006**, **ENG-014**, **Test:** `tests/processing/test_preview_generation.py`, `tests/ui/test_preview_modal.spec.ts`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-006-preview-generation`, `docs/specs/chronosrefine_engineering_requirements.md#eng-014-preview-generation`
--   Fidelity tier selection UI → **Req:** **FR-003**, **Test:** `tests/ui/test_fidelity_tier_selection.spec.ts`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-003-fidelity-tier-selection`
--   Cost estimation display → **Req:** **ENG-013**, **Test:** `tests/api/test_cost_estimation.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-013-cost-estimation`
--   Output delivery system → **Req:** **FR-005**, **ENG-015**, **Test:** `tests/processing/test_output_delivery.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-005-output-delivery`, `docs/specs/chronosrefine_engineering_requirements.md#eng-015-output-encoding`
--   Accessibility features (keyboard nav, screen reader, color contrast, focus indicators) → **Req:** **DS-002**, **DS-003**, **DS-004**, **DS-005**, **Test:** `tests/accessibility/test_keyboard_navigation.spec.ts`, `tests/accessibility/test_screen_reader.spec.ts`, **See:** `docs/specs/chronosrefine_design_requirements.md#ds-002-keyboard-navigation`, `docs/specs/chronosrefine_design_requirements.md#ds-003-screen-reader-support`, `docs/specs/chronosrefine_design_requirements.md#ds-004-color-contrast`, `docs/specs/chronosrefine_design_requirements.md#ds-005-focus-indicators`
+-   Authenticated upload + validation API and UI surfaces, including signed GCS URL generation, resumable upload handling, format/size validation, and metadata persistence → **Req:** **FR-001**, **Test:** `tests/api/test_upload.py`, `tests/integration/test_resumable_upload.py`, `tests/load/test_upload_performance.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-001-video-upload-and-validation`
+-   Fidelity selection and configuration UX using existing Phase 1 design-system primitives → **Req:** **FR-003**, **DS-001**, **Test:** `tests/api/test_fidelity_tiers.py`, `tests/processing/test_tier_parameters.py`, `tests/ui/test_tier_selection.spec.ts`, `tests/ui/test_fidelity_tier_selector.spec.ts`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-003-fidelity-tier-selection`, `docs/specs/chronosrefine_design_requirements.md#ds-001-fidelity-configuration-ux`
+-   Job launch, progress, and restoration-control flows that extend the Phase 3 job substrate rather than replacing it → **Req:** **FR-004**, **Test:** `tests/processing/test_restoration_pipeline.py`, `tests/processing/test_uncertainty_callouts.py`, `tests/processing/test_retry_logic.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-004-processing-and-restoration`
+-   Output delivery surfaces for encoded artifacts, manifest access, deletion-proof availability, and download-expiry handling → **Req:** **FR-005**, **ENG-015**, **Test:** `tests/api/test_output_delivery.py`, `tests/api/test_transformation_manifest.py`, `tests/api/test_deletion_proof.py`, `tests/integration/test_export_workflow.py`, `tests/processing/test_output_encoding.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-005-output-delivery`, `docs/specs/chronosrefine_engineering_requirements.md#eng-015-output-encoding`
+-   Cost estimation and cost-optimization signals exposed at launch decision points without hardcoded pricing → **Req:** **ENG-013**, **NFR-003**, **Test:** `tests/api/test_cost_estimation.py`, `tests/api/test_cost_breakdown.py`, `tests/integration/test_cost_reconciliation.py`, `tests/ops/test_cost_optimization.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-013-cost-estimation`, `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-003-cost-optimization`
+-   Preview artifact generation backend for downstream Phase 5 `FR-006` review flows → **Req:** **ENG-014**, **Test:** `tests/processing/test_preview_generation.py`, `tests/processing/test_scene_detection.py`, `tests/load/test_preview_performance.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-014-preview-generation`
+-   Accessibility implementation across `DS-002` through `DS-006` for upload, configuration, progress, and export flows → **Req:** **DS-002**, **DS-003**, **DS-004**, **DS-005**, **DS-006**, **Test:** `tests/accessibility/test_keyboard_navigation.spec.ts`, `tests/accessibility/test_screen_reader_support.spec.ts`, `tests/accessibility/test_color_contrast.spec.ts`, `tests/accessibility/test_focus_management.spec.ts`, `tests/accessibility/test_error_messages.spec.ts`, **See:** `docs/specs/chronosrefine_design_requirements.md#ds-002-keyboard-navigation`, `docs/specs/chronosrefine_design_requirements.md#ds-003-screen-reader-support`, `docs/specs/chronosrefine_design_requirements.md#ds-004-color-contrast`, `docs/specs/chronosrefine_design_requirements.md#ds-005-focus-indicators`, `docs/specs/chronosrefine_design_requirements.md#ds-006-error-messages-accessibility`
 
 **Exit Criteria:**
-- [ ] User authentication working with OAuth 2.0 (test with 3 providers: Google, GitHub, Email) → **Req:** **SEC-013**, **Test:** `tests/auth/test_oauth_integration.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-013-authentication-provider-selection-supabase`
-- [ ] Web interface implements design system with 100% component coverage → **Req:** **DS-001**, **DS-007**, **Test:** `tests/visual_regression/test_all_screens.spec.ts`, **See:** `docs/specs/chronosrefine_design_requirements.md#ds-001-fidelity-configuration-ux`, `docs/specs/chronosrefine_design_requirements.md#ds-007-design-system-implementation`
-- [ ] All API endpoints documented with OpenAPI/Swagger spec → **Req:** **ENG-002**, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-002-api-endpoint-implementation`, `docs/api/openapi.yaml`
-- [ ] Resumable uploads tested successfully for files >10GB with simulated network interruptions → **Req:** **FR-001**, **Test:** `tests/upload/test_resumable_upload.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-001-video-upload-and-validation`
-- [ ] Job management UI shows real-time progress updates with <2s latency → **Req:** **FR-004**, **Test:** `tests/ui/test_realtime_progress.spec.ts`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-004-processing-and-restoration`
-- [ ] Accessibility audit passes WCAG 2.1 AA standards → **Req:** **DS-002**, **DS-003**, **DS-004**, **DS-005**, **DS-006**, **Test:** `tests/accessibility/test_wcag_compliance.spec.ts`, **See:** `docs/specs/chronosrefine_design_requirements.md#ds-002-keyboard-navigation`, `docs/specs/chronosrefine_design_requirements.md#ds-003-screen-reader-support`, `docs/specs/chronosrefine_design_requirements.md#ds-004-color-contrast`, `docs/specs/chronosrefine_design_requirements.md#ds-005-focus-indicators`, `docs/specs/chronosrefine_design_requirements.md#ds-006-error-messages-accessibility`
-- [ ] Cross-browser testing complete (Chrome, Firefox, Safari, Edge) → **Req:** **DS-001**, **Test:** `tests/cross_browser/test_all_browsers.spec.ts`, **See:** `docs/specs/chronosrefine_design_requirements.md#ds-001-fidelity-configuration-ux`
-- [ ] Preview generation <6s p95 latency → **Req:** **FR-006**, **Test:** `tests/load/test_preview_performance.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-006-preview-generation`
-- [ ] Cost estimation accuracy within ±$0.01 → **Req:** **ENG-013**, **Test:** `tests/api/test_cost_estimation.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-013-cost-estimation`
-- [ ] Output encoding tested for all tiers → **Req:** **ENG-015**, **Test:** `tests/processing/test_output_encoding.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-015-output-encoding`
+- [ ] Upload endpoints are documented in OpenAPI and covered by canonical upload tests → **Req:** **FR-001**, **ENG-002**, **Test:** `tests/api/test_upload.py`, `tests/integration/test_resumable_upload.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-001-video-upload-and-validation`, `docs/specs/chronosrefine_engineering_requirements.md#eng-002-api-endpoint-implementation`, `docs/api/openapi.yaml`
+- [ ] Resumable uploads are validated for files >10GB with simulated network interruptions → **Req:** **FR-001**, **Test:** `tests/integration/test_resumable_upload.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-001-video-upload-and-validation`
+- [ ] Fidelity tier selection and era-override UX persist canonical configuration and meet `DS-001` requirements → **Req:** **FR-003**, **DS-001**, **Test:** `tests/api/test_fidelity_tiers.py`, `tests/ui/test_tier_selection.spec.ts`, `tests/ui/test_fidelity_tier_selector.spec.ts`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-003-fidelity-tier-selection`, `docs/specs/chronosrefine_design_requirements.md#ds-001-fidelity-configuration-ux`
+- [ ] Job launch, progress, and results flows operate on top of the Phase 3 job APIs with authenticated access and accessible error states → **Req:** **FR-004**, **DS-006**, **Test:** `tests/processing/test_restoration_pipeline.py`, `tests/processing/test_uncertainty_callouts.py`, `tests/accessibility/test_error_messages.spec.ts`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-004-processing-and-restoration`, `docs/specs/chronosrefine_design_requirements.md#ds-006-error-messages-accessibility`
+- [ ] Output delivery surfaces expose encoded artifacts, manifest retrieval, deletion-proof availability, and link-expiry handling → **Req:** **FR-005**, **ENG-015**, **Test:** `tests/api/test_output_delivery.py`, `tests/api/test_transformation_manifest.py`, `tests/api/test_deletion_proof.py`, `tests/integration/test_export_workflow.py`, `tests/processing/test_output_encoding.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-005-output-delivery`, `docs/specs/chronosrefine_engineering_requirements.md#eng-015-output-encoding`
+- [ ] Preview artifact generation backend meets `ENG-014` latency and storage expectations for downstream Phase 5 `FR-006` UI work → **Req:** **ENG-014**, **Test:** `tests/processing/test_preview_generation.py`, `tests/processing/test_scene_detection.py`, `tests/load/test_preview_performance.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-014-preview-generation`
+- [ ] Accessibility audit passes WCAG 2.1 AA for `DS-002` through `DS-006` → **Req:** **DS-002**, **DS-003**, **DS-004**, **DS-005**, **DS-006**, **Test:** `tests/accessibility/test_keyboard_navigation.spec.ts`, `tests/accessibility/test_screen_reader_support.spec.ts`, `tests/accessibility/test_color_contrast.spec.ts`, `tests/accessibility/test_focus_management.spec.ts`, `tests/accessibility/test_error_messages.spec.ts`, **See:** `docs/specs/chronosrefine_design_requirements.md#ds-002-keyboard-navigation`, `docs/specs/chronosrefine_design_requirements.md#ds-003-screen-reader-support`, `docs/specs/chronosrefine_design_requirements.md#ds-004-color-contrast`, `docs/specs/chronosrefine_design_requirements.md#ds-005-focus-indicators`, `docs/specs/chronosrefine_design_requirements.md#ds-006-error-messages-accessibility`
+- [ ] Cost-estimate accuracy and Phase 4 cost-optimization guardrails align with `ENG-013` + `NFR-003` with no hardcoded pricing or entitlements → **Req:** **ENG-013**, **NFR-003**, **Test:** `tests/api/test_cost_estimation.py`, `tests/api/test_cost_breakdown.py`, `tests/integration/test_cost_reconciliation.py`, `tests/ops/test_cost_optimization.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-013-cost-estimation`, `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-003-cost-optimization`
+- [ ] Cross-browser coverage is complete for upload, configuration, launch, and export flows → **Req:** **DS-001**, **DS-002**, **DS-003**, **DS-004**, **DS-005**, **DS-006**, **See:** `docs/specs/chronosrefine_design_requirements.md#ds-001-fidelity-configuration-ux`
+
+**Approved Kickoff Packet: Packet 4A (2026-03-07)**
+
+**Requirement Focus:** `FR-001`
+
+**Reason for kickoff choice:** `FR-001` is the smallest dependency-unlocking Phase 4 packet. `SEC-013`, `ENG-002`, and `ENG-016` are already satisfied, and the packet extends the existing Phase 2/3 substrate without reopening auth, persistence, or runtime-ops design decisions.
+
+**In Scope:**
+- Signed GCS upload URL generation and authenticated upload-session creation
+- Resumable upload handling, checksum/format/size validation, and persisted upload metadata
+- Thin upload UI shell using existing `DS-007` primitives
+- OpenAPI/API contract updates for upload initiation and validation responses
+
+**Out of Scope:**
+- Fidelity selection (`FR-003`, `DS-001`)
+- Job launch/progress UX (`FR-004`)
+- Output delivery (`FR-005`, `ENG-015`)
+- Phase 5 preview-review UX (`FR-006`)
+- Phase 4 follow-on work (`ENG-013`, `ENG-014`, `NFR-003`) except where non-functional guardrails already constrain upload design
+
+**Dependencies Confirmed:**
+- `SEC-013`, `ENG-002`, and `ENG-016` are already delivered
+- Phase 3 kickoff dependency is satisfied; `SEC-007` remains deferred per canon and does not block Packet 4A
+
+**Likely Extension Surfaces:**
+- `app/api`
+- `app/db`
+- `app/services`
+- `supabase/migrations`
+- `docs/api/openapi.yaml`
+- `web/src`
+
+**Mapped Tests:**
+- `tests/api/test_upload.py`
+- `tests/integration/test_resumable_upload.py`
+- `tests/load/test_upload_performance.py`
+
+**Guardrails to Preserve:**
+- End-user JWT / RLS-safe request path by default
+- No service-role use in user-request paths without equivalent enforcement
+- Existing degraded-mode/runtime-ops behavior remains intact
+- Live/integration validation stays env-gated; unit-only mode remains secret-independent
 
 **Phase-Specific Risks:**
-- **Risk**: Design system implementation diverges from specifications
-  - **Mitigation**: Design review checkpoints; automated visual regression testing
-- **Risk**: Real-time progress updates create performance issues
-  - **Mitigation**: Use WebSockets with connection pooling; load test with 1000 concurrent users
+- **Risk**: Phase 4 scope creeps backward into completed Phase 1 auth work or forward into Phase 5 `FR-006` UX
+  - **Mitigation**: Keep planning and packeting anchored to the canonical Phase 4 requirement IDs and the approved Packet 4A scope boundary
+- **Risk**: User-facing surfaces bypass the established JWT/RLS boundary or break degraded-mode/runtime safeguards
+  - **Mitigation**: Extend the existing Phase 2/3 APIs and ops behavior rather than replacing them; require explicit privileged-path justification
+- **Risk**: Accessibility work is treated as polish instead of delivery scope
+  - **Mitigation**: Keep `DS-002` through `DS-006` in the primary Phase 4 deliverable set with mapped tests and exit criteria
 
-**Rationale:** With the core backend complete, this phase focuses on building the user experience and the application logic that ties everything together.
+**Rationale:** With the authenticated backend and Phase 3 processing substrate already merged, this phase focuses on the user-facing application layer that unlocks upload, configuration, orchestration, delivery, accessibility, and downstream preview readiness without re-planning completed infrastructure.
 
 ### Phase 5: Advanced Features & UX Refinement
 
@@ -202,7 +250,7 @@ This implementation plan is organized into a logical execution sequence designed
 - [ ] Legal review complete for GDPR and data-handling controls → **Req:** **SEC-006**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-006-gdpr-compliance`
 
 **Deliverables:**
--   Preview generation system hardened for production usage → **Req:** **FR-006**, **Test:** `tests/api/test_preview.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-006-preview-generation`
+-   Preview generation system hardened for production usage → **Req:** **FR-006**, **Test:** `tests/processing/test_preview_generation.py`, `tests/processing/test_scene_detection.py`, `tests/ui/test_preview_modal.spec.ts`, `tests/load/test_preview_performance.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-006-preview-generation`
 -   Authentication and authorization controls hardened for tiered access → **Req:** **SEC-001**, **SEC-004**, **Test:** `tests/security/test_access_control.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-001-authentication--authorization`, `docs/specs/chronosrefine_security_operations_requirements.md#sec-004-access-control`
 -   Data encryption and key-management controls validated → **Req:** **SEC-002**, **Test:** `tests/security/test_encryption.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-002-data-encryption`
 -   Data classification and retention controls implemented for manifests/audit artifacts → **Req:** **SEC-003**, **SEC-005**, **Test:** `tests/security/test_data_classification.py`, `tests/security/test_manifest_retention.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-003-data-classification`, `docs/specs/chronosrefine_security_operations_requirements.md#sec-005-transformation-manifest-retention`
@@ -242,21 +290,22 @@ This implementation plan is organized into a logical execution sequence designed
 - [ ] Third-party security auditor engaged → **Req:** **SEC-015**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-015-third-party-security-audit`
 
 **Deliverables:**
--   Completed third-party security audit with remediation verification → **Req:** **SEC-015**, **Test:** `tests/security/test_audit_remediation.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-015-third-party-security-audit`, `docs/security/Third_Party_Security_Audit_Report.pdf`
+-   Repository note: launch-artifact directories such as `docs/user_guide/`, `docs/operations/`, `docs/compliance/`, `docs/security/`, and `docs/hps/` are not yet present on `main`; until they exist, rely on the canonical spec references below and treat launch evidence packages as planned artifacts.
+-   Completed third-party security audit with remediation verification → **Req:** **SEC-015**, **Test:** `tests/security/test_audit_remediation.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-015-third-party-security-audit`, launch audit evidence package (planned artifact)
 -   Successful load testing that meets all SLOs → **Req:** **NFR-002**, **Test:** `tests/load/test_production_load.py`, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-002-processing-time-slo`, `docs/specs/chronosrefine_prd_v9.md#performance-slos`
 -   Log retention and PII-redaction controls validated and documented → **Req:** **SEC-009**, **Test:** `tests/security/test_log_retention_redaction.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-009-log-retention--pii-redaction`
 -   Deletion proof generation and verification finalized for launch readiness → **Req:** **SEC-010**, **Test:** `tests/compliance/test_deletion_proof.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-010-deletion-proofs`
 -   Dataset provenance chain and evidence model validated → **Req:** **SEC-011**, **Test:** `tests/compliance/test_dataset_provenance.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-011-dataset-provenance`
 -   Data residency controls and validation reports finalized → **Req:** **SEC-012**, **Test:** `tests/ops/test_data_residency.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-012-data-residency`
 -   Usability and end-user readiness checks finalized → **Req:** **NFR-008**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-008-usability`
--   Comprehensive internal and user-facing documentation finalized → **Req:** **NFR-010**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-010-documentation`, `docs/user_guide/`, `docs/api/`, `docs/operations/`
--   Performance monitoring dashboards, baselines, and runbooks finalized → **Req:** **OPS-004**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#ops-004-performance-monitoring`, `docs/operations/deployment_runbook.md`, `docs/operations/rollback_runbook.md`
--   HPS validation platform and results → **Req:** **FR-007**, **Test:** `tests/hps/test_evaluation_platform.py`, `tests/hps/test_statistical_analysis.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-007-human-preference-score-hps-validation`, `docs/hps/HPS_Validation_Report.md`
--   Compliance documentation package (usability/legal/security readiness) → **Req:** **NFR-008**, **SEC-015**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-008-usability`, `docs/compliance/GDPR_Compliance_Report.md`, `docs/compliance/SOC2_Readiness_Assessment.md`
+-   Comprehensive internal and user-facing documentation finalized → **Req:** **NFR-010**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-010-documentation`, `docs/api/`, launch user/ops documentation package (planned artifact)
+-   Performance monitoring dashboards, baselines, and runbooks finalized → **Req:** **OPS-004**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#ops-004-performance-monitoring`, launch operations runbook package (planned artifact)
+-   HPS validation platform and results → **Req:** **FR-007**, **Test:** `tests/hps/test_evaluation_platform.py`, `tests/hps/test_statistical_analysis.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-007-human-preference-score-hps-validation`, launch HPS validation report (planned artifact)
+-   Compliance documentation package (usability/legal/security readiness) → **Req:** **NFR-008**, **SEC-015**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-008-usability`, launch compliance evidence package (planned artifact)
 
 **Exit Criteria:**
 - [ ] **HPS Gate**: ≥75% in EACH media category (Daguerreotype, Albumen, 16mm, Super 8, Kodachrome, VHS) → **Req:** **FR-007**, **NFR-001**, **Test:** `tests/hps/test_statistical_analysis.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-007-human-preference-score-hps-validation`, `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-001-cost-estimate-display`, `docs/specs/chronosrefine_prd_v9.md#beta-exit-criteria-ga-readiness`
-- [ ] Security audit complete with zero critical vulnerabilities → **Req:** **SEC-015**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-015-third-party-security-audit`, `docs/security/Third_Party_Security_Audit_Report.pdf`
+- [ ] Security audit complete with zero critical vulnerabilities → **Req:** **SEC-015**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-015-third-party-security-audit`, launch audit evidence package (planned artifact)
 - [ ] Log retention and PII redaction controls validated in production-like environment → **Req:** **SEC-009**, **Test:** `tests/security/test_log_retention_redaction.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-009-log-retention--pii-redaction`
 - [ ] Deletion proofs generated/verified for required launch scenarios → **Req:** **SEC-010**, **Test:** `tests/compliance/test_deletion_proof.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-010-deletion-proofs`
 - [ ] Dataset provenance evidence chain validated for audit samples → **Req:** **SEC-011**, **Test:** `tests/compliance/test_dataset_provenance.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-011-dataset-provenance`
@@ -264,11 +313,11 @@ This implementation plan is organized into a logical execution sequence designed
 - [ ] Load testing validates 1000 concurrent users with <5% error rate → **Req:** **NFR-002**, **Test:** `tests/load/test_production_load.py`, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-002-processing-time-slo`
 - [ ] All SLOs met in staging environment for 7 consecutive days → **Req:** **NFR-002**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-002-processing-time-slo`, `docs/specs/chronosrefine_prd_v9.md#performance-slos`
 - [ ] Usability acceptance checks pass for launch personas → **Req:** **NFR-008**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-008-usability`
-- [ ] User documentation complete with video tutorials for each persona → **Req:** **NFR-010**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-010-documentation`, `docs/user_guide/`
-- [ ] Performance monitoring runbook and regression detection procedures documented → **Req:** **OPS-004**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#ops-004-performance-monitoring`, `docs/operations/runbooks/`
+- [ ] User documentation complete with video tutorials for each persona → **Req:** **NFR-010**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-010-documentation`, launch user-guide package (planned artifact)
+- [ ] Performance monitoring runbook and regression detection procedures documented → **Req:** **OPS-004**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#ops-004-performance-monitoring`, launch operations runbook package (planned artifact)
 - [ ] Monitoring-driven rollback decision procedure tested in staging → **Req:** **OPS-004**, **Test:** `tests/ops/test_rollback.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#ops-004-performance-monitoring`
 - [ ] Legal review complete for Terms of Service and Privacy Policy → **Req:** **NFR-008**, **SEC-006**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-008-usability`, `docs/specs/chronosrefine_security_operations_requirements.md#sec-006-gdpr-compliance`
-- [ ] SOC 2 Type II readiness assessment complete → **Req:** **NFR-008**, **SEC-015**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-008-usability`, `docs/specs/chronosrefine_security_operations_requirements.md#sec-015-third-party-security-audit`, `docs/compliance/SOC2_Readiness_Assessment.md`
+- [ ] SOC 2 Type II readiness assessment complete → **Req:** **NFR-008**, **SEC-015**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-008-usability`, `docs/specs/chronosrefine_security_operations_requirements.md#sec-015-third-party-security-audit`, launch compliance evidence package (planned artifact)
 
 **Phase-Specific Risks:**
 - **Risk**: HPS fails to meet 75% threshold in one or more categories
