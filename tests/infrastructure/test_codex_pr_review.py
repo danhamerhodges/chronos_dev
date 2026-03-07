@@ -151,13 +151,25 @@ def test_select_reviewable_diff_paths_omits_sensitive_and_excess_paths() -> None
         for idx in range(module.MAX_DIFF_FILES + 2)
     ]
 
-    diff_paths, omitted_count = module.select_reviewable_diff_paths(changed_files)
+    diff_paths, filtered_count, omitted_count = module.select_reviewable_diff_paths(changed_files)
 
     assert ".env" not in diff_paths
     assert "secrets/service.key" not in diff_paths
     assert "app/main.py" in diff_paths
     assert len(diff_paths) == module.MAX_DIFF_FILES
-    assert omitted_count == len(changed_files) - len(diff_paths)
+    assert filtered_count == 2
+    assert omitted_count == 3
+
+
+def test_collect_changed_files_handles_rename_paths(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_module()
+    monkeypatch.setattr(module, "run_git", lambda args: "1\t0\tsrc/{old.py => new.py}\n")
+
+    changed_files = module.collect_changed_files("abc123", "def456")
+
+    assert changed_files == [
+        {"path": "src/{old.py => new.py}", "added": 1, "deleted": 0, "binary": False}
+    ]
 
 
 def test_build_review_input_includes_changed_files_and_diff_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -193,7 +205,8 @@ def test_build_review_input_includes_changed_files_and_diff_metadata(monkeypatch
     assert bundle["pr_body_truncated"] is False
     assert "- scripts/agents/codex_pr_review.py (+12 -3)" in bundle["review_input"]
     assert "Diff paths sent to OpenAI: 1" in bundle["review_input"]
-    assert "Diff paths omitted from OpenAI payload: 1" in bundle["review_input"]
+    assert "Diff paths filtered from OpenAI payload: 1" in bundle["review_input"]
+    assert "Diff paths omitted from OpenAI payload: 0" in bundle["review_input"]
     assert "diff --git a/x b/x" in bundle["review_input"]
 
 

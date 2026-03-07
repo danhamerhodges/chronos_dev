@@ -142,7 +142,11 @@ def collect_changed_files(base_sha: str, head_sha: str) -> list[dict[str, Any]]:
     for raw_line in output.splitlines():
         if not raw_line.strip():
             continue
-        added, deleted, path = raw_line.split("\t", 2)
+        parts = raw_line.split("\t")
+        if len(parts) < 3:
+            raise RuntimeError(f"Unexpected git diff --numstat output: {raw_line}")
+        added, deleted = parts[:2]
+        path = "\t".join(parts[2:])
         changed_files.append(
             {
                 "path": path,
@@ -180,14 +184,18 @@ def redact_sensitive_diff_content(diff: str) -> str:
     return "\n".join(redacted_lines)
 
 
-def select_reviewable_diff_paths(changed_files: list[dict[str, Any]]) -> tuple[list[str], int]:
-    reviewable_paths = [
-        str(item["path"])
-        for item in changed_files
-        if not item["binary"] and not is_sensitive_path(str(item["path"]))
-    ]
+def select_reviewable_diff_paths(changed_files: list[dict[str, Any]]) -> tuple[list[str], int, int]:
+    reviewable_paths: list[str] = []
+    filtered_paths = 0
+    for item in changed_files:
+        path = str(item["path"])
+        if item["binary"] or is_sensitive_path(path):
+            filtered_paths += 1
+            continue
+        reviewable_paths.append(path)
     selected_paths = reviewable_paths[:MAX_DIFF_FILES]
-    return selected_paths, max(len(changed_files) - len(selected_paths), 0)
+    omitted_due_to_cap = max(len(reviewable_paths) - len(selected_paths), 0)
+    return selected_paths, filtered_paths, omitted_due_to_cap
 
 
 def collect_diff(base_sha: str, head_sha: str, paths: list[str]) -> tuple[str, bool]:
@@ -206,7 +214,7 @@ def build_review_input(event: dict[str, Any]) -> dict[str, Any]:
         raise RuntimeError("Missing base/head SHA in pull request event payload.")
 
     changed_files = collect_changed_files(base_sha, head_sha)
-    diff_paths, diff_path_omissions = select_reviewable_diff_paths(changed_files)
+    diff_paths, filtered_diff_paths, capped_diff_path_omissions = select_reviewable_diff_paths(changed_files)
     diff_excerpt, diff_truncated = collect_diff(base_sha, head_sha, diff_paths)
     pr_body, body_truncated = trim_text(pr.get("body") or "", MAX_PR_BODY_CHARS)
 
@@ -232,7 +240,8 @@ def build_review_input(event: dict[str, Any]) -> dict[str, Any]:
             "Changed files:",
             "\n".join(file_lines) or "(none)",
             f"Diff paths sent to OpenAI: {len(diff_paths)}",
-            f"Diff paths omitted from OpenAI payload: {diff_path_omissions}",
+            f"Diff paths filtered from OpenAI payload: {filtered_diff_paths}",
+            f"Diff paths omitted from OpenAI payload: {capped_diff_path_omissions}",
             "",
             "Unified diff excerpt:",
             "```diff",
