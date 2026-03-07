@@ -28,7 +28,9 @@ def build_segments(
     effective_fidelity_profile: dict[str, Any] | None = None,
     config: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    duration_seconds = max(int(estimated_duration_seconds), 1)
+    duration_seconds = int(estimated_duration_seconds)
+    if duration_seconds < 1:
+        raise ValueError("estimated_duration_seconds must be >= 1")
     segment_count = max(ceil(duration_seconds / SEGMENT_DURATION_SECONDS), 1)
     config_hash = _sha256(json.dumps(config, sort_keys=True, separators=(",", ":")))
     era_profile_digest = _sha256(json.dumps(era_profile, sort_keys=True, separators=(",", ":")))
@@ -40,14 +42,14 @@ def build_segments(
         start_seconds = segment_index * SEGMENT_DURATION_SECONDS
         end_seconds = min(start_seconds + SEGMENT_DURATION_SECONDS, duration_seconds)
         segment_duration_seconds = max(end_seconds - start_seconds, 1)
-        idempotency_source = "|".join(
+        idempotency_source = json.dumps(
             [
                 user_id,
                 source_asset_checksum,
-                str(segment_index),
-                str(start_seconds * 1000),
-                str(end_seconds * 1000),
-                str(segment_duration_seconds * 1000),
+                segment_index,
+                start_seconds * 1000,
+                end_seconds * 1000,
+                segment_duration_seconds * 1000,
                 fidelity_tier,
                 reproducibility_mode,
                 processing_mode,
@@ -56,7 +58,9 @@ def build_segments(
                 era_profile_digest,
                 fidelity_profile_digest,
                 ENCODER_DIGEST,
-            ]
+            ],
+            separators=(",", ":"),
+            ensure_ascii=False,
         )
         segments.append(
             {

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import ipaddress
+import socket
 from collections import defaultdict
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -120,6 +123,8 @@ def process_job(job_id: str, *, trusted_token: str | None = None) -> dict[str, A
     if job is None:
         return None
 
+    gpu_allocated = False
+    gpu_released = False
     try:
         if job["status"] == JobStatus.CANCEL_REQUESTED.value:
             cancelled = _cancel_job(repo, job_id, segment_index=0, trusted_token=trusted_token)
@@ -135,6 +140,7 @@ def process_job(job_id: str, *, trusted_token: str | None = None) -> dict[str, A
             },
         )
         gpu_allocation = allocate_gpu(processing)
+        gpu_allocated = True
         stage_timings = {
             **(processing.get("stage_timings") or {}),
             "queue_wait_ms": gpu_allocation["queue_wait_ms"],
@@ -177,6 +183,7 @@ def process_job(job_id: str, *, trusted_token: str | None = None) -> dict[str, A
             _process_segment(repo, current, segment, trusted_token=trusted_token)
 
         completed = _finalize_job(repo, job_id, trusted_token=trusted_token)
+        gpu_released = True
         event_type = {
             JobStatus.COMPLETED.value: WebhookEventType.COMPLETED.value,
             JobStatus.PARTIAL.value: WebhookEventType.PARTIAL.value,
@@ -211,6 +218,9 @@ def process_job(job_id: str, *, trusted_token: str | None = None) -> dict[str, A
         _publish_progress(failed, segment_index=0, trusted_token=trusted_token)
         _deliver_webhooks(failed, WebhookEventType.FAILED.value)
         return failed
+    finally:
+        if gpu_allocated and not gpu_released:
+            release_gpu(job_id, gpu_runtime_seconds=_current_gpu_runtime_seconds(repo, job_id))
 
 
 def _process_segment(
@@ -780,9 +790,43 @@ def _deliver_webhooks(job: dict[str, Any], event_type: str) -> None:
 def _send_webhook_request(webhook_url: str, payload: dict[str, Any]) -> None:
     if settings.environment == "test":
         return
-    with httpx.Client(timeout=5.0) as client:
+    _assert_safe_webhook_target(webhook_url)
+    with httpx.Client(timeout=5.0, follow_redirects=False) as client:
         response = client.post(webhook_url, json=payload)
+        if 300 <= response.status_code < 400:
+            raise RuntimeError("Webhook target redirects are not allowed.")
         response.raise_for_status()
+
+
+def _assert_safe_webhook_target(webhook_url: str) -> None:
+    parsed = urlparse(webhook_url)
+    if parsed.scheme not in {"http", "https"}:
+        raise RuntimeError("Webhook target must use http or https.")
+    if not parsed.hostname or parsed.username or parsed.password:
+        raise RuntimeError("Webhook target must not include credentials and must include a hostname.")
+    try:
+        addresses = {
+            ipaddress.ip_address(item[4][0])
+            for item in socket.getaddrinfo(
+                parsed.hostname,
+                parsed.port or (443 if parsed.scheme == "https" else 80),
+                type=socket.SOCK_STREAM,
+            )
+        }
+    except OSError as exc:
+        raise RuntimeError("Webhook target hostname could not be resolved.") from exc
+    if not addresses:
+        raise RuntimeError("Webhook target hostname resolved to no addresses.")
+    for address in addresses:
+        if (
+            address.is_private
+            or address.is_loopback
+            or address.is_link_local
+            or address.is_multicast
+            or address.is_reserved
+            or address.is_unspecified
+        ):
+            raise RuntimeError("Webhook target resolves to a non-public address.")
 
 
 def _next_failure(job_id: str, segment_index: int) -> str | None:
@@ -814,4 +858,12 @@ def _timing_total(stage_timings: dict[str, Any]) -> int:
         int(value)
         for key, value in stage_timings.items()
         if key != "total_ms" and isinstance(value, int)
+    )
+
+
+def _current_gpu_runtime_seconds(repo: JobRepository, job_id: str) -> int:
+    return sum(
+        int(segment["segment_duration_seconds"])
+        for segment in repo.list_segments(job_id)
+        if segment.get("status") in {"completed", "failed"} and segment.get("cache_status") != "hit"
     )

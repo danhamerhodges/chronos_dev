@@ -259,6 +259,33 @@ def test_supabase_webhook_subscription_repository_uses_direct_db_for_enabled_lis
     assert subscriptions[0]["webhook_url"] == "https://hooks.example.test/jobs"
 
 
+def test_supabase_job_repository_checks_ownership_before_direct_db_cancellation(monkeypatch) -> None:
+    import app.db.phase2_store as phase2_store
+
+    repo = phase2_store._SupabaseJobRepository()
+    update_called = {"value": False}
+
+    monkeypatch.setattr(
+        repo,
+        "get_job",
+        lambda job_id, owner_user_id=None, access_token=None: {
+            "job_id": job_id,
+            "owner_user_id": "owner-a",
+            "status": "queued",
+        },
+    )
+    monkeypatch.setattr(
+        repo,
+        "update_job_for_worker",
+        lambda job_id, patch: update_called.__setitem__("value", True),
+    )
+
+    cancelled = repo.request_cancellation("job-direct-db", owner_user_id="owner-b")
+
+    assert cancelled is None
+    assert update_called["value"] is False
+
+
 def test_supabase_usage_update_omits_null_request_fields(monkeypatch) -> None:
     import app.db.phase2_store as phase2_store
 

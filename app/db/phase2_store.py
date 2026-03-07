@@ -1734,13 +1734,20 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
             if not rows:
                 return None
             return self._job_from_row(rows[0])
-        updated = self.update_job_for_worker(
+        current = self.get_job(job_id)
+        if current is None or current["owner_user_id"] != owner_user_id:
+            return None
+        if current["status"] in {
+            JobStatus.COMPLETED.value,
+            JobStatus.FAILED.value,
+            JobStatus.PARTIAL.value,
+            JobStatus.CANCELLED.value,
+        }:
+            return current
+        return self.update_job_for_worker(
             job_id,
             patch={"status": JobStatus.CANCEL_REQUESTED.value, "cancel_requested_at": _utc_now()},
         )
-        if updated["owner_user_id"] != owner_user_id:
-            return None
-        return updated
 
     def get_job_for_worker(self, job_id: str) -> dict[str, Any] | None:
         return self.get_job(job_id)

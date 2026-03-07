@@ -1,5 +1,7 @@
 """Maps to: ENG-003"""
 
+import pytest
+
 from app.services.job_pipeline import build_segments
 
 
@@ -40,3 +42,43 @@ def test_pipeline_idempotency_key_changes_with_user_boundary() -> None:
     )
 
     assert baseline[0]["idempotency_key"] != other_user[0]["idempotency_key"]
+
+
+def test_pipeline_rejects_non_positive_durations() -> None:
+    with pytest.raises(ValueError, match="estimated_duration_seconds must be >= 1"):
+        build_segments(
+            user_id="pipeline-user",
+            source_asset_checksum="abc12345def67890",
+            estimated_duration_seconds=0,
+            fidelity_tier="Restore",
+            processing_mode="balanced",
+            era_profile={"capture_medium": "film_scan"},
+            config={"stabilization": "medium"},
+        )
+
+
+def test_pipeline_idempotency_seed_is_unambiguous_when_fields_contain_delimiters() -> None:
+    baseline = build_segments(
+        user_id="user|a",
+        source_asset_checksum="checksum-b",
+        estimated_duration_seconds=10,
+        fidelity_tier="Restore",
+        reproducibility_mode="deterministic",
+        processing_mode="balanced",
+        era_profile={"capture_medium": "film_scan"},
+        effective_fidelity_profile={"tier": "Restore", "thresholds": {}},
+        config={"stabilization": "medium"},
+    )
+    shifted = build_segments(
+        user_id="user",
+        source_asset_checksum="a|checksum-b",
+        estimated_duration_seconds=10,
+        fidelity_tier="Restore",
+        reproducibility_mode="deterministic",
+        processing_mode="balanced",
+        era_profile={"capture_medium": "film_scan"},
+        effective_fidelity_profile={"tier": "Restore", "thresholds": {}},
+        config={"stabilization": "medium"},
+    )
+
+    assert baseline[0]["idempotency_key"] != shifted[0]["idempotency_key"]
