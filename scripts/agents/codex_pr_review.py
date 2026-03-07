@@ -232,9 +232,26 @@ def github_request(method: str, path: str, token: str, body: dict[str, Any] | No
         raise RuntimeError(f"GitHub API request failed: {exc.reason}") from exc
 
 
+def list_issue_comments(*, owner: str, repo: str, issue_number: int, token: str) -> list[dict[str, Any]]:
+    comments: list[dict[str, Any]] = []
+    page = 1
+    while True:
+        batch = github_request(
+            "GET",
+            f"/repos/{owner}/{repo}/issues/{issue_number}/comments?per_page=100&page={page}",
+            token,
+        )
+        if not isinstance(batch, list):
+            raise RuntimeError("GitHub API returned a non-list issue comments payload.")
+        comments.extend(batch)
+        if len(batch) < 100:
+            return comments
+        page += 1
+
+
 def upsert_pr_comment(*, repo_full_name: str, issue_number: int, token: str, body: str) -> dict[str, Any]:
     owner, repo = repo_full_name.split("/", 1)
-    comments = github_request("GET", f"/repos/{owner}/{repo}/issues/{issue_number}/comments?per_page=100", token)
+    comments = list_issue_comments(owner=owner, repo=repo, issue_number=issue_number, token=token)
     existing = next((item for item in comments if REVIEW_MARKER in item.get("body", "")), None)
     if existing:
         return github_request("PATCH", f"/repos/{owner}/{repo}/issues/comments/{existing['id']}", token, {"body": body})
@@ -284,6 +301,7 @@ def main() -> int:
     args = parse_args()
     event = load_event()
     summary = ""
+    exit_code = 0
     result: dict[str, Any] = {"status": "skipped"}
 
     try:
@@ -348,6 +366,7 @@ def main() -> int:
     except Exception as exc:  # pragma: no cover - error path exercised via workflow runtime
         summary = render_status_summary("Codex PR Review", [f"Status: `error`", f"Reason: `{exc}`"])
         result = {"status": "error", "error": str(exc)}
+        exit_code = 1
 
     if args.write_summary:
         Path(args.write_summary).write_text(summary, encoding="utf-8")
@@ -355,7 +374,7 @@ def main() -> int:
         print(json.dumps(result, indent=2))
     else:
         print(summary)
-    return 0
+    return exit_code
 
 
 if __name__ == "__main__":

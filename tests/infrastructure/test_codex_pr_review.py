@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 
 def _load_module():
@@ -62,6 +65,158 @@ def test_resolve_project_header_status_ignores_non_project_values() -> None:
 
     assert project_id == ""
     assert status == "ignored (invalid project id)"
+
+
+def test_build_review_input_includes_changed_files_and_diff_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_module()
+    event = {
+        "repository": {"full_name": "danhamerhodges/chronos_dev"},
+        "pull_request": {
+            "number": 3,
+            "title": "ci: add OpenAI-backed PR review workflow",
+            "html_url": "https://github.com/danhamerhodges/chronos_dev/pull/3",
+            "body": "Adds a reviewer.",
+            "user": {"login": "danhamerhodges"},
+            "base": {"sha": "abc123"},
+            "head": {"sha": "def456"},
+        },
+    }
+
+    monkeypatch.setattr(
+        module,
+        "collect_changed_files",
+        lambda base_sha, head_sha: [{"path": "scripts/agents/codex_pr_review.py", "added": 12, "deleted": 3, "binary": False}],
+    )
+    monkeypatch.setattr(module, "collect_diff", lambda base_sha, head_sha: ("diff --git a/x b/x", True))
+
+    bundle = module.build_review_input(event)
+
+    assert bundle["base_sha"] == "abc123"
+    assert bundle["head_sha"] == "def456"
+    assert bundle["diff_truncated"] is True
+    assert bundle["pr_body_truncated"] is False
+    assert "- scripts/agents/codex_pr_review.py (+12 -3)" in bundle["review_input"]
+    assert "diff --git a/x b/x" in bundle["review_input"]
+
+
+def test_upsert_pr_comment_paginates_before_patching(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_module()
+    seen_paths: list[tuple[str, str, object | None]] = []
+
+    def fake_github_request(method: str, path: str, token: str, body=None):
+        seen_paths.append((method, path, body))
+        if method == "GET" and path.endswith("page=1"):
+            return [{"id": idx, "body": "other comment"} for idx in range(100)]
+        if method == "GET" and path.endswith("page=2"):
+            return [{"id": 777, "body": f"{module.REVIEW_MARKER}\nold body"}]
+        if method == "PATCH":
+            return {"id": 777, "html_url": "https://example.com/comment/777", "body": body["body"]}
+        raise AssertionError(f"Unexpected request: {method} {path}")
+
+    monkeypatch.setattr(module, "github_request", fake_github_request)
+
+    result = module.upsert_pr_comment(
+        repo_full_name="danhamerhodges/chronos_dev",
+        issue_number=3,
+        token="ghs_test",
+        body="updated body",
+    )
+
+    assert result["html_url"] == "https://example.com/comment/777"
+    assert [item[1] for item in seen_paths[:2]] == [
+        "/repos/danhamerhodges/chronos_dev/issues/3/comments?per_page=100&page=1",
+        "/repos/danhamerhodges/chronos_dev/issues/3/comments?per_page=100&page=2",
+    ]
+    assert seen_paths[2][0] == "PATCH"
+    assert seen_paths[2][1] == "/repos/danhamerhodges/chronos_dev/issues/comments/777"
+
+
+def test_main_returns_zero_for_intentional_skip(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    module = _load_module()
+
+    monkeypatch.setattr(module, "parse_args", lambda: SimpleNamespace(write_summary="", json=False))
+    monkeypatch.setattr(module, "load_event", lambda: {})
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_PROJECT_ID", raising=False)
+
+    exit_code = module.main()
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "Skipped: no pull request event payload found." in captured.out
+
+
+def test_main_returns_zero_and_prints_summary_on_success(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = _load_module()
+    event = {
+        "repository": {"full_name": "danhamerhodges/chronos_dev"},
+        "pull_request": {"number": 3},
+    }
+
+    monkeypatch.setattr(module, "parse_args", lambda: SimpleNamespace(write_summary="", json=False))
+    monkeypatch.setattr(module, "load_event", lambda: event)
+    monkeypatch.setenv("GITHUB_TOKEN", "ghs_test")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("OPENAI_PROJECT_ID", "proj_123")
+    monkeypatch.setattr(
+        module,
+        "build_review_input",
+        lambda event_payload: {
+            "base_sha": "abc123",
+            "head_sha": "def456",
+            "changed_files": [{"path": "scripts/agents/codex_pr_review.py"}],
+            "diff_truncated": False,
+            "pr_body_truncated": False,
+            "review_input": "review me",
+        },
+    )
+    monkeypatch.setattr(
+        module,
+        "call_openai_review",
+        lambda **kwargs: ("## Findings\nNo material findings.\n\n## Residual Risks\n- none\n\n## Recommendation\nApprove.", {"id": "resp_123"}),
+    )
+    monkeypatch.setattr(module, "upsert_pr_comment", lambda **kwargs: {"html_url": "https://example.com/comment/123"})
+
+    exit_code = module.main()
+
+    captured = capsys.readouterr()
+    assert exit_code == 0
+    assert "Status: `commented`" in captured.out
+    assert "OpenAI project header: `enabled`" in captured.out
+    assert "Comment URL: https://example.com/comment/123" in captured.out
+
+
+def test_main_returns_non_zero_for_review_execution_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = _load_module()
+    event = {
+        "repository": {"full_name": "danhamerhodges/chronos_dev"},
+        "pull_request": {"number": 3},
+    }
+
+    monkeypatch.setattr(module, "parse_args", lambda: SimpleNamespace(write_summary="", json=False))
+    monkeypatch.setattr(module, "load_event", lambda: event)
+    monkeypatch.setenv("GITHUB_TOKEN", "ghs_test")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("OPENAI_PROJECT_ID", "proj_123")
+
+    def _raise_review_error(_: object) -> object:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(module, "build_review_input", _raise_review_error)
+
+    exit_code = module.main()
+
+    captured = capsys.readouterr()
+    assert exit_code == 1
+    assert "Status: `error`" in captured.out
+    assert "boom" in captured.out
 
 
 def test_trim_text_reports_truncation() -> None:
