@@ -179,7 +179,7 @@ def decode_git_path(raw_path: bytes) -> str:
 
 
 def collect_changed_files(base_sha: str, head_sha: str) -> list[dict[str, Any]]:
-    output = run_git_bytes(["diff", "--numstat", "-z", f"{base_sha}..{head_sha}"])
+    output = run_git_bytes(["diff", "--find-renames", "--numstat", "-z", f"{base_sha}..{head_sha}"])
     changed_files: list[dict[str, Any]] = []
     cursor = 0
     while cursor < len(output):

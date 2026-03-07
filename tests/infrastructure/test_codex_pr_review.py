@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+import subprocess
 from types import SimpleNamespace
 
 import pytest
@@ -174,6 +175,47 @@ def test_collect_changed_files_handles_rename_paths(monkeypatch: pytest.MonkeyPa
     )
 
     changed_files = module.collect_changed_files("abc123", "def456")
+
+    assert changed_files == [
+        {
+            "path": "src/new.py",
+            "display_path": "src/old.py => src/new.py",
+            "added": 1,
+            "deleted": 0,
+            "binary": False,
+        }
+    ]
+
+
+def test_collect_changed_files_handles_real_git_rename_output(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_module()
+    monkeypatch.setattr(module, "ROOT", tmp_path)
+
+    def run_git(*args: str) -> str:
+        proc = subprocess.run(
+            ["git", *args],
+            cwd=tmp_path,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return proc.stdout.strip()
+
+    run_git("init", "-q")
+    run_git("config", "user.email", "test@example.com")
+    run_git("config", "user.name", "Chronos Test")
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src/old.py").write_text("print('old')\n", encoding="utf-8")
+    run_git("add", "src/old.py")
+    run_git("commit", "-qm", "base")
+    base_sha = run_git("rev-parse", "HEAD")
+    run_git("mv", "src/old.py", "src/new.py")
+    with (tmp_path / "src/new.py").open("a", encoding="utf-8") as handle:
+        handle.write("print('new')\n")
+    run_git("commit", "-am", "rename")
+    head_sha = run_git("rev-parse", "HEAD")
+
+    changed_files = module.collect_changed_files(base_sha, head_sha)
 
     assert changed_files == [
         {
