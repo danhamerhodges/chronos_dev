@@ -8,7 +8,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.processing import ReproducibilityMode
-from app.models.status import JobStatus
+from app.models.status import JobStatus, UploadStatus
 
 
 class StrictModel(BaseModel):
@@ -101,6 +101,45 @@ class VersionResponse(StrictModel):
     version: str
     build_sha: str
     build_time: str
+
+
+class UploadCreateRequest(StrictModel):
+    original_filename: str = Field(min_length=1)
+    mime_type: str = Field(min_length=1)
+    size_bytes: int = Field(ge=0)
+    checksum_sha256: str | None = Field(default=None, min_length=8)
+
+
+class UploadFinalizeRequest(StrictModel):
+    size_bytes: int = Field(ge=0)
+    checksum_sha256: str | None = Field(default=None, min_length=8)
+
+
+class UploadResponse(StrictModel):
+    upload_id: str
+    status: UploadStatus
+    original_filename: str
+    mime_type: str
+    size_bytes: int
+    checksum_sha256: str | None = None
+    bucket_name: str
+    object_path: str
+    media_uri: str
+    resumable_session_url: str
+    created_at: str
+    updated_at: str
+    completed_at: str | None = None
+
+
+class UploadResumeResponse(StrictModel):
+    upload_id: str
+    status: UploadStatus
+    resumable_session_url: str
+    next_byte_offset: int = 0
+    upload_complete: bool = False
+    session_regenerated: bool = False
+    object_path: str
+    media_uri: str
 
 
 class UserProfileResponse(StrictModel):

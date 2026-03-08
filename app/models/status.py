@@ -17,6 +17,6 @@ class JobStatus(StrEnum):
 
 class UploadStatus(StrEnum):
     PENDING = "pending"
-    PROCESSING = "processing"
+    UPLOADING = "uploading"
     COMPLETED = "completed"
     FAILED = "failed"
