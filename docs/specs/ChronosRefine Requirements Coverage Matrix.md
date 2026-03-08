@@ -278,7 +278,7 @@ After updating the matrix, recalculate:
 
 ---
 
-## Current Progress Snapshot (2026-03-07)
+## Current Progress Snapshot (2026-03-08)
 
 Source evidence:
 - `README.md` (Phase 1 baseline scope)
@@ -287,14 +287,15 @@ Source evidence:
 - PR merge history on `main` (`709687a` for Phase 2, `a5b0f6c` for Phase 3, `5ac15cd` docs follow-up)
 - Current test coverage + traceability headers under `tests/`
 - `python3 scripts/ops/verify_cloud_run_runtime.py --service chronos-phase1-app --project chronos-dev-489301 --region us-central1`
-- `curl https://chronos-phase1-app-wprbzt6h3q-uc.a.run.app/v1/version`
+- `curl https://chronos-phase1-app-19961431854.us-central1.run.app/v1/version`
+- Packet 4A live-smoke evidence (`memory-live-smoke.json`, `supabase-live-smoke.json`, `staging-latency.json`) summarized in `docs/specs/chronosrefine_phase4_closeout_note.md`
 
 | Phase | Requirements | Status | Notes |
 |---|---:|---|---|
 | Phase 1: Foundation & Core Infrastructure | 6/6 | ✅ Complete (baseline scope) | Baseline scaffolding and validation confirmed in `docs/phase1_readiness_report.md` |
 | Phase 2: API Foundation & Data Layer | 6/6 | ✅ Complete (merged via PR #1) | `main` includes merge commit `709687a`; this is the canonical baseline for later phases |
 | Phase 3: Core Processing Pipeline & AI Integration | 11/12 | ✅ Complete for Phase 4 kickoff | PR #2 merged to `main`; `SEC-007` remains deferred to its canonical `GA+3 months` milestone |
-| Phase 4: User-Facing Features & Application Logic | 0/14 | ⏸️ Not Started (Packet 4A approved) | Start with `FR-001` upload/validation; do not pull `FR-006` preview UX into Phase 4 kickoff scope |
+| Phase 4: User-Facing Features & Application Logic | 1/14 | 🚧 In Progress (Packet 4A complete) | `FR-001` upload/validation is complete on candidate branch `codex/packet4a-closure`; follow-on Phase 4 work starts after this packet lands on `main` |
 | Phase 5: Advanced Features & UX Refinement | 0/11 | ⏸️ Not Started | Dependent on Phase 4 completion |
 | Phase 6: Production Readiness & Launch | 0/10 | ⏸️ Not Started | Dependent on Phase 5 completion |
 
@@ -351,16 +352,18 @@ Source evidence:
 
 ### Phase 4 Kickoff Status: User-Facing Features & Application Logic
 
-**Requirements:** 0 of 14 complete (0%)  
-**Status:** Not started in code on `main`; Packet 4A approved on 2026-03-07  
-**Approved Kickoff Packet:** `Packet 4A = FR-001 (Video Upload and Validation)`
+**Requirements:** 1 of 14 complete on candidate branch `codex/packet4a-closure` (7%)  
+**Status:** Packet 4A complete on 2026-03-08; `main` remains pre-merge until the candidate branch lands  
+**Completed Kickoff Packet:** `Packet 4A = FR-001 (Video Upload and Validation)`
 
-| Area | Approved kickoff note |
+| Area | Packet 4A closure note |
 |---|---|
 | Scope | Signed GCS upload URL generation, resumable upload handling, format/size validation, authenticated metadata persistence, and a thin upload UI shell |
 | Explicit Exclusions | `FR-003`, `FR-004`, `FR-005`, `ENG-013`, `ENG-014`, `ENG-015`, and all `FR-006` preview-review UX remain follow-on Phase 4/5 work |
 | Dependencies Satisfied | `SEC-013`, `ENG-002`, `ENG-016`; Phase 3 kickoff dependency is satisfied with `SEC-007` deferred per canon |
-| Initial Test Mapping | `tests/api/test_upload.py`, `tests/integration/test_resumable_upload.py`, `tests/load/test_upload_performance.py` |
+| Test Mapping | `tests/api/test_upload.py`, `tests/integration/test_resumable_upload.py`, `tests/load/test_upload_performance.py` |
+| Closure Evidence | Live memory + GCS smoke passed, live Supabase + GCS smoke passed, staging latency probe passed on revision `chronos-phase1-app-00036-blf` (`build_sha=9a5791c4023794af8d6cc96d7dd2561aafdb93bc`) |
+| Context Note | `docs/specs/chronosrefine_phase4_closeout_note.md` |
 
 ## Progress Tracking Template
 
