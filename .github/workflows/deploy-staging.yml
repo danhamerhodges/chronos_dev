@@ -18,6 +18,7 @@ jobs:
       CLOUD_RUN_SERVICE: ${{ secrets.CLOUD_RUN_SERVICE }}
       GCP_WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER }}
       GCP_DEPLOY_SERVICE_ACCOUNT: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
     steps:
       - uses: actions/checkout@v4
       - name: Validate required deploy secrets
@@ -26,6 +27,7 @@ jobs:
           test -n "${GCP_WIF_PROVIDER}"
           test -n "${GCP_DEPLOY_SERVICE_ACCOUNT}"
           test -n "${CLOUD_RUN_SERVICE}"
+          test -n "${GCS_BUCKET_NAME}"
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
@@ -43,7 +45,7 @@ jobs:
             --region "${GCP_REGION:-us-central1}" \
             --source . \
             --allow-unauthenticated \
-            --set-env-vars "ENVIRONMENT=staging,BUILD_SHA=${GITHUB_SHA},BUILD_TIME=${BUILD_TIME},JOB_DISPATCH_MODE=pubsub,JOB_PROGRESS_MODE=supabase,JOB_PUBSUB_TOPIC=projects/${GCP_PROJECT_ID}/topics/chronos-async-jobs-smoke,SEGMENT_CACHE_MODE=redis,REDIS_URL=redis://10.32.25.35:6379/0" \
+            --set-env-vars "ENVIRONMENT=staging,BUILD_SHA=${GITHUB_SHA},BUILD_TIME=${BUILD_TIME},JOB_DISPATCH_MODE=pubsub,JOB_PROGRESS_MODE=supabase,JOB_PUBSUB_TOPIC=projects/${GCP_PROJECT_ID}/topics/chronos-async-jobs-smoke,SEGMENT_CACHE_MODE=redis,REDIS_URL=redis://10.32.25.35:6379/0,GCS_BUCKET_NAME=${GCS_BUCKET_NAME}" \
             --set-secrets "SUPABASE_URL=SUPABASE_URL_DEV:latest,SUPABASE_ANON_KEY=SUPABASE_ANON_KEY_DEV:latest,SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest,SUPABASE_DB_HOST=SUPABASE_DB_HOST:latest,SUPABASE_DB_PORT=SUPABASE_DB_PORT:latest,SUPABASE_DB_NAME=SUPABASE_DB_NAME:latest,SUPABASE_DB_USER=SUPABASE_DB_USER:latest,SUPABASE_DB_PASSWORD=SUPABASE_DB_PASSWORD:latest,JOB_WORKER_TRUSTED_TOKEN=JOB_WORKER_TRUSTED_TOKEN:latest" \
             --quiet
       - name: Verify Cloud Run runtime hardening
