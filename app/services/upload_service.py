@@ -65,36 +65,77 @@ class GcsUploadSessionClient:
                     status_code=500,
                 )
             return f"{_FAKE_SESSION_PREFIX}/{object_path}"
-
-        response = httpx.post(
-            _GCS_RESUMABLE_UPLOAD_URL.format(bucket=bucket_name),
-            params={"uploadType": "resumable", "name": object_path},
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                "X-Upload-Content-Type": mime_type,
-                "X-Upload-Content-Length": str(size_bytes),
-                "Content-Type": "application/json; charset=UTF-8",
-            },
-            content=b"{}",
-            timeout=10.0,
+        try:
+            response = httpx.post(
+                _GCS_RESUMABLE_UPLOAD_URL.format(bucket=bucket_name),
+                params={"uploadType": "resumable", "name": object_path},
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "X-Upload-Content-Type": mime_type,
+                    "X-Upload-Content-Length": str(size_bytes),
+                    "Content-Type": "application/json; charset=UTF-8",
+                },
+                content=b"{}",
+                timeout=10.0,
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise ProblemException(
+                title="Upload Storage Unavailable",
+                detail="Resumable upload sessions could not be created.",
+                status_code=500,
+            ) from exc
+        location = response.headers.get("Location")
+        if location:
+            return location
+        if settings.environment == "test":
+            return f"{_FAKE_SESSION_PREFIX}/{object_path}"
+        raise ProblemException(
+            title="Upload Storage Unavailable",
+            detail="Resumable upload sessions must return a session URL.",
+            status_code=500,
         )
-        response.raise_for_status()
-        return response.headers.get("Location") or f"{_FAKE_SESSION_PREFIX}/{object_path}"
 
     def fetch_object_metadata(self, *, bucket_name: str, object_path: str) -> dict[str, object] | None:
         if not bucket_name:
+            if settings.environment != "test":
+                raise ProblemException(
+                    title="Upload Storage Unavailable",
+                    detail="GCS bucket configuration is required to verify uploaded objects.",
+                    status_code=500,
+                )
             return None
         access_token = self._token_provider.access_token()
         if not access_token:
+            if settings.environment != "test":
+                raise ProblemException(
+                    title="Upload Storage Unavailable",
+                    detail="GCP access token is required to verify uploaded objects.",
+                    status_code=500,
+                )
             return None
-        response = httpx.get(
-            _GCS_OBJECT_METADATA_URL.format(bucket=bucket_name, object_path=quote(object_path, safe="")),
-            headers={"Authorization": f"Bearer {access_token}"},
-            timeout=10.0,
-        )
+        try:
+            response = httpx.get(
+                _GCS_OBJECT_METADATA_URL.format(bucket=bucket_name, object_path=quote(object_path, safe="")),
+                headers={"Authorization": f"Bearer {access_token}"},
+                timeout=10.0,
+            )
+        except httpx.HTTPError as exc:
+            raise ProblemException(
+                title="Upload Storage Unavailable",
+                detail="Uploaded object metadata could not be verified.",
+                status_code=500,
+            ) from exc
         if response.status_code == 404:
             return None
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise ProblemException(
+                title="Upload Storage Unavailable",
+                detail="Uploaded object metadata could not be verified.",
+                status_code=500,
+            ) from exc
         payload = response.json()
         return {
             "size_bytes": int(payload.get("size", 0) or 0),
@@ -333,6 +374,27 @@ class UploadService:
                 status_code=400,
             )
 
+        probe = self._session_client.probe_resumable_session(
+            session_url=str(session["resumable_session_url"]),
+            size_bytes=finalized_size,
+        )
+        if not probe.upload_complete:
+            session = _mark_upload_in_progress(
+                self._repo,
+                session,
+                upload_id=upload_id,
+                owner_user_id=owner_user_id,
+                access_token=access_token,
+            )
+            detail = "Uploaded object is not yet available. Retry finalization after the upload completes."
+            if probe.session_expired:
+                detail = "The resumable upload session expired before completion. Resume the upload and retry finalization."
+            raise ProblemException(
+                title="Upload Finalization Failed",
+                detail=detail,
+                status_code=409,
+            )
+
         metadata = self._session_client.fetch_object_metadata(
             bucket_name=str(session["bucket_name"]),
             object_path=str(session["object_path"]),
@@ -344,15 +406,13 @@ class UploadService:
                     "mime_type": session["mime_type"],
                 }
             else:
-                if session["status"] != UploadStatus.UPLOADING.value:
-                    updated = self._repo.update_session(
-                        upload_id,
-                        owner_user_id=owner_user_id,
-                        patch={"status": UploadStatus.UPLOADING.value, "completed_at": None},
-                        access_token=access_token,
-                    )
-                    if updated is not None:
-                        session = updated
+                session = _mark_upload_in_progress(
+                    self._repo,
+                    session,
+                    upload_id=upload_id,
+                    owner_user_id=owner_user_id,
+                    access_token=access_token,
+                )
                 raise ProblemException(
                     title="Upload Finalization Failed",
                     detail="Uploaded object is not yet available. Retry finalization after the upload completes.",
@@ -402,6 +462,25 @@ def datetime_now_iso() -> str:
     from datetime import datetime, timezone
 
     return datetime.now(timezone.utc).isoformat()
+
+
+def _mark_upload_in_progress(
+    repo: UploadRepository,
+    session: dict[str, object],
+    *,
+    upload_id: str,
+    owner_user_id: str,
+    access_token: str,
+) -> dict[str, object]:
+    if session["status"] == UploadStatus.UPLOADING.value and session.get("completed_at") is None:
+        return session
+    updated = repo.update_session(
+        upload_id,
+        owner_user_id=owner_user_id,
+        patch={"status": UploadStatus.UPLOADING.value, "completed_at": None},
+        access_token=access_token,
+    )
+    return updated or session
 
 
 def _public_upload_payload(record: dict[str, object]) -> dict[str, object]:

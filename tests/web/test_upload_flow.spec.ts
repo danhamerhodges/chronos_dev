@@ -188,4 +188,59 @@ describe("upload flow orchestration", () => {
     expect(state.canResume).toBe(false);
     expect(state.error).toBe("");
   });
+
+  it("logs resume probe failures instead of swallowing them silently", async () => {
+    const file = makeFile();
+    const state: FlowState = {
+      session: null,
+      status: "pending",
+      progress: 0,
+      etaSeconds: 0,
+      canResume: false,
+      error: "",
+    };
+
+    const createSession = vi.fn(async () => baseSession());
+    const resumeSession = vi
+      .fn()
+      .mockResolvedValueOnce({
+        upload_id: "upload-1",
+        status: "uploading",
+        resumable_session_url: "https://example.invalid/resumable/regenerated",
+        next_byte_offset: 0,
+        upload_complete: false,
+        session_regenerated: true,
+        object_path: "uploads/user-1/upload-1/archive.mov",
+        media_uri: "gs://chronos-dev/uploads/user-1/upload-1/archive.mov",
+      })
+      .mockRejectedValueOnce(new Error("resume probe failed"));
+    const uploadBytes = vi.fn(async () => {
+      throw new UploadInterruptedError("Upload interrupted. Resume to continue.", 5);
+    });
+    const finalizeSession = vi.fn();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    await executeUploadFlow({
+      apiBaseUrl: "https://api.example.test",
+      file,
+      resumeExisting: false,
+      existingSession: null,
+      dependencies: {
+        getAccessToken: async () => "access-token",
+        createSession,
+        resumeSession,
+        uploadBytes,
+        finalizeSession,
+      },
+      handlers: buildHandlers(state),
+    });
+
+    expect(consoleError).toHaveBeenCalledWith(
+      "Failed to resume upload after interruption.",
+      expect.objectContaining({ message: "resume probe failed" }),
+    );
+    expect(state.status).toBe("uploading");
+    expect(state.canResume).toBe(true);
+    consoleError.mockRestore();
+  });
 });

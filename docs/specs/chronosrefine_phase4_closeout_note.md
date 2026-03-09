@@ -114,5 +114,5 @@ set +a
 
 ## Non-Blocking Caveats
 
-- Phase 4 overall is not complete. This note only closes Packet 4A (`FR-001`).
+- Phase 4 overall is incomplete. This note only closes Packet 4A (`FR-001`).
 - The staging latency result meets functional proof needs, but `p95`/`p99` remain elevated enough to warrant monitoring during later Phase 4 follow-on work.

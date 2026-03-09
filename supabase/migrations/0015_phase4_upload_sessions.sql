@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS public.upload_sessions (
   owner_user_id UUID NOT NULL,
   external_user_id TEXT NOT NULL,
   external_upload_id TEXT NOT NULL UNIQUE,
-  org_id TEXT NOT NULL,
+  org_id TEXT NOT NULL DEFAULT 'org-default',
   original_filename TEXT NOT NULL,
   mime_type TEXT NOT NULL,
   size_bytes BIGINT NOT NULL,

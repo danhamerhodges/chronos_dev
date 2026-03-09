@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 import json
 import os
@@ -19,6 +19,8 @@ import psycopg
 from psycopg.rows import dict_row
 from fastapi.testclient import TestClient
 
+from app import config as app_config
+from app.api import dependencies as api_dependencies
 from app.auth.supabase_auth import SupabaseAuthService
 from app.db.client import SupabaseClient
 from app.db.phase2_store import _STORE, phase2_backend_name
@@ -64,6 +66,24 @@ def _fake_auth_headers(
         "X-Chronos-Tier": tier,
         "X-Chronos-Org": org_id,
     }
+
+
+def _uses_fake_auth_headers(*headers: dict[str, str] | None) -> bool:
+    for header_set in headers:
+        if not header_set:
+            continue
+        if header_set.get("Authorization", "").startswith("Bearer test-token-for-"):
+            return True
+    return False
+
+
+def _enable_test_auth_override() -> None:
+    os.environ.setdefault("TEST_AUTH_OVERRIDE", "1")
+    if api_dependencies.settings.test_auth_override:
+        return
+    overridden_settings = replace(app_config.settings, test_auth_override=True)
+    app_config.settings = overridden_settings
+    api_dependencies.settings = overridden_settings
 
 
 def _json_safe(value: Any) -> Any:
@@ -258,6 +278,8 @@ def run_packet4a_live_smoke(
     secondary_headers: dict[str, str] | None,
     output_path: str | os.PathLike[str] | None = None,
 ) -> dict[str, Any]:
+    if _uses_fake_auth_headers(primary_headers, secondary_headers):
+        _enable_test_auth_override()
     backend_name = phase2_backend_name()
     resolved_output_path = Path(output_path) if output_path else _default_live_smoke_output_path(backend_name)
     ephemeral_secondary_user_id: str | None = None
@@ -459,6 +481,8 @@ def _run_cli() -> None:
             secondary_headers = None
             if args.require_secondary_auth:
                 secondary_headers = resolve_secondary_actor_headers(require_real_auth=args.require_real_auth)
+            if _uses_fake_auth_headers(primary_headers, secondary_headers):
+                _enable_test_auth_override()
             result = run_packet4a_live_smoke(
                 client=TestClient(app),
                 primary_headers=primary_headers,

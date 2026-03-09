@@ -14,16 +14,20 @@ from app.api.dependencies import AuthenticatedUser, apply_rate_limit, require_pe
 from app.services.upload_service import UploadService
 
 router = APIRouter()
-_upload_service = UploadService()
+
+
+def get_upload_service() -> UploadService:
+    return UploadService()
 
 
 @router.post("/v1/upload", response_model=UploadResponse)
 def create_upload(
     payload: UploadCreateRequest,
     user: AuthenticatedUser = Depends(require_permission("jobs:write")),
+    upload_service: UploadService = Depends(get_upload_service),
 ) -> UploadResponse:
     apply_rate_limit(user, "/v1/upload")
-    upload = _upload_service.create_upload(
+    upload = upload_service.create_upload(
         user_id=user.user_id,
         org_id=user.org_id,
         payload=payload.model_dump(),
@@ -37,9 +41,10 @@ def finalize_upload(
     upload_id: str,
     payload: UploadFinalizeRequest,
     user: AuthenticatedUser = Depends(require_permission("jobs:write")),
+    upload_service: UploadService = Depends(get_upload_service),
 ) -> UploadResponse:
     apply_rate_limit(user, "/v1/upload/{upload_id}")
-    upload = _upload_service.finalize_upload(
+    upload = upload_service.finalize_upload(
         upload_id,
         owner_user_id=user.user_id,
         payload=payload.model_dump(),
@@ -52,9 +57,10 @@ def finalize_upload(
 def resume_upload(
     upload_id: str,
     user: AuthenticatedUser = Depends(require_permission("jobs:write")),
+    upload_service: UploadService = Depends(get_upload_service),
 ) -> UploadResumeResponse:
     apply_rate_limit(user, "/v1/upload/{upload_id}/resume")
-    upload = _upload_service.resume_upload(
+    upload = upload_service.resume_upload(
         upload_id,
         owner_user_id=user.user_id,
         access_token=user.access_token,

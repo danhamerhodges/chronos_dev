@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
+from threading import Lock
 from typing import Any
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
@@ -162,6 +163,7 @@ class Phase2Store:
 
 
 _STORE = Phase2Store()
+_UPLOAD_STORE_LOCK = Lock()
 
 
 def reset_phase2_store() -> None:
@@ -282,8 +284,9 @@ class _MemoryUploadRepository:
             "updated_at": now,
             "completed_at": None,
         }
-        _STORE.upload_sessions[upload_id] = record
-        return dict(record)
+        with _UPLOAD_STORE_LOCK:
+            _STORE.upload_sessions[upload_id] = record
+            return dict(record)
 
     def get_session(
         self,
@@ -293,7 +296,8 @@ class _MemoryUploadRepository:
         access_token: str | None = None,
     ) -> dict[str, Any] | None:
         del access_token
-        record = _STORE.upload_sessions.get(upload_id)
+        with _UPLOAD_STORE_LOCK:
+            record = _STORE.upload_sessions.get(upload_id)
         if record is None:
             return None
         if owner_user_id and record["owner_user_id"] != owner_user_id:
@@ -309,14 +313,15 @@ class _MemoryUploadRepository:
         access_token: str | None = None,
     ) -> dict[str, Any] | None:
         del access_token
-        record = _STORE.upload_sessions.get(upload_id)
-        if record is None or record["owner_user_id"] != owner_user_id:
-            return None
-        updated = dict(record)
-        updated.update(_request_patch(patch, nullable_keys={"completed_at"}))
-        updated["updated_at"] = _utc_now()
-        _STORE.upload_sessions[upload_id] = updated
-        return dict(updated)
+        with _UPLOAD_STORE_LOCK:
+            record = _STORE.upload_sessions.get(upload_id)
+            if record is None or record["owner_user_id"] != owner_user_id:
+                return None
+            updated = dict(record)
+            updated.update(_request_patch(patch, nullable_keys={"completed_at"}))
+            updated["updated_at"] = _utc_now()
+            _STORE.upload_sessions[upload_id] = updated
+            return dict(updated)
 
     def upsert_pointer(
         self,
@@ -347,8 +352,9 @@ class _MemoryUploadRepository:
             "checksum_sha256": checksum_sha256,
             "created_at": _utc_now(),
         }
-        _STORE.gcs_object_pointers[upload_id] = record
-        return dict(record)
+        with _UPLOAD_STORE_LOCK:
+            _STORE.gcs_object_pointers[upload_id] = record
+            return dict(record)
 
 
 class _MemoryEraDetectionRepository:

@@ -10,6 +10,7 @@ Maps to:
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -19,11 +20,10 @@ from app.config import settings
 from app.db.phase2_store import _STORE
 from app.main import app
 from app.models.status import UploadStatus
-from app.services.upload_service import ResumableUploadProbe
+from app.services.upload_service import ResumableUploadProbe, UploadService
 from app.services.vertex_gemini import GoogleAccessTokenProvider
 from scripts.ops.run_packet4a_live_smoke import (
     LiveSmokePrerequisiteError,
-    _SECONDARY_PREREQ_MESSAGE,
     resolve_primary_actor_headers,
     resolve_secondary_actor_headers,
     run_packet4a_live_smoke,
@@ -31,6 +31,21 @@ from scripts.ops.run_packet4a_live_smoke import (
 from tests.helpers.auth import fake_auth_header
 
 client = TestClient(app)
+
+
+@pytest.fixture
+def override_upload_service() -> object:
+    from app.api import uploads
+
+    def apply(session_client: object) -> UploadService:
+        service = UploadService(session_client=session_client)
+        app.dependency_overrides[uploads.get_upload_service] = lambda: service
+        return service
+
+    yield apply
+    from app.api import uploads
+
+    app.dependency_overrides.pop(uploads.get_upload_service, None)
 
 
 def valid_upload_request(**overrides: object) -> dict[str, object]:
@@ -79,21 +94,19 @@ class ReplayableSessionClient:
     ("percent_complete", "next_byte_offset"),
     [
         (0, 0),
-        (10, 400_000),
-        (25, 1_000_000),
-        (50, 2_000_000),
-        (75, 3_000_000),
-        (99, 3_960_000),
+        (10, 419_430),
+        (25, 1_048_576),
+        (50, 2_097_152),
+        (75, 3_145_728),
+        (99, 4_152_360),
     ],
 )
-def test_resume_endpoint_reports_confirmed_offsets(monkeypatch, percent_complete: int, next_byte_offset: int) -> None:
-    from app.api import uploads
-
-    monkeypatch.setattr(
-        uploads._upload_service,
-        "_session_client",
-        ReplayableSessionClient(probes=[ResumableUploadProbe(next_byte_offset=next_byte_offset, upload_complete=False)]),
-    )
+def test_resume_endpoint_reports_confirmed_offsets(
+    override_upload_service,
+    percent_complete: int,
+    next_byte_offset: int,
+) -> None:
+    override_upload_service(ReplayableSessionClient(probes=[ResumableUploadProbe(next_byte_offset=next_byte_offset, upload_complete=False)]))
 
     created = client.post("/v1/upload", headers=fake_auth_header("resume-user"), json=valid_upload_request()).json()
     resumed = client.post(
@@ -102,26 +115,23 @@ def test_resume_endpoint_reports_confirmed_offsets(monkeypatch, percent_complete
     )
 
     assert resumed.status_code == 200
-    assert percent_complete in {0, 10, 25, 50, 75, 99}
     payload = resumed.json()
+    expected_offset = int(4 * 1024 * 1024 * percent_complete / 100)
+    assert next_byte_offset == expected_offset
     assert payload["next_byte_offset"] == next_byte_offset
     assert payload["status"] == UploadStatus.UPLOADING.value
     assert _STORE.upload_sessions[created["upload_id"]]["status"] == UploadStatus.UPLOADING.value
 
 
-def test_expired_upload_session_can_be_regenerated_without_changing_upload_identity(monkeypatch) -> None:
-    from app.api import uploads
-
-    monkeypatch.setattr(
-        uploads._upload_service,
-        "_session_client",
+def test_expired_upload_session_can_be_regenerated_without_changing_upload_identity(override_upload_service) -> None:
+    override_upload_service(
         ReplayableSessionClient(
             session_urls=[
                 "https://example.invalid/resumable/first",
                 "https://example.invalid/resumable/regenerated",
             ],
             probes=[ResumableUploadProbe(next_byte_offset=0, upload_complete=False, session_expired=True)],
-        ),
+        )
     )
 
     created = client.post("/v1/upload", headers=fake_auth_header("regen-user"), json=valid_upload_request()).json()
@@ -139,16 +149,15 @@ def test_expired_upload_session_can_be_regenerated_without_changing_upload_ident
     assert _STORE.upload_sessions[created["upload_id"]]["resumable_session_url"] == payload["resumable_session_url"]
 
 
-def test_resume_then_finalize_persists_pointer_metadata(monkeypatch) -> None:
-    from app.api import uploads
-
-    monkeypatch.setattr(
-        uploads._upload_service,
-        "_session_client",
+def test_resume_then_finalize_persists_pointer_metadata(override_upload_service) -> None:
+    override_upload_service(
         ReplayableSessionClient(
-            probes=[ResumableUploadProbe(next_byte_offset=2 * 1024 * 1024, upload_complete=False)],
+            probes=[
+                ResumableUploadProbe(next_byte_offset=2 * 1024 * 1024, upload_complete=False),
+                ResumableUploadProbe(next_byte_offset=4 * 1024 * 1024, upload_complete=True),
+            ],
             object_size=4 * 1024 * 1024,
-        ),
+        )
     )
     created = client.post("/v1/upload", headers=fake_auth_header("pointer-user"), json=valid_upload_request()).json()
     resume_response = client.post(
@@ -184,7 +193,7 @@ def _live_evidence_path(name: str) -> Path:
     os.getenv("CHRONOS_RUN_GCS_UPLOAD_INTEGRATION") != "1",
     reason="Set CHRONOS_RUN_GCS_UPLOAD_INTEGRATION=1 to exercise real GCS upload sessions.",
 )
-def test_real_gcs_upload_session_supports_probe_resume_and_finalize(tmp_path: Path) -> None:
+def test_real_gcs_upload_session_supports_probe_resume_and_finalize() -> None:
     _skip_if_gcs_prerequisites_missing()
     evidence_path = _live_evidence_path("memory-live-smoke.json")
 
@@ -241,8 +250,6 @@ def test_supabase_real_gcs_upload_session_persists_rls_artifacts() -> None:
             output_path=evidence_path,
         )
     except LiveSmokePrerequisiteError as exc:
-        if str(exc) == _SECONDARY_PREREQ_MESSAGE:
-            pytest.skip(str(exc))
         pytest.skip(str(exc))
 
     assert result["backend"] == "supabase"
@@ -263,3 +270,17 @@ def test_supabase_real_gcs_upload_session_persists_rls_artifacts() -> None:
     assert result["pointer_snapshots"]["after_finalize"]["external_upload_id"] == result["upload_id"]
     assert result["pointer_snapshots"]["after_finalize"]["object_path"] == result["object_path"]
     assert evidence_path.exists()
+
+
+def test_live_smoke_enables_test_auth_override_for_fake_headers(monkeypatch) -> None:
+    from scripts.ops import run_packet4a_live_smoke as live_smoke
+
+    base_settings = replace(live_smoke.api_dependencies.settings, test_auth_override=False)
+    monkeypatch.setattr(live_smoke.app_config, "settings", base_settings)
+    monkeypatch.setattr(live_smoke.api_dependencies, "settings", base_settings)
+    monkeypatch.delenv("TEST_AUTH_OVERRIDE", raising=False)
+
+    live_smoke._enable_test_auth_override()
+
+    assert os.getenv("TEST_AUTH_OVERRIDE") == "1"
+    assert live_smoke.api_dependencies.settings.test_auth_override is True

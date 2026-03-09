@@ -10,8 +10,10 @@ import asyncio
 from time import perf_counter
 
 import httpx
+import pytest
 
 from app.main import app
+from app.services.upload_service import UploadService
 from tests.helpers.auth import fake_auth_header
 
 
@@ -33,6 +35,21 @@ def _percentile(samples: list[float], ratio: float) -> float:
     ordered = sorted(samples)
     index = max(int(len(ordered) * ratio) - 1, 0)
     return ordered[index]
+
+
+@pytest.fixture
+def override_upload_service() -> object:
+    from app.api import uploads
+
+    def apply(session_client: object) -> UploadService:
+        service = UploadService(session_client=session_client)
+        app.dependency_overrides[uploads.get_upload_service] = lambda: service
+        return service
+
+    yield apply
+    from app.api import uploads
+
+    app.dependency_overrides.pop(uploads.get_upload_service, None)
 
 
 async def _run_concurrent_upload_creation() -> list[float]:
@@ -59,11 +76,10 @@ async def _run_concurrent_upload_creation() -> list[float]:
         return list(await asyncio.gather(*(send_request(index) for index in range(1000))))
 
 
-def test_upload_session_creation_meets_latency_targets_under_concurrent_load(monkeypatch) -> None:
+def test_upload_session_creation_meets_latency_targets_under_concurrent_load(monkeypatch, override_upload_service) -> None:
     import app.services.rate_limits as rate_limits
-    from app.api import uploads
 
-    monkeypatch.setattr(uploads._upload_service, "_session_client", FastSessionClient())
+    override_upload_service(FastSessionClient())
     monkeypatch.setattr(rate_limits, "_limit_for_tier", lambda plan_tier: 10000)
     samples = asyncio.run(_run_concurrent_upload_creation())
 

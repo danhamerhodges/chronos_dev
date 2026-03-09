@@ -194,8 +194,20 @@ export function mergeUploadSessionWithResume(
 }
 
 async function decodeProblem(response: Response, fallbackMessage: string): Promise<string> {
-  const payload = (await response.json()) as ProblemPayload;
-  return payload.title || payload.detail || fallbackMessage;
+  try {
+    const payload = (await response.clone().json()) as ProblemPayload;
+    if (payload.title || payload.detail) {
+      return payload.title || payload.detail || fallbackMessage;
+    }
+  } catch {
+    // Fall back to raw text for non-JSON error bodies.
+  }
+  try {
+    const responseText = (await response.text()).trim();
+    return responseText || fallbackMessage;
+  } catch {
+    return fallbackMessage;
+  }
 }
 
 export async function createUploadSession(
@@ -380,7 +392,8 @@ export async function executeUploadFlow({
         handlers.setUploadSession(activeSession);
         handlers.setStatus(activeSession.status);
         handlers.setProgress(progressFromBytes(resumeState.next_byte_offset, file));
-      } catch {
+      } catch (resumeError) {
+        console.error("Failed to resume upload after interruption.", resumeError);
         handlers.setStatus("uploading");
       }
       handlers.setCanResume(true);

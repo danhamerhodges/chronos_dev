@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import {
   UploadInterruptedError,
   buildContentRange,
+  createUploadSession,
   finalizeUpload,
   isSupportedUploadFormat,
   mergeUploadSessionWithResume,
@@ -212,5 +213,17 @@ describe("upload helpers", () => {
     await expect(
       finalizeUpload("", "access-token", session, makeFile(), { fetchFn }),
     ).rejects.toBeInstanceOf(UploadInterruptedError);
+  });
+
+  it("falls back to plain-text error bodies when problem-details JSON is unavailable", async () => {
+    const fetchFn = async () =>
+      new Response("upstream exploded", {
+        status: 500,
+        headers: { "Content-Type": "text/plain" },
+      });
+
+    await expect(
+      createUploadSession("", "access-token", makeFile(), { fetchFn }),
+    ).rejects.toThrow("upstream exploded");
   });
 });
