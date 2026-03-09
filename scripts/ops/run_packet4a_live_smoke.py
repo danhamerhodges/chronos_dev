@@ -8,6 +8,7 @@ import asyncio
 from dataclasses import dataclass, replace
 from datetime import date, datetime
 import json
+import math
 import os
 from pathlib import Path
 from time import perf_counter
@@ -146,11 +147,28 @@ def _resolve_real_auth_headers(prefix: str) -> dict[str, str]:
         access_token = _extract_access_token(SupabaseAuthService().sign_in_with_password(email=email, password=password))
 
     headers = {"Authorization": f"Bearer {access_token}"}
-    for suffix, header_name in (
-        ("ROLE", "X-Chronos-Role"),
-        ("TIER", "X-Chronos-Tier"),
-        ("ORG", "X-Chronos-Org"),
-    ):
+    test_auth_override_enabled = (
+        os.getenv("TEST_AUTH_OVERRIDE", "").strip() == "1"
+        or app_config.settings.test_auth_override
+        or api_dependencies.settings.test_auth_override
+    )
+    override_envs = {
+        "ROLE": "X-Chronos-Role",
+        "TIER": "X-Chronos-Tier",
+        "ORG": "X-Chronos-Org",
+    }
+    ineffective_overrides = [
+        f"{prefix}_{suffix}"
+        for suffix in override_envs
+        if os.getenv(f"{prefix}_{suffix}", "").strip()
+    ]
+    if ineffective_overrides and not test_auth_override_enabled:
+        configured = ", ".join(ineffective_overrides)
+        raise LiveSmokePrerequisiteError(
+            f"{configured} are ineffective in real-auth mode unless TEST_AUTH_OVERRIDE=1. "
+            "Remove those env vars or enable test auth override."
+        )
+    for suffix, header_name in override_envs.items():
         value = os.getenv(f"{prefix}_{suffix}", "").strip()
         if value:
             headers[header_name] = value
@@ -414,7 +432,7 @@ def run_packet4a_live_smoke(
 
 def _percentile(samples: list[float], ratio: float) -> float:
     ordered = sorted(samples)
-    index = max(int(len(ordered) * ratio) - 1, 0)
+    index = min(max(math.ceil(len(ordered) * ratio) - 1, 0), len(ordered) - 1)
     return ordered[index]
 
 

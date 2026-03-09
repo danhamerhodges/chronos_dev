@@ -286,6 +286,23 @@ def test_live_smoke_enables_test_auth_override_for_fake_headers(monkeypatch) -> 
     assert live_smoke.api_dependencies.settings.test_auth_override is True
 
 
+def test_resolve_real_auth_headers_rejects_ineffective_override_envs(monkeypatch) -> None:
+    from scripts.ops import run_packet4a_live_smoke as live_smoke
+
+    base_settings = replace(live_smoke.api_dependencies.settings, test_auth_override=False)
+    monkeypatch.setattr(live_smoke.app_config, "settings", base_settings)
+    monkeypatch.setattr(live_smoke.api_dependencies, "settings", base_settings)
+    monkeypatch.setenv("CHRONOS_TEST_ACCESS_TOKEN", "access-token")
+    monkeypatch.setenv("CHRONOS_TEST_ROLE", "admin")
+    monkeypatch.delenv("TEST_AUTH_OVERRIDE", raising=False)
+
+    with pytest.raises(LiveSmokePrerequisiteError) as excinfo:
+        live_smoke._resolve_real_auth_headers("CHRONOS_TEST")
+
+    assert "CHRONOS_TEST_ROLE" in str(excinfo.value)
+    assert "TEST_AUTH_OVERRIDE=1" in str(excinfo.value)
+
+
 def test_ephemeral_secondary_user_is_cleaned_up_when_sign_in_fails(monkeypatch) -> None:
     from scripts.ops import run_packet4a_live_smoke as live_smoke
 
@@ -315,3 +332,13 @@ def test_ephemeral_secondary_user_is_cleaned_up_when_sign_in_fails(monkeypatch) 
         live_smoke._provision_ephemeral_secondary_headers()
 
     assert deleted_user_ids == ["secondary-user"]
+
+
+def test_live_smoke_percentile_uses_ceil_for_high_percentiles() -> None:
+    from scripts.ops import run_packet4a_live_smoke as live_smoke
+
+    samples = [float(index) for index in range(20)]
+
+    assert live_smoke._percentile(samples, 0.50) == 9.0
+    assert live_smoke._percentile(samples, 0.95) == 18.0
+    assert live_smoke._percentile(samples, 0.99) == 19.0

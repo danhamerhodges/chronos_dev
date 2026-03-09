@@ -392,12 +392,22 @@ export async function executeUploadFlow({
         handlers.setUploadSession(activeSession);
         handlers.setStatus(activeSession.status);
         handlers.setProgress(progressFromBytes(resumeState.next_byte_offset, file));
+        handlers.setEtaSeconds(0);
+        if (resumeState.upload_complete) {
+          const completed = await finalizeSession(apiBaseUrl, token, activeSession, file, transportOptions);
+          handlers.setUploadSession(completed);
+          handlers.setStatus(completed.status);
+          handlers.setProgress(100);
+          handlers.setEtaSeconds(0);
+          handlers.setCanResume(false);
+          handlers.setError("");
+          return;
+        }
       } catch (resumeError) {
         console.error("Failed to resume upload after interruption.", resumeError);
         handlers.setStatus("uploading");
       }
       handlers.setCanResume(true);
-      handlers.setEtaSeconds(0);
     } else {
       handlers.setStatus("failed");
       handlers.setCanResume(false);
