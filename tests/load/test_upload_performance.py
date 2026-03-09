@@ -47,7 +47,6 @@ def override_upload_service() -> object:
         return service
 
     yield apply
-    from app.api import uploads
 
     app.dependency_overrides.pop(uploads.get_upload_service, None)
 

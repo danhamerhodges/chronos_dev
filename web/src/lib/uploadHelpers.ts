@@ -275,7 +275,7 @@ export async function finalizeUpload(
   if (!response.ok) {
     const message = await decodeProblem(response, "Unable to finalize upload.");
     if (response.status === 409) {
-      throw new UploadInterruptedError(message, file.size);
+      throw new UploadInterruptedError(message, 0);
     }
     throw new Error(message);
   }

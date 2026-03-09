@@ -220,27 +220,30 @@ describe("upload flow orchestration", () => {
     const finalizeSession = vi.fn();
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    await executeUploadFlow({
-      apiBaseUrl: "https://api.example.test",
-      file,
-      resumeExisting: false,
-      existingSession: null,
-      dependencies: {
-        getAccessToken: async () => "access-token",
-        createSession,
-        resumeSession,
-        uploadBytes,
-        finalizeSession,
-      },
-      handlers: buildHandlers(state),
-    });
+    try {
+      await executeUploadFlow({
+        apiBaseUrl: "https://api.example.test",
+        file,
+        resumeExisting: false,
+        existingSession: null,
+        dependencies: {
+          getAccessToken: async () => "access-token",
+          createSession,
+          resumeSession,
+          uploadBytes,
+          finalizeSession,
+        },
+        handlers: buildHandlers(state),
+      });
 
-    expect(consoleError).toHaveBeenCalledWith(
-      "Failed to resume upload after interruption.",
-      expect.objectContaining({ message: "resume probe failed" }),
-    );
-    expect(state.status).toBe("uploading");
-    expect(state.canResume).toBe(true);
-    consoleError.mockRestore();
+      expect(consoleError).toHaveBeenCalledWith(
+        "Failed to resume upload after interruption.",
+        expect.objectContaining({ message: "resume probe failed" }),
+      );
+      expect(state.status).toBe("uploading");
+      expect(state.canResume).toBe(true);
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 });

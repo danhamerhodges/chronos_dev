@@ -180,6 +180,7 @@ def _provision_ephemeral_secondary_headers() -> tuple[dict[str, str], str]:
 
     email = f"packet4a-secondary-{uuid4().hex[:12]}@example.com"
     password = f"Packet4A-{uuid4().hex}!"
+    user_id: str | None = None
     try:
         created = admin.create_user(
             {
@@ -195,6 +196,8 @@ def _provision_ephemeral_secondary_headers() -> tuple[dict[str, str], str]:
         token = _extract_access_token(SupabaseAuthService().sign_in_with_password(email=email, password=password))
         return {"Authorization": f"Bearer {token}"}, str(user_id)
     except Exception as exc:  # pragma: no cover - exercised only in live integration mode
+        if user_id is not None:
+            _delete_ephemeral_secondary_user(str(user_id))
         raise LiveSmokePrerequisiteError("Failed to provision an ephemeral secondary Supabase user for Packet 4A.") from exc
 
 

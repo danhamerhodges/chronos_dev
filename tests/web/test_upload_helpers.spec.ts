@@ -212,7 +212,10 @@ describe("upload helpers", () => {
 
     await expect(
       finalizeUpload("", "access-token", session, makeFile(), { fetchFn }),
-    ).rejects.toBeInstanceOf(UploadInterruptedError);
+    ).rejects.toMatchObject({
+      name: "UploadInterruptedError",
+      confirmedBytes: 0,
+    });
   });
 
   it("falls back to plain-text error bodies when problem-details JSON is unavailable", async () => {

@@ -68,6 +68,21 @@ class StubSessionClient:
         return {"size_bytes": self.object_size, "mime_type": "video/quicktime"}
 
 
+class CaptureBucketSessionClient(StubSessionClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.bucket_name: str | None = None
+
+    def create_resumable_session(self, *, bucket_name: str, object_path: str, mime_type: str, size_bytes: int) -> str:
+        self.bucket_name = bucket_name
+        return super().create_resumable_session(
+            bucket_name=bucket_name,
+            object_path=object_path,
+            mime_type=mime_type,
+            size_bytes=size_bytes,
+        )
+
+
 @pytest.fixture
 def override_upload_service() -> object:
     from app.api import uploads
@@ -78,7 +93,6 @@ def override_upload_service() -> object:
         return service
 
     yield apply
-    from app.api import uploads
 
     app.dependency_overrides.pop(uploads.get_upload_service, None)
 
@@ -140,6 +154,28 @@ def test_create_upload_accepts_declared_100gb_payload(override_upload_service) -
 
     assert response.status_code == 200
     assert response.json()["size_bytes"] == 100 * 1024 * 1024 * 1024
+
+
+def test_create_upload_uses_explicit_test_bucket_when_gcs_bucket_is_unset(monkeypatch) -> None:
+    from app.services import upload_service
+
+    session_client = CaptureBucketSessionClient()
+    monkeypatch.setattr(
+        upload_service,
+        "settings",
+        replace(upload_service.settings, environment="test", gcs_bucket_name=""),
+    )
+
+    created = UploadService(session_client=session_client).create_upload(
+        user_id="bucket-user",
+        org_id="org-default",
+        payload=valid_upload_request(),
+        access_token="test-access-token",
+    )
+
+    assert session_client.bucket_name == "chronos-test-bucket"
+    assert created["bucket_name"] == "chronos-test-bucket"
+    assert created["media_uri"].startswith("gs://chronos-test-bucket/")
 
 
 def test_resume_upload_returns_zero_offset_for_fresh_session(override_upload_service) -> None:
@@ -280,6 +316,33 @@ def test_finalize_upload_rejects_missing_object_state_without_marking_session_fa
     assert response.status_code == 409
     assert response.json()["title"] == "Upload Finalization Failed"
     assert _STORE.upload_sessions[created["upload_id"]]["status"] == UploadStatus.UPLOADING.value
+
+
+def test_finalize_upload_rejects_mime_mismatch(override_upload_service) -> None:
+    from app.db.phase2_store import _STORE
+
+    class MismatchedMimeSessionClient(StubSessionClient):
+        def fetch_object_metadata(self, *, bucket_name: str, object_path: str) -> dict[str, object] | None:
+            del bucket_name, object_path
+            return {"size_bytes": 1024 * 1024, "mime_type": "image/png"}
+
+    override_upload_service(
+        MismatchedMimeSessionClient(
+            object_size=1024 * 1024,
+            probes=[ResumableUploadProbe(next_byte_offset=1024 * 1024, upload_complete=True)],
+        )
+    )
+    created = client.post("/v1/upload", headers=fake_auth_header("owner-user"), json=valid_upload_request()).json()
+
+    response = client.patch(
+        f"/v1/upload/{created['upload_id']}",
+        headers=fake_auth_header("owner-user"),
+        json={"size_bytes": 1024 * 1024, "checksum_sha256": "abc12345def67890"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["title"] == "Upload Metadata Mismatch"
+    assert _STORE.upload_sessions[created["upload_id"]]["status"] != UploadStatus.COMPLETED.value
 
 
 def test_upload_rate_limit_is_enforced_per_user(monkeypatch, override_upload_service) -> None:

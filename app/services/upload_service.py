@@ -20,6 +20,7 @@ _GCS_RESUMABLE_UPLOAD_URL = "https://storage.googleapis.com/upload/storage/v1/b/
 _GCS_OBJECT_METADATA_URL = "https://storage.googleapis.com/storage/v1/b/{bucket}/o/{object_path}"
 _MAX_UPLOAD_SIZE_BYTES = 100 * 1024 * 1024 * 1024
 _FAKE_SESSION_PREFIX = "https://storage.googleapis.com/upload/resumable/fake"
+_TEST_BUCKET_NAME = "chronos-test-bucket"
 _SAFE_FILENAME = re.compile(r"[^A-Za-z0-9._-]+")
 _COMMITTED_RANGE = re.compile(r"bytes=0-(\d+)$")
 
@@ -209,6 +210,14 @@ def _parse_committed_offset(range_header: str | None, *, size_bytes: int) -> int
     return min(committed_last_byte + 1, size_bytes)
 
 
+def _resolve_bucket_name() -> str:
+    if settings.gcs_bucket_name:
+        return settings.gcs_bucket_name
+    if settings.environment == "test":
+        return _TEST_BUCKET_NAME
+    return ""
+
+
 class UploadService:
     def __init__(
         self,
@@ -248,7 +257,7 @@ class UploadService:
 
         upload_id = str(uuid4())
         object_path = f"uploads/{user_id}/{upload_id}/{_sanitize_filename(original_filename)}"
-        bucket_name = settings.gcs_bucket_name or ("chronos-dev" if settings.environment == "test" else "")
+        bucket_name = _resolve_bucket_name()
         resumable_session_url = self._session_client.create_resumable_session(
             bucket_name=bucket_name,
             object_path=object_path,
@@ -424,6 +433,18 @@ class UploadService:
                 detail="Stored object size does not match the completed upload metadata.",
                 status_code=400,
             )
+        metadata_mime_type = str(metadata.get("mime_type") or "").lower()
+        try:
+            _validate_media_type(
+                original_filename=str(session["original_filename"]),
+                mime_type=metadata_mime_type,
+            )
+        except ProblemException as exc:
+            raise ProblemException(
+                title="Upload Metadata Mismatch",
+                detail="Stored object MIME type does not match the initiated upload session.",
+                status_code=400,
+            ) from exc
 
         checksum_sha256 = finalized_checksum or session.get("checksum_sha256")
         self._repo.upsert_pointer(

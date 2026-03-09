@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -43,7 +44,6 @@ def override_upload_service() -> object:
         return service
 
     yield apply
-    from app.api import uploads
 
     app.dependency_overrides.pop(uploads.get_upload_service, None)
 
@@ -284,3 +284,34 @@ def test_live_smoke_enables_test_auth_override_for_fake_headers(monkeypatch) -> 
 
     assert os.getenv("TEST_AUTH_OVERRIDE") == "1"
     assert live_smoke.api_dependencies.settings.test_auth_override is True
+
+
+def test_ephemeral_secondary_user_is_cleaned_up_when_sign_in_fails(monkeypatch) -> None:
+    from scripts.ops import run_packet4a_live_smoke as live_smoke
+
+    deleted_user_ids: list[str] = []
+
+    class FakeAdmin:
+        def create_user(self, payload: dict[str, object]) -> SimpleNamespace:
+            del payload
+            return SimpleNamespace(user=SimpleNamespace(id="secondary-user"))
+
+        def delete_user(self, user_id: str) -> None:
+            deleted_user_ids.append(user_id)
+
+    class FakeSupabaseClient:
+        def service_role_sdk_client(self) -> SimpleNamespace:
+            return SimpleNamespace(auth=SimpleNamespace(admin=FakeAdmin()))
+
+    class FakeAuthService:
+        def sign_in_with_password(self, *, email: str, password: str) -> None:
+            del email, password
+            raise RuntimeError("sign-in failed")
+
+    monkeypatch.setattr(live_smoke, "SupabaseClient", FakeSupabaseClient)
+    monkeypatch.setattr(live_smoke, "SupabaseAuthService", FakeAuthService)
+
+    with pytest.raises(LiveSmokePrerequisiteError):
+        live_smoke._provision_ephemeral_secondary_headers()
+
+    assert deleted_user_ids == ["secondary-user"]
