@@ -9,6 +9,7 @@ Maps to:
 
 from __future__ import annotations
 
+import asyncio
 import os
 from dataclasses import replace
 from pathlib import Path
@@ -24,6 +25,7 @@ from app.models.status import UploadStatus
 from app.services.upload_service import ResumableUploadProbe, UploadService
 from app.services.vertex_gemini import GoogleAccessTokenProvider
 from scripts.ops.run_packet4a_live_smoke import (
+    LiveSmokeExecutionError,
     LiveSmokePrerequisiteError,
     resolve_primary_actor_headers,
     resolve_secondary_actor_headers,
@@ -342,3 +344,89 @@ def test_live_smoke_percentile_uses_ceil_for_high_percentiles() -> None:
     assert live_smoke._percentile(samples, 0.50) == 9.0
     assert live_smoke._percentile(samples, 0.95) == 18.0
     assert live_smoke._percentile(samples, 0.99) == 19.0
+
+
+def test_live_smoke_fails_when_secondary_actor_is_not_denied(monkeypatch) -> None:
+    from scripts.ops import run_packet4a_live_smoke as live_smoke
+
+    class FakeResponse:
+        def __init__(self, status_code: int, payload: dict[str, object]) -> None:
+            self.status_code = status_code
+            self._payload = payload
+            self.text = str(payload)
+
+        def json(self) -> dict[str, object]:
+            return self._payload
+
+    class FakeClient:
+        def get(self, path: str, headers: dict[str, str]) -> FakeResponse:
+            del headers
+            assert path == "/v1/users/me"
+            return FakeResponse(200, {"user_id": "owner-user", "org_id": "org-default"})
+
+        def post(self, path: str, headers: dict[str, str], json: dict[str, object] | None = None) -> FakeResponse:
+            del json
+            if path == "/v1/upload":
+                return FakeResponse(
+                    200,
+                    {
+                        "upload_id": "upload-1",
+                        "object_path": "uploads/owner-user/upload-1/archive.mov",
+                        "resumable_session_url": "https://example.invalid/resumable/upload-1",
+                    },
+                )
+            assert path == "/v1/upload/upload-1/resume"
+            if headers["Authorization"] == "Bearer secondary-token":
+                return FakeResponse(200, {"detail": "unexpected access"})
+            return FakeResponse(200, {"detail": "unused"})
+
+        def patch(self, path: str, headers: dict[str, str], json: dict[str, object]) -> FakeResponse:
+            del json
+            assert path == "/v1/upload/upload-1"
+            if headers["Authorization"] == "Bearer secondary-token":
+                return FakeResponse(404, {"detail": "not found"})
+            return FakeResponse(200, {"detail": "unused"})
+
+    monkeypatch.setattr(live_smoke, "phase2_backend_name", lambda: "memory")
+    monkeypatch.setattr(
+        live_smoke,
+        "snapshot_upload_artifacts",
+        lambda upload_id: {"backend": "memory", "session": {"status": "pending"}, "pointer": None},
+    )
+
+    with pytest.raises(LiveSmokeExecutionError) as excinfo:
+        live_smoke.run_packet4a_live_smoke(
+            client=FakeClient(),
+            primary_headers={"Authorization": "Bearer primary-token"},
+            secondary_headers={"Authorization": "Bearer secondary-token"},
+            output_path=None,
+        )
+
+    assert "secondary resume should return 404" in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    ("total_requests", "concurrency", "expected_message"),
+    [
+        (0, 5, "total_requests must be greater than 0."),
+        (1, 0, "concurrency must be greater than 0."),
+    ],
+)
+def test_measure_packet4a_staging_latency_rejects_non_positive_settings(
+    total_requests: int,
+    concurrency: int,
+    expected_message: str,
+) -> None:
+    from scripts.ops import run_packet4a_live_smoke as live_smoke
+
+    with pytest.raises(LiveSmokePrerequisiteError) as excinfo:
+        asyncio.run(
+            live_smoke.measure_packet4a_staging_latency(
+                base_url="https://example.invalid",
+                headers={"Authorization": "Bearer access-token"},
+                total_requests=total_requests,
+                concurrency=concurrency,
+            )
+        )
+
+    assert str(excinfo.value) == expected_message

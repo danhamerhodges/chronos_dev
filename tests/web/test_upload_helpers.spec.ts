@@ -229,4 +229,16 @@ describe("upload helpers", () => {
       createUploadSession("", "access-token", makeFile(), { fetchFn }),
     ).rejects.toThrow("upstream exploded");
   });
+
+  it("prefers problem detail over title when both are present", async () => {
+    const fetchFn = async () =>
+      new Response(JSON.stringify({ title: "Upload Finalization Failed", detail: "Resume the upload and retry." }), {
+        status: 409,
+        headers: { "Content-Type": "application/json" },
+      });
+
+    await expect(
+      createUploadSession("", "access-token", makeFile(), { fetchFn }),
+    ).rejects.toThrow("Resume the upload and retry.");
+  });
 });

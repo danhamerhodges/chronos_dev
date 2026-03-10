@@ -338,6 +338,14 @@ def run_packet4a_live_smoke(
             )
             secondary_resume_status = secondary_resume.status_code
             secondary_finalize_status = secondary_finalize.status_code
+            if secondary_resume_status != 404:
+                raise LiveSmokeExecutionError(
+                    f"secondary resume should return 404, got {secondary_resume_status}: {_response_body(secondary_resume)}"
+                )
+            if secondary_finalize_status != 404:
+                raise LiveSmokeExecutionError(
+                    f"secondary finalize should return 404, got {secondary_finalize_status}: {_response_body(secondary_finalize)}"
+                )
 
         first_chunk = httpx.put(
             created["resumable_session_url"],
@@ -443,6 +451,10 @@ async def measure_packet4a_staging_latency(
     total_requests: int,
     concurrency: int,
 ) -> dict[str, Any]:
+    if total_requests <= 0:
+        raise LiveSmokePrerequisiteError("total_requests must be greater than 0.")
+    if concurrency <= 0:
+        raise LiveSmokePrerequisiteError("concurrency must be greater than 0.")
     semaphore = asyncio.Semaphore(concurrency)
     async with httpx.AsyncClient(base_url=base_url.rstrip("/"), timeout=30.0) as http:
         async def send_request(index: int) -> float:

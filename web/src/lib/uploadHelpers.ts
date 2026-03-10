@@ -197,7 +197,7 @@ async function decodeProblem(response: Response, fallbackMessage: string): Promi
   try {
     const payload = (await response.clone().json()) as ProblemPayload;
     if (payload.title || payload.detail) {
-      return payload.title || payload.detail || fallbackMessage;
+      return payload.detail || payload.title || fallbackMessage;
     }
   } catch {
     // Fall back to raw text for non-JSON error bodies.
