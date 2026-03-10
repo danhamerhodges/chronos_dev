@@ -158,7 +158,7 @@ This implementation plan is organized into a logical execution sequence designed
 **Requirements Implemented:** **FR-001**, **FR-003**, **FR-004**, **FR-005**, **ENG-013**, **ENG-014**, **ENG-015**, **DS-001**, **DS-002**, **DS-003**, **DS-004**, **DS-005**, **DS-006**, **NFR-003** (14 requirements)  
 **Coverage Matrix:** See `docs/specs/ChronosRefine Requirements Coverage Matrix.md`
 
-**Current Status Note:** Phase 4 has not started in code on `main`. Phase 4 planning must follow the canonical Phase 4 requirement IDs above and the higher-priority requirement specs, not older PRD-style Phase 4 prose. `FR-006` remains a Phase 5 functional requirement; Phase 4 includes only `ENG-014` as the technical preview-generation substrate.
+**Current Status Note:** Packet 4A (`FR-001`) is complete on candidate branch `codex/packet4a-closure` and will start Phase 4 on `main` once that branch lands. Phase 4 planning and follow-on packets must still follow the canonical Phase 4 requirement IDs above and the higher-priority requirement specs, not older PRD-style Phase 4 prose. `FR-006` remains a Phase 5 functional requirement; Phase 4 includes only `ENG-014` as the technical preview-generation substrate.
 
 **Entry Criteria:**
 - [x] Phase 3 is complete for kickoff on `main`; `SEC-007` remains deferred per canon and does not block Phase 4 kickoff → **See:** `docs/specs/chronosrefine_implementation_plan.md#phase-3-core-processing-pipeline--ai-integration`
@@ -185,7 +185,7 @@ This implementation plan is organized into a logical execution sequence designed
 - [ ] Cost-estimate accuracy and Phase 4 cost-optimization guardrails align with `ENG-013` + `NFR-003` with no hardcoded pricing or entitlements → **Req:** **ENG-013**, **NFR-003**, **Test:** `tests/api/test_cost_estimation.py`, `tests/api/test_cost_breakdown.py`, `tests/integration/test_cost_reconciliation.py`, `tests/ops/test_cost_optimization.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-013-cost-estimation`, `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-003-cost-optimization`
 - [ ] Cross-browser coverage is complete for upload, configuration, launch, and export flows → **Req:** **DS-001**, **DS-002**, **DS-003**, **DS-004**, **DS-005**, **DS-006**, **See:** `docs/specs/chronosrefine_design_requirements.md#ds-001-fidelity-configuration-ux`
 
-**Approved Kickoff Packet: Packet 4A (2026-03-07)**
+**Approved Kickoff Packet: Packet 4A (2026-03-07; closed 2026-03-08)**
 
 **Requirement Focus:** `FR-001`
 
@@ -220,6 +220,13 @@ This implementation plan is organized into a logical execution sequence designed
 - `tests/api/test_upload.py`
 - `tests/integration/test_resumable_upload.py`
 - `tests/load/test_upload_performance.py`
+
+**Packet 4A Closure Evidence:**
+- [x] Upload API contract and OpenAPI coverage landed for `POST /v1/upload`, `POST /v1/upload/{upload_id}/resume`, and `PATCH /v1/upload/{upload_id}` → **Req:** **FR-001**, **ENG-002**, **See:** `docs/api/openapi.yaml`
+- [x] Deterministic upload tests and traceability validation passed on the candidate branch → **Req:** **FR-001**, **See:** `tests/api/test_upload.py`, `tests/integration/test_resumable_upload.py`, `tests/load/test_upload_performance.py`, `python3 scripts/validate_test_traceability.py`
+- [x] Live memory-backed resumable smoke passed with same-`upload_id`, same-`object_path`, persisted `pending -> uploading -> completed`, and denied secondary access → **Req:** **FR-001**, **See:** `docs/specs/chronosrefine_phase4_closeout_note.md`
+- [x] Live Supabase-backed resumable smoke passed with the same persisted-state and owner-boundary evidence → **Req:** **FR-001**, **SEC-013**, **See:** `docs/specs/chronosrefine_phase4_closeout_note.md`
+- [x] Staging revision `chronos-phase1-app-00036-blf` (`build_sha=9a5791c4023794af8d6cc96d7dd2561aafdb93bc`) served upload-session creation successfully and produced recorded latency evidence (`p50=0.7823s`, `p95=9.6927s`, `p99=9.6927s`) → **Req:** **FR-001**, **See:** `docs/specs/chronosrefine_phase4_closeout_note.md`
 
 **Guardrails to Preserve:**
 - End-user JWT / RLS-safe request path by default

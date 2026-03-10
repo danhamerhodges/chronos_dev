@@ -1,4 +1,4 @@
-"""Maps to: ENG-002, ENG-004, ENG-010, ENG-011, NFR-007, SEC-009"""
+"""Maps to: ENG-002, ENG-004, ENG-010, ENG-011, NFR-007, SEC-009, FR-001, ENG-016"""
 
 from types import SimpleNamespace
 
@@ -7,11 +7,14 @@ import pytest
 from app.db.phase2_store import (
     JobRepository,
     ManifestRepository,
+    UploadRepository,
     UserProfileRepository,
     WebhookSubscriptionRepository,
     _SupabaseJobRepository,
+    _SupabaseUploadRepository,
     phase2_backend_name,
 )
+from app.models.status import UploadStatus
 
 
 def test_phase2_backend_defaults_to_memory_in_test_mode(monkeypatch) -> None:
@@ -131,6 +134,52 @@ def test_memory_backed_job_repository_round_trips() -> None:
     assert fetched["slo_summary"]["target_total_ms"] == 50000
     assert segments[0]["idempotency_key"] == "seg-0"
     assert segments[0]["cache_status"] == "miss"
+
+
+def test_memory_backed_upload_repository_round_trips() -> None:
+    repo = UploadRepository()
+    created = repo.create_session(
+        upload_id="upload-memory-1",
+        owner_user_id="user-phase4",
+        org_id="org-7",
+        original_filename="archive.mov",
+        mime_type="video/quicktime",
+        size_bytes=2048,
+        checksum_sha256="abc12345def67890",
+        bucket_name="chronos-dev",
+        object_path="uploads/user-phase4/upload-memory-1/archive.mov",
+        resumable_session_url="https://storage.googleapis.com/upload/resumable/fake/session",
+        access_token="token-1",
+    )
+    updated = repo.update_session(
+        "upload-memory-1",
+        owner_user_id="user-phase4",
+        patch={
+            "status": UploadStatus.COMPLETED.value,
+            "completed_at": "2026-03-08T00:00:00+00:00",
+            "resumable_session_url": "https://storage.googleapis.com/upload/resumable/fake/regenerated",
+        },
+        access_token="token-1",
+    )
+    pointer = repo.upsert_pointer(
+        upload_id="upload-memory-1",
+        owner_user_id="user-phase4",
+        org_id="org-7",
+        bucket_name="chronos-dev",
+        object_path="uploads/user-phase4/upload-memory-1/archive.mov",
+        original_filename="archive.mov",
+        mime_type="video/quicktime",
+        size_bytes=2048,
+        checksum_sha256="abc12345def67890",
+        access_token="token-1",
+    )
+
+    assert created["status"] == UploadStatus.PENDING.value
+    assert updated is not None
+    assert updated["status"] == UploadStatus.COMPLETED.value
+    assert updated["resumable_session_url"].endswith("/regenerated")
+    assert pointer["upload_id"] == "upload-memory-1"
+    assert pointer["size_bytes"] == 2048
 
 
 def test_memory_backed_manifest_repository_round_trips() -> None:
@@ -342,6 +391,84 @@ def test_supabase_job_repository_rest_retry_does_not_delete_existing_job_on_segm
     assert len(segment_upserts) == 2
     assert all(entry[2] == "job_id,segment_index" for entry in segment_upserts)
     assert not any(entry[0] == "delete" and entry[1] == "media_jobs" for entry in calls)
+
+
+def test_supabase_upload_repository_requires_access_token() -> None:
+    repo = _SupabaseUploadRepository()
+
+    with pytest.raises(ValueError, match="Upload routes require an end-user access token."):
+        repo.create_session(
+            upload_id="upload-1",
+            owner_user_id="user-phase4",
+            org_id="org-7",
+            original_filename="archive.mov",
+            mime_type="video/quicktime",
+            size_bytes=2048,
+            checksum_sha256="abc12345def67890",
+            bucket_name="chronos-dev",
+            object_path="uploads/user-phase4/upload-1/archive.mov",
+            resumable_session_url="https://example.invalid/resumable",
+            access_token=None,
+        )
+
+
+def test_supabase_upload_repository_update_persists_regenerated_session_url(monkeypatch) -> None:
+    repo = _SupabaseUploadRepository()
+    captured: dict[str, object] = {}
+
+    class StubClient:
+        def user_scoped_headers(self, access_token: str) -> dict[str, str]:
+            return {"Authorization": f"Bearer {access_token}"}
+
+        def rest_update(
+            self,
+            table_name: str,
+            *,
+            payload: dict[str, object],
+            params: dict[str, str],
+            headers: dict[str, str],
+        ) -> list[dict[str, object]]:
+            captured["table_name"] = table_name
+            captured["payload"] = payload
+            captured["params"] = params
+            captured["headers"] = headers
+            return [
+                {
+                    "external_upload_id": "upload-1",
+                    "external_user_id": "user-phase4",
+                    "org_id": "org-7",
+                    "original_filename": "archive.mov",
+                    "mime_type": "video/quicktime",
+                    "size_bytes": 2048,
+                    "checksum_sha256": "abc12345def67890",
+                    "bucket_name": "chronos-dev",
+                    "object_path": "uploads/user-phase4/upload-1/archive.mov",
+                    "media_uri": "gs://chronos-dev/uploads/user-phase4/upload-1/archive.mov",
+                    "resumable_session_url": "https://example.invalid/resumable/regenerated",
+                    "status": UploadStatus.UPLOADING.value,
+                    "created_at": "2026-03-08T00:00:00+00:00",
+                    "updated_at": "2026-03-08T00:00:00+00:00",
+                    "completed_at": None,
+                }
+            ]
+
+    monkeypatch.setattr(repo, "_client", StubClient())
+
+    updated = repo.update_session(
+        "upload-1",
+        owner_user_id="user-phase4",
+        patch={
+            "status": UploadStatus.UPLOADING.value,
+            "resumable_session_url": "https://example.invalid/resumable/regenerated",
+        },
+        access_token="token-1",
+    )
+
+    assert captured["table_name"] == "upload_sessions"
+    assert captured["payload"]["status"] == UploadStatus.UPLOADING.value
+    assert captured["payload"]["resumable_session_url"] == "https://example.invalid/resumable/regenerated"
+    assert updated is not None
+    assert updated["resumable_session_url"] == "https://example.invalid/resumable/regenerated"
 
 
 def test_supabase_job_repository_rest_cancellation_keeps_terminal_job_immutable(monkeypatch) -> None:

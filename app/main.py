@@ -23,6 +23,7 @@ from app.api.problem_details import (
     request_validation_exception_handler,
     ProblemException,
 )
+from app.api.uploads import router as uploads_router
 from app.api.users import router as users_router
 from app.api.version import router as version_router
 from app.config import settings
@@ -68,6 +69,7 @@ def create_app() -> FastAPI:
     app.include_router(metrics_router, tags=["metrics"])
     app.include_router(ops_router, tags=["ops"])
     app.include_router(version_router, tags=["version"])
+    app.include_router(uploads_router, tags=["uploads"])
     app.include_router(era_detection_router, tags=["era-detection"])
     app.include_router(jobs_router, tags=["jobs"])
     app.include_router(manifests_router, tags=["manifests"])

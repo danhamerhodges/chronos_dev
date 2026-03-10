@@ -23,6 +23,8 @@ def test_expected_migrations_present() -> None:
         "0012_phase3_quality_manifest.sql",
         "0013_phase3_quality_manifest_rls.sql",
         "0014_phase3_runtime_ops.sql",
+        "0015_phase4_upload_sessions.sql",
+        "0016_phase4_upload_sessions_rls.sql",
     ]
 
 
@@ -57,3 +59,16 @@ def test_runtime_ops_migration_covers_gpu_leases_and_incidents() -> None:
     assert "lease_state IN ('idle', 'busy', 'released')" in sql
     assert "CREATE TABLE IF NOT EXISTS public.incident_events" in sql
     assert "severity IN ('P0', 'P1', 'P2', 'P3')" in sql
+
+
+def test_upload_session_migrations_cover_owner_scoped_writes() -> None:
+    root = Path(__file__).resolve().parents[2]
+    sql = (root / "supabase" / "migrations" / "0015_phase4_upload_sessions.sql").read_text(encoding="utf-8")
+    rls_sql = (root / "supabase" / "migrations" / "0016_phase4_upload_sessions_rls.sql").read_text(encoding="utf-8")
+
+    assert "CREATE TABLE IF NOT EXISTS public.upload_sessions" in sql
+    assert "external_upload_id TEXT NOT NULL UNIQUE" in sql
+    assert "ADD COLUMN IF NOT EXISTS external_upload_id TEXT" in sql
+    assert "ALTER TABLE public.upload_sessions ENABLE ROW LEVEL SECURITY" in rls_sql
+    assert "CREATE POLICY upload_sessions_owner_access" in rls_sql
+    assert "CREATE POLICY gcs_pointers_owner_access" in rls_sql

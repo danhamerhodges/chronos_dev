@@ -16,6 +16,7 @@ tags:
   - name: health
   - name: metrics
   - name: version
+  - name: uploads
   - name: era-detection
   - name: jobs
   - name: manifests
@@ -64,6 +65,183 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/VersionResponse"
+  /v1/upload:
+    post:
+      tags: [uploads]
+      summary: Create an authenticated resumable upload session
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UploadCreateRequest"
+      responses:
+        "200":
+          description: Upload session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadResponse"
+        "400":
+          description: Invalid upload metadata
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "401":
+          description: Missing or invalid bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "403":
+          description: Caller lacks upload permission
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "413":
+          description: Upload too large
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "415":
+          description: Unsupported media format
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "500":
+          description: Upload session creation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+  /v1/upload/{upload_id}:
+    patch:
+      tags: [uploads]
+      summary: Finalize an authenticated upload session
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: upload_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UploadFinalizeRequest"
+      responses:
+        "200":
+          description: Upload finalized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadResponse"
+        "400":
+          description: Finalized metadata does not match the upload session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "401":
+          description: Missing or invalid bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "403":
+          description: Caller lacks upload permission
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "404":
+          description: Upload session not found for the current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "409":
+          description: Uploaded object not yet available for finalization
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "500":
+          description: Upload finalization failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+  /v1/upload/{upload_id}/resume:
+    post:
+      tags: [uploads]
+      summary: Probe or regenerate an authenticated resumable upload session
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: upload_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Upload session ready to resume
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadResumeResponse"
+        "401":
+          description: Missing or invalid bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "403":
+          description: Caller lacks upload permission
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "404":
+          description: Upload session not found for the current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "500":
+          description: Upload session probe or regeneration failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
   /v1/eras:
     get:
       tags: [era-detection]
@@ -407,6 +585,124 @@ components:
         build_sha:
           type: string
         build_time:
+          type: string
+    UploadCreateRequest:
+      type: object
+      required: [original_filename, mime_type, size_bytes]
+      properties:
+        original_filename:
+          type: string
+        mime_type:
+          type: string
+        size_bytes:
+          type: integer
+        checksum_sha256:
+          type: string
+    UploadFinalizeRequest:
+      type: object
+      required: [size_bytes]
+      properties:
+        size_bytes:
+          type: integer
+        checksum_sha256:
+          type: string
+    UploadResponse:
+      type: object
+      required:
+        [upload_id, status, original_filename, mime_type, size_bytes, bucket_name, object_path, media_uri, resumable_session_url, created_at, updated_at]
+      examples:
+        - upload_id: upload-pending
+          status: pending
+          original_filename: sample.mov
+          mime_type: video/quicktime
+          size_bytes: 1048576
+          bucket_name: chronos-dev
+          object_path: uploads/user-1/upload-pending/sample.mov
+          media_uri: gs://chronos-dev/uploads/user-1/upload-pending/sample.mov
+          resumable_session_url: https://storage.googleapis.com/upload/resumable/session-pending
+          created_at: "2026-03-08T00:00:00+00:00"
+          updated_at: "2026-03-08T00:00:00+00:00"
+        - upload_id: upload-uploading
+          status: uploading
+          original_filename: sample.mov
+          mime_type: video/quicktime
+          size_bytes: 1048576
+          bucket_name: chronos-dev
+          object_path: uploads/user-1/upload-uploading/sample.mov
+          media_uri: gs://chronos-dev/uploads/user-1/upload-uploading/sample.mov
+          resumable_session_url: https://storage.googleapis.com/upload/resumable/session-uploading
+          created_at: "2026-03-08T00:00:00+00:00"
+          updated_at: "2026-03-08T00:00:10+00:00"
+        - upload_id: upload-completed
+          status: completed
+          original_filename: sample.mov
+          mime_type: video/quicktime
+          size_bytes: 1048576
+          bucket_name: chronos-dev
+          object_path: uploads/user-1/upload-completed/sample.mov
+          media_uri: gs://chronos-dev/uploads/user-1/upload-completed/sample.mov
+          resumable_session_url: https://storage.googleapis.com/upload/resumable/session-completed
+          created_at: "2026-03-08T00:00:00+00:00"
+          updated_at: "2026-03-08T00:00:20+00:00"
+          completed_at: "2026-03-08T00:00:20+00:00"
+      properties:
+        upload_id:
+          type: string
+        status:
+          type: string
+          enum: [pending, uploading, completed, failed]
+        original_filename:
+          type: string
+        mime_type:
+          type: string
+        size_bytes:
+          type: integer
+        checksum_sha256:
+          type: string
+        bucket_name:
+          type: string
+        object_path:
+          type: string
+        media_uri:
+          type: string
+        resumable_session_url:
+          type: string
+        created_at:
+          type: string
+        updated_at:
+          type: string
+        completed_at:
+          type: string
+    UploadResumeResponse:
+      type: object
+      required:
+        [upload_id, status, resumable_session_url, next_byte_offset, upload_complete, session_regenerated, object_path, media_uri]
+      example:
+        upload_id: upload-uploading
+        status: uploading
+        resumable_session_url: https://storage.googleapis.com/upload/resumable/session-uploading
+        next_byte_offset: 524288
+        upload_complete: false
+        session_regenerated: false
+        object_path: uploads/user-1/upload-uploading/sample.mov
+        media_uri: gs://chronos-dev/uploads/user-1/upload-uploading/sample.mov
+      properties:
+        upload_id:
+          type: string
+        status:
+          type: string
+          enum: [pending, uploading, completed, failed]
+        resumable_session_url:
+          type: string
+        next_byte_offset:
+          type: integer
+        upload_complete:
+          type: boolean
+        session_regenerated:
+          type: boolean
+        object_path:
+          type: string
+        media_uri:
           type: string
     EraCatalogResponse:
       type: object

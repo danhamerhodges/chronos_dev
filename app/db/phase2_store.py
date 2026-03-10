@@ -5,10 +5,11 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
+from threading import Lock
 from typing import Any
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
-from app.models.status import JobStatus
+from app.models.status import JobStatus, UploadStatus
 from app.config import settings
 from app.db.client import SupabaseClient
 
@@ -147,6 +148,8 @@ def phase2_backend_name() -> str:
 class Phase2Store:
     users: dict[str, dict[str, Any]] = field(default_factory=dict)
     usage: dict[str, dict[str, Any]] = field(default_factory=dict)
+    upload_sessions: dict[str, dict[str, Any]] = field(default_factory=dict)
+    gcs_object_pointers: dict[str, dict[str, Any]] = field(default_factory=dict)
     jobs: dict[str, dict[str, Any]] = field(default_factory=dict)
     job_segments: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     job_manifests: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -160,11 +163,14 @@ class Phase2Store:
 
 
 _STORE = Phase2Store()
+_UPLOAD_STORE_LOCK = Lock()
 
 
 def reset_phase2_store() -> None:
     _STORE.users.clear()
     _STORE.usage.clear()
+    _STORE.upload_sessions.clear()
+    _STORE.gcs_object_pointers.clear()
     _STORE.jobs.clear()
     _STORE.job_segments.clear()
     _STORE.job_manifests.clear()
@@ -241,6 +247,114 @@ class _MemoryUsageRepository:
         usage.update(payload)
         _STORE.usage[user_id] = usage
         return dict(usage)
+
+
+class _MemoryUploadRepository:
+    def create_session(
+        self,
+        *,
+        upload_id: str,
+        owner_user_id: str,
+        org_id: str,
+        original_filename: str,
+        mime_type: str,
+        size_bytes: int,
+        checksum_sha256: str | None,
+        bucket_name: str,
+        object_path: str,
+        resumable_session_url: str,
+        access_token: str | None = None,
+    ) -> dict[str, Any]:
+        del access_token
+        now = _utc_now()
+        record = {
+            "upload_id": upload_id,
+            "owner_user_id": owner_user_id,
+            "org_id": org_id,
+            "original_filename": original_filename,
+            "mime_type": mime_type,
+            "size_bytes": size_bytes,
+            "checksum_sha256": checksum_sha256,
+            "bucket_name": bucket_name,
+            "object_path": object_path,
+            "media_uri": f"gs://{bucket_name}/{object_path}",
+            "resumable_session_url": resumable_session_url,
+            "status": UploadStatus.PENDING.value,
+            "created_at": now,
+            "updated_at": now,
+            "completed_at": None,
+        }
+        with _UPLOAD_STORE_LOCK:
+            _STORE.upload_sessions[upload_id] = record
+            return dict(record)
+
+    def get_session(
+        self,
+        upload_id: str,
+        *,
+        owner_user_id: str | None = None,
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        del access_token
+        with _UPLOAD_STORE_LOCK:
+            record = _STORE.upload_sessions.get(upload_id)
+        if record is None:
+            return None
+        if owner_user_id and record["owner_user_id"] != owner_user_id:
+            return None
+        return dict(record)
+
+    def update_session(
+        self,
+        upload_id: str,
+        *,
+        owner_user_id: str,
+        patch: dict[str, Any],
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        del access_token
+        with _UPLOAD_STORE_LOCK:
+            record = _STORE.upload_sessions.get(upload_id)
+            if record is None or record["owner_user_id"] != owner_user_id:
+                return None
+            updated = dict(record)
+            updated.update(_request_patch(patch, nullable_keys={"completed_at"}))
+            updated["updated_at"] = _utc_now()
+            _STORE.upload_sessions[upload_id] = updated
+            return dict(updated)
+
+    def upsert_pointer(
+        self,
+        *,
+        upload_id: str,
+        owner_user_id: str,
+        org_id: str,
+        bucket_name: str,
+        object_path: str,
+        original_filename: str,
+        mime_type: str,
+        size_bytes: int,
+        checksum_sha256: str | None,
+        access_token: str | None = None,
+    ) -> dict[str, Any]:
+        del access_token
+        pointer_id = _stable_uuid(f"pointer:{upload_id}")
+        record = {
+            "id": pointer_id,
+            "upload_id": upload_id,
+            "owner_user_id": owner_user_id,
+            "org_id": org_id,
+            "bucket_name": bucket_name,
+            "object_path": object_path,
+            "original_filename": original_filename,
+            "mime_type": mime_type,
+            "size_bytes": size_bytes,
+            "checksum_sha256": checksum_sha256,
+            "created_at": _utc_now(),
+        }
+        with _UPLOAD_STORE_LOCK:
+            _STORE.gcs_object_pointers[upload_id] = record
+            return dict(record)
 
 
 class _MemoryEraDetectionRepository:
@@ -911,6 +1025,174 @@ class _SupabaseUsageRepository(_SupabaseRepositoryBase):
         if row is None:
             raise RuntimeError("Failed to update usage snapshot")
         return self._row_to_usage(row)
+
+
+class _SupabaseUploadRepository(_SupabaseRepositoryBase):
+    def _require_access_token(self, access_token: str | None) -> str:
+        if not access_token:
+            raise ValueError("Upload routes require an end-user access token.")
+        return access_token
+
+    def _session_from_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "upload_id": row["external_upload_id"],
+            "owner_user_id": row["external_user_id"],
+            "org_id": row["org_id"],
+            "original_filename": row["original_filename"],
+            "mime_type": row["mime_type"],
+            "size_bytes": row["size_bytes"],
+            "checksum_sha256": row.get("checksum_sha256"),
+            "bucket_name": row["bucket_name"],
+            "object_path": row["object_path"],
+            "media_uri": row["media_uri"],
+            "resumable_session_url": row["resumable_session_url"],
+            "status": row["status"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+            "completed_at": row.get("completed_at"),
+        }
+
+    def create_session(
+        self,
+        *,
+        upload_id: str,
+        owner_user_id: str,
+        org_id: str,
+        original_filename: str,
+        mime_type: str,
+        size_bytes: int,
+        checksum_sha256: str | None,
+        bucket_name: str,
+        object_path: str,
+        resumable_session_url: str,
+        access_token: str | None = None,
+    ) -> dict[str, Any]:
+        headers = self._client.user_scoped_headers(self._require_access_token(access_token))
+        row = self._client.rest_upsert(
+            "upload_sessions",
+            payload={
+                "id": _stable_uuid(upload_id),
+                "owner_user_id": owner_user_id,
+                "external_user_id": owner_user_id,
+                "external_upload_id": upload_id,
+                "org_id": org_id,
+                "original_filename": original_filename,
+                "mime_type": mime_type,
+                "size_bytes": size_bytes,
+                "checksum_sha256": checksum_sha256,
+                "bucket_name": bucket_name,
+                "object_path": object_path,
+                "media_uri": f"gs://{bucket_name}/{object_path}",
+                "resumable_session_url": resumable_session_url,
+                "status": UploadStatus.PENDING.value,
+                "updated_at": _utc_now(),
+            },
+            on_conflict="external_upload_id",
+            headers=headers,
+        )[0]
+        return self._session_from_row(row)
+
+    def get_session(
+        self,
+        upload_id: str,
+        *,
+        owner_user_id: str | None = None,
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        params = {
+            "select": "*",
+            "external_upload_id": f"eq.{upload_id}",
+            "limit": "1",
+        }
+        if owner_user_id:
+            params["external_user_id"] = f"eq.{owner_user_id}"
+        rows = self._client.rest_select(
+            "upload_sessions",
+            params=params,
+            headers=self._client.user_scoped_headers(self._require_access_token(access_token)),
+        )
+        if not rows:
+            return None
+        return self._session_from_row(rows[0])
+
+    def update_session(
+        self,
+        upload_id: str,
+        *,
+        owner_user_id: str,
+        patch: dict[str, Any],
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        payload = _request_patch(
+            {
+                "status": patch.get("status"),
+                "checksum_sha256": patch.get("checksum_sha256"),
+                "size_bytes": patch.get("size_bytes"),
+                "completed_at": patch.get("completed_at"),
+                "resumable_session_url": patch.get("resumable_session_url"),
+                "updated_at": _utc_now(),
+            },
+            nullable_keys={"completed_at"},
+        )
+        rows = self._client.rest_update(
+            "upload_sessions",
+            payload=payload,
+            params={
+                "external_upload_id": f"eq.{upload_id}",
+                "external_user_id": f"eq.{owner_user_id}",
+                "select": "*",
+            },
+            headers=self._client.user_scoped_headers(self._require_access_token(access_token)),
+        )
+        if not rows:
+            return None
+        return self._session_from_row(rows[0])
+
+    def upsert_pointer(
+        self,
+        *,
+        upload_id: str,
+        owner_user_id: str,
+        org_id: str,
+        bucket_name: str,
+        object_path: str,
+        original_filename: str,
+        mime_type: str,
+        size_bytes: int,
+        checksum_sha256: str | None,
+        access_token: str | None = None,
+    ) -> dict[str, Any]:
+        row = self._client.rest_upsert(
+            "gcs_object_pointers",
+            payload={
+                "id": _stable_uuid(f"pointer:{upload_id}"),
+                "owner_user_id": owner_user_id,
+                "external_user_id": owner_user_id,
+                "external_upload_id": upload_id,
+                "org_id": org_id,
+                "bucket_name": bucket_name,
+                "object_path": object_path,
+                "original_filename": original_filename,
+                "mime_type": mime_type,
+                "size_bytes": size_bytes,
+                "checksum_sha256": checksum_sha256,
+            },
+            on_conflict="external_upload_id",
+            headers=self._client.user_scoped_headers(self._require_access_token(access_token)),
+        )[0]
+        return {
+            "id": row["id"],
+            "upload_id": row["external_upload_id"],
+            "owner_user_id": row["external_user_id"],
+            "org_id": row["org_id"],
+            "bucket_name": row["bucket_name"],
+            "object_path": row["object_path"],
+            "original_filename": row.get("original_filename", ""),
+            "mime_type": row.get("mime_type", ""),
+            "size_bytes": row.get("size_bytes", 0),
+            "checksum_sha256": row.get("checksum_sha256"),
+            "created_at": row["created_at"],
+        }
 
 
 class _SupabaseEraDetectionRepository(_SupabaseRepositoryBase):
@@ -2173,6 +2455,10 @@ def _usage_backend() -> _MemoryUsageRepository | _SupabaseUsageRepository:
     return _SupabaseUsageRepository() if phase2_backend_name() == "supabase" else _MemoryUsageRepository()
 
 
+def _upload_backend() -> _MemoryUploadRepository | _SupabaseUploadRepository:
+    return _SupabaseUploadRepository() if phase2_backend_name() == "supabase" else _MemoryUploadRepository()
+
+
 def _era_detection_backend() -> _MemoryEraDetectionRepository | _SupabaseEraDetectionRepository:
     return _SupabaseEraDetectionRepository() if phase2_backend_name() == "supabase" else _MemoryEraDetectionRepository()
 
@@ -2249,6 +2535,91 @@ class UsageRepository:
 
     def update(self, user_id: str, payload: dict[str, Any], *, access_token: str | None = None) -> dict[str, Any]:
         return self._backend.update(user_id, payload, access_token=access_token)
+
+
+class UploadRepository:
+    def __init__(self) -> None:
+        self._backend = _upload_backend()
+
+    def create_session(
+        self,
+        *,
+        upload_id: str,
+        owner_user_id: str,
+        org_id: str,
+        original_filename: str,
+        mime_type: str,
+        size_bytes: int,
+        checksum_sha256: str | None,
+        bucket_name: str,
+        object_path: str,
+        resumable_session_url: str,
+        access_token: str | None = None,
+    ) -> dict[str, Any]:
+        return self._backend.create_session(
+            upload_id=upload_id,
+            owner_user_id=owner_user_id,
+            org_id=org_id,
+            original_filename=original_filename,
+            mime_type=mime_type,
+            size_bytes=size_bytes,
+            checksum_sha256=checksum_sha256,
+            bucket_name=bucket_name,
+            object_path=object_path,
+            resumable_session_url=resumable_session_url,
+            access_token=access_token,
+        )
+
+    def get_session(
+        self,
+        upload_id: str,
+        *,
+        owner_user_id: str | None = None,
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        return self._backend.get_session(upload_id, owner_user_id=owner_user_id, access_token=access_token)
+
+    def update_session(
+        self,
+        upload_id: str,
+        *,
+        owner_user_id: str,
+        patch: dict[str, Any],
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        return self._backend.update_session(
+            upload_id,
+            owner_user_id=owner_user_id,
+            patch=patch,
+            access_token=access_token,
+        )
+
+    def upsert_pointer(
+        self,
+        *,
+        upload_id: str,
+        owner_user_id: str,
+        org_id: str,
+        bucket_name: str,
+        object_path: str,
+        original_filename: str,
+        mime_type: str,
+        size_bytes: int,
+        checksum_sha256: str | None,
+        access_token: str | None = None,
+    ) -> dict[str, Any]:
+        return self._backend.upsert_pointer(
+            upload_id=upload_id,
+            owner_user_id=owner_user_id,
+            org_id=org_id,
+            bucket_name=bucket_name,
+            object_path=object_path,
+            original_filename=original_filename,
+            mime_type=mime_type,
+            size_bytes=size_bytes,
+            checksum_sha256=checksum_sha256,
+            access_token=access_token,
+        )
 
 
 class EraDetectionRepository:
