@@ -385,15 +385,36 @@ export async function executeUploadFlow({
   } catch (caught) {
     if (caught instanceof UploadInterruptedError && activeSession) {
       handlers.setProgress(progressFromBytes(caught.confirmedBytes, file));
+      let token = accessToken;
+      if (!token) {
+        try {
+          token = await dependencies.getAccessToken();
+        } catch (tokenError) {
+          handlers.setStatus("failed");
+          handlers.setCanResume(false);
+          handlers.setEtaSeconds(0);
+          handlers.setError(errorMessage(tokenError, "Unable to resume upload."));
+          return;
+        }
+      }
+      let resumeState: UploadResumeResponse;
       try {
-        const token = accessToken || (await dependencies.getAccessToken());
-        const resumeState = await resumeSession(apiBaseUrl, token, activeSession.upload_id, transportOptions);
-        activeSession = mergeUploadSessionWithResume(activeSession, resumeState);
-        handlers.setUploadSession(activeSession);
-        handlers.setStatus(activeSession.status);
-        handlers.setProgress(progressFromBytes(resumeState.next_byte_offset, file));
+        resumeState = await resumeSession(apiBaseUrl, token, activeSession.upload_id, transportOptions);
+      } catch (resumeError) {
+        console.error("Failed to resume upload after interruption.", resumeError);
+        handlers.setStatus("uploading");
+        handlers.setCanResume(true);
         handlers.setEtaSeconds(0);
-        if (resumeState.upload_complete) {
+        handlers.setError(errorMessage(resumeError, "Unable to resume upload."));
+        return;
+      }
+      activeSession = mergeUploadSessionWithResume(activeSession, resumeState);
+      handlers.setUploadSession(activeSession);
+      handlers.setStatus(activeSession.status);
+      handlers.setProgress(progressFromBytes(resumeState.next_byte_offset, file));
+      handlers.setEtaSeconds(0);
+      if (resumeState.upload_complete) {
+        try {
           const completed = await finalizeSession(apiBaseUrl, token, activeSession, file, transportOptions);
           handlers.setUploadSession(completed);
           handlers.setStatus(completed.status);
@@ -402,12 +423,17 @@ export async function executeUploadFlow({
           handlers.setCanResume(false);
           handlers.setError("");
           return;
+        } catch (finalizeError) {
+          handlers.setStatus("failed");
+          handlers.setCanResume(false);
+          handlers.setEtaSeconds(0);
+          handlers.setError(errorMessage(finalizeError, "Unable to finalize upload."));
+          return;
         }
-      } catch (resumeError) {
-        console.error("Failed to resume upload after interruption.", resumeError);
-        handlers.setStatus("uploading");
       }
       handlers.setCanResume(true);
+      handlers.setError(errorMessage(caught, "Upload failed."));
+      return;
     } else {
       handlers.setStatus("failed");
       handlers.setCanResume(false);

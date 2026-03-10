@@ -279,6 +279,22 @@ def snapshot_upload_artifacts(upload_id: str) -> dict[str, Any]:
     return _supabase_snapshot(upload_id) if phase2_backend_name() == "supabase" else _memory_snapshot(upload_id)
 
 
+def _assert_live_smoke_invariants(result: dict[str, Any]) -> None:
+    failures: list[str] = []
+    if not result.get("same_upload_id"):
+        failures.append("same_upload_id")
+    if not result.get("same_object_path"):
+        failures.append("same_object_path")
+    if result.get("after_finalize_status") != "completed":
+        failures.append(f"after_finalize_status={result.get('after_finalize_status')!r}")
+    if not result.get("pointer_persisted"):
+        failures.append("pointer_persisted")
+    if not result.get("pointer_owner_matches_creator"):
+        failures.append("pointer_owner_matches_creator")
+    if failures:
+        raise LiveSmokeExecutionError(f"Packet 4A live-smoke invariants failed: {', '.join(failures)}")
+
+
 def _valid_upload_request(size_bytes: int) -> dict[str, Any]:
     return {
         "original_filename": "packet4a-live.mov",
@@ -432,6 +448,7 @@ def run_packet4a_live_smoke(
             },
         }
         _write_json(resolved_output_path, result)
+        _assert_live_smoke_invariants(result)
         return result
     finally:
         if ephemeral_secondary_user_id is not None:

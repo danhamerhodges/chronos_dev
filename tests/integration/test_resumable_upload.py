@@ -19,7 +19,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import settings
-from app.db.phase2_store import _STORE
+from app.db.phase2_store import _STORE, phase2_backend_name
 from app.main import app
 from app.models.status import UploadStatus
 from app.services.upload_service import ResumableUploadProbe, UploadService
@@ -187,6 +187,12 @@ def _skip_if_gcs_prerequisites_missing() -> None:
         pytest.skip("A Google access token is required for live resumable upload validation.")
 
 
+def _skip_if_phase2_backend_mismatch(expected_backend: str) -> None:
+    active_backend = phase2_backend_name()
+    if active_backend != expected_backend:
+        pytest.skip(f"This live smoke validates the {expected_backend}-backed upload store (active: {active_backend}).")
+
+
 def _live_evidence_path(name: str) -> Path:
     return Path(".tmp/packet4a") / name
 
@@ -196,6 +202,7 @@ def _live_evidence_path(name: str) -> Path:
     reason="Set CHRONOS_RUN_GCS_UPLOAD_INTEGRATION=1 to exercise real GCS upload sessions.",
 )
 def test_real_gcs_upload_session_supports_probe_resume_and_finalize() -> None:
+    _skip_if_phase2_backend_mismatch("memory")
     _skip_if_gcs_prerequisites_missing()
     evidence_path = _live_evidence_path("memory-live-smoke.json")
 
@@ -228,6 +235,7 @@ def test_real_gcs_upload_session_supports_probe_resume_and_finalize() -> None:
     reason="Set CHRONOS_RUN_GCS_UPLOAD_INTEGRATION=1 and CHRONOS_RUN_SUPABASE_INTEGRATION=1 to validate live Supabase-backed uploads.",
 )
 def test_supabase_real_gcs_upload_session_persists_rls_artifacts() -> None:
+    _skip_if_phase2_backend_mismatch("supabase")
     _skip_if_gcs_prerequisites_missing()
     evidence_path = _live_evidence_path("supabase-live-smoke.json")
 
@@ -430,3 +438,22 @@ def test_measure_packet4a_staging_latency_rejects_non_positive_settings(
         )
 
     assert str(excinfo.value) == expected_message
+
+
+def test_live_smoke_invariants_raise_on_invalid_result() -> None:
+    from scripts.ops import run_packet4a_live_smoke as live_smoke
+
+    with pytest.raises(LiveSmokeExecutionError) as excinfo:
+        live_smoke._assert_live_smoke_invariants(
+            {
+                "same_upload_id": False,
+                "same_object_path": True,
+                "after_finalize_status": "uploading",
+                "pointer_persisted": False,
+                "pointer_owner_matches_creator": True,
+            }
+        )
+
+    assert "same_upload_id" in str(excinfo.value)
+    assert "after_finalize_status='uploading'" in str(excinfo.value)
+    assert "pointer_persisted" in str(excinfo.value)

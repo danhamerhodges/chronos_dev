@@ -313,4 +313,66 @@ describe("upload flow orchestration", () => {
     expect(state.canResume).toBe(false);
     expect(state.error).toBe("");
   });
+
+  it("treats finalize failures after a completed re-probe as terminal errors", async () => {
+    const file = makeFile();
+    const state: FlowState = {
+      session: null,
+      status: "pending",
+      progress: 0,
+      etaSeconds: 0,
+      canResume: false,
+      error: "",
+    };
+    const createSession = vi.fn(async () => baseSession());
+    const resumeSession = vi
+      .fn()
+      .mockResolvedValueOnce({
+        upload_id: "upload-1",
+        status: "uploading",
+        resumable_session_url: "https://example.invalid/resumable/regenerated",
+        next_byte_offset: 0,
+        upload_complete: false,
+        session_regenerated: true,
+        object_path: "uploads/user-1/upload-1/archive.mov",
+        media_uri: "gs://chronos-dev/uploads/user-1/upload-1/archive.mov",
+      })
+      .mockResolvedValueOnce({
+        upload_id: "upload-1",
+        status: "uploading",
+        resumable_session_url: "https://example.invalid/resumable/regenerated",
+        next_byte_offset: 10,
+        upload_complete: true,
+        session_regenerated: false,
+        object_path: "uploads/user-1/upload-1/archive.mov",
+        media_uri: "gs://chronos-dev/uploads/user-1/upload-1/archive.mov",
+      });
+    const uploadBytes = vi.fn(async () => {
+      throw new UploadInterruptedError("Upload interrupted. Resume to continue.", 5);
+    });
+    const finalizeSession = vi.fn(async () => {
+      throw new Error("Unable to finalize upload.");
+    });
+
+    await executeUploadFlow({
+      apiBaseUrl: "https://api.example.test",
+      file,
+      resumeExisting: false,
+      existingSession: null,
+      dependencies: {
+        getAccessToken: async () => "access-token",
+        createSession,
+        resumeSession,
+        uploadBytes,
+        finalizeSession,
+      },
+      handlers: buildHandlers(state),
+    });
+
+    expect(resumeSession).toHaveBeenCalledTimes(2);
+    expect(finalizeSession).toHaveBeenCalledTimes(1);
+    expect(state.status).toBe("failed");
+    expect(state.canResume).toBe(false);
+    expect(state.error).toBe("Unable to finalize upload.");
+  });
 });
