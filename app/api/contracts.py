@@ -142,6 +142,65 @@ class UploadResumeResponse(StrictModel):
     media_uri: str
 
 
+class UserPersona(StrEnum):
+    ARCHIVIST = "archivist"
+    FILMMAKER = "filmmaker"
+    PROSUMER = "prosumer"
+
+
+class GrainPreset(StrEnum):
+    MATCHED = "Matched"
+    SUBTLE = "Subtle"
+    HEAVY = "Heavy"
+
+
+class FidelityPersonaOption(StrictModel):
+    persona: UserPersona
+    label: str
+    default_fidelity_tier: FidelityTier
+    description: str
+
+
+class FidelityTierCatalogItem(StrictModel):
+    tier: FidelityTier
+    label: str
+    description: str
+    default_grain_preset: GrainPreset
+    allowed_grain_presets: list[GrainPreset]
+    relative_cost_multiplier: float
+    relative_processing_time_band: str
+    thresholds: dict[str, float]
+    identity_lock: bool
+
+
+class FidelityTierCatalogResponse(StrictModel):
+    personas: list[FidelityPersonaOption]
+    tiers: list[FidelityTierCatalogItem]
+    grain_presets: list[GrainPreset]
+    current_persona: UserPersona | None = None
+    preferred_fidelity_tier: FidelityTier | None = None
+    preferred_grain_preset: GrainPreset | None = None
+
+
+class UploadDetectEraRequest(StrictModel):
+    estimated_duration_seconds: int = Field(default=60, ge=1)
+    manual_override_era: str | None = None
+    override_reason: str | None = None
+
+
+class UploadDetectEraResponse(DetectEraResponse):
+    upload_id: str
+
+
+class UploadConfigurationRequest(StrictModel):
+    persona: UserPersona | None = None
+    fidelity_tier: FidelityTier
+    grain_preset: GrainPreset
+    estimated_duration_seconds: int = Field(default=60, ge=1)
+    manual_override_era: str | None = None
+    override_reason: str | None = None
+
+
 class UserProfileResponse(StrictModel):
     user_id: str
     email: str
@@ -338,6 +397,20 @@ class JobCreateRequest(StrictModel):
     processing_mode: str = Field(default="balanced", min_length=3)
     era_profile: EraProfileInput
     config: dict[str, Any] = Field(default_factory=dict)
+
+
+class UploadConfigurationResponse(StrictModel):
+    upload_id: str
+    status: UploadStatus
+    persona: UserPersona
+    fidelity_tier: FidelityTier
+    grain_preset: GrainPreset
+    detection_snapshot: UploadDetectEraResponse
+    resolved_fidelity_profile: dict[str, Any]
+    relative_cost_multiplier: float
+    relative_processing_time_band: str
+    job_payload_preview: JobCreateRequest
+    configured_at: str
 
 
 class JobProgressResponse(StrictModel):

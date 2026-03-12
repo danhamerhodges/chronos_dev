@@ -51,3 +51,21 @@ def test_validate_era_profile_does_not_duplicate_type_error_for_missing_era_rang
 
     assert result.is_valid is False
     assert not any(issue.rule_id == "VR-TYPE" and issue.field == "era_range" for issue in result.errors)
+
+
+def test_validate_era_profile_treats_non_matched_conserve_grain_as_warning() -> None:
+    result = validate_era_profile(
+        valid_era_profile(
+            mode="Conserve",
+            hallucination_limit=0.05,
+            artifact_policy={
+                "deinterlace": False,
+                "grain_intensity": "Heavy",
+                "preserve_edge_fog": False,
+                "preserve_chromatic_aberration": False,
+            },
+        )
+    )
+
+    assert result.is_valid is True
+    assert any(issue.rule_id == "VR-004" for issue in result.warnings)

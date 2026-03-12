@@ -356,7 +356,7 @@ ChronosRefine uses four core metrics to enforce historical authenticity and prev
 **Verification Method:** Automated (pytest unit tests) + UI Validation (Playwright tests)
 
 **Test Files:**
-- `tests/api/test_fidelity_tiers.py`
+- `tests/api/test_fidelity_configuration.py`
 - `tests/processing/test_tier_parameters.py`
 - `tests/ui/test_tier_selection.spec.ts`
 

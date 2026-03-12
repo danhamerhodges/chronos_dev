@@ -3,6 +3,7 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.db.phase2_store import JobRepository
 from tests.helpers.auth import fake_auth_header
 from tests.helpers.jobs import valid_job_request
 
@@ -13,7 +14,7 @@ def test_all_fidelity_tiers_persist_effective_profile() -> None:
     scenarios = [
         ("Enhance", 0.30, "Subtle"),
         ("Restore", 0.15, "Matched"),
-        ("Conserve", 0.05, "Matched"),
+        ("Conserve", 0.05, "Heavy"),
     ]
 
     for tier, hallucination_limit, grain in scenarios:
@@ -39,6 +40,13 @@ def test_all_fidelity_tiers_persist_effective_profile() -> None:
         assert payload["fidelity_tier"] == tier
         assert payload["effective_fidelity_tier"] == tier
         assert payload["reproducibility_mode"] == "perceptual_equivalence"
+        job = JobRepository().get_job(
+            payload["job_id"],
+            owner_user_id=f"user-{tier.lower()}",
+            access_token=f"test-token-for-user-{tier.lower()}",
+        )
+        assert job is not None
+        assert job["effective_fidelity_profile"]["grain_preset"] == grain
 
 
 def test_tier_breaking_override_is_rejected() -> None:

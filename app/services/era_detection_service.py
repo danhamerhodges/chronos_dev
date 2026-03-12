@@ -7,6 +7,7 @@ import time
 from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any
+from uuid import uuid4
 
 import httpx
 
@@ -20,6 +21,7 @@ from app.services.era_classifier import (
     DeterministicFallbackEraClassifier,
     EraClassification,
     EraClassifier,
+    build_default_era_profile,
     canonicalize_era_label,
     normalize_top_candidates,
 )
@@ -142,6 +144,73 @@ class EraDetectionService:
             "source": response_detection["source"],
             "model_version": response_detection["model_version"],
             "prompt_version": response_detection["prompt_version"],
+        }
+
+    def analyze_media(
+        self,
+        *,
+        job_id: str,
+        media_uri: str,
+        original_filename: str,
+        mime_type: str,
+        manual_override_era: str | None = None,
+        override_reason: str | None = None,
+        era_profile: dict[str, Any] | None = None,
+    ) -> dict[str, object]:
+        resolved_era_profile = era_profile or build_default_era_profile(
+            media_uri=media_uri,
+            original_filename=original_filename,
+            mime_type=mime_type,
+        )
+        classification = self._classify(
+            job_id=job_id,
+            media_uri=media_uri,
+            original_filename=original_filename,
+            mime_type=mime_type,
+            era_profile=resolved_era_profile,
+        )
+        provider_warning = classification.provider_error
+        low_confidence = classification.confidence < 0.70
+        warnings: list[str] = []
+        if provider_warning:
+            warnings.append(provider_warning)
+        elif low_confidence:
+            warnings.append("Manual confirmation required due to low confidence.")
+
+        if manual_override_era:
+            canonical_override_era = canonicalize_era_label(manual_override_era)
+            if canonical_override_era is None:
+                raise ValueError("Manual override era must use a supported catalog value.")
+            if not override_reason:
+                raise ValueError("override_reason is required when manual_override_era is set.")
+            return {
+                "detection_id": str(uuid4()),
+                "job_id": job_id,
+                "era": canonical_override_era,
+                "confidence": round(classification.confidence, 2),
+                "manual_confirmation_required": False,
+                "top_candidates": classification.top_candidates if low_confidence else [],
+                "forensic_markers": classification.forensic_markers,
+                "warnings": ["Manual override applied to era classification."],
+                "processing_timestamp": _utc_now(),
+                "source": "user_override",
+                "model_version": classification.model_version,
+                "prompt_version": classification.prompt_version,
+            }
+
+        return {
+            "detection_id": str(uuid4()),
+            "job_id": job_id,
+            "era": UNKNOWN_ERA if provider_warning or low_confidence else classification.era,
+            "confidence": round(classification.confidence, 2),
+            "manual_confirmation_required": provider_warning is not None or low_confidence,
+            "top_candidates": classification.top_candidates if (provider_warning or low_confidence) else [],
+            "forensic_markers": classification.forensic_markers,
+            "warnings": warnings,
+            "processing_timestamp": _utc_now(),
+            "source": "system",
+            "model_version": classification.model_version,
+            "prompt_version": classification.prompt_version,
         }
 
     def _classify(

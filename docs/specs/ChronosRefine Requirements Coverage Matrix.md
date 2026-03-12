@@ -141,7 +141,7 @@ If an ID/title conflicts with the above, this matrix must be updated immediately
 | Req ID | Requirement Name | Dependencies | Test Files | Verification | Risk |
 |---|---|---|---|---|---|
 | **FR-001** | Video Upload and Validation | SEC-013, ENG-002, ENG-016 | `tests/api/test_upload.py` | Automated | Medium |
-| **FR-003** | Fidelity Tier Selection | FR-002, ENG-001 | `tests/api/test_fidelity_tiers.py`, `tests/processing/test_tier_parameters.py`, `tests/ui/test_tier_selection.spec.ts` | Automated | Low |
+| **FR-003** | Fidelity Tier Selection | FR-002, ENG-001 | `tests/api/test_fidelity_configuration.py`, `tests/processing/test_tier_parameters.py`, `tests/ui/test_tier_selection.spec.ts` | Automated | Low |
 | **FR-004** | Processing and Restoration | FR-001, FR-003, ENG-007 | `tests/processing/test_restoration_pipeline.py`, `tests/processing/test_uncertainty_callouts.py`, `tests/processing/test_retry_logic.py` | Automated | High |
 | **FR-005** | Output Delivery | FR-004, ENG-007 | `tests/api/test_output_delivery.py`, `tests/api/test_transformation_manifest.py`, `tests/api/test_deletion_proof.py`, `tests/integration/test_export_workflow.py` | Automated | Medium |
 | **ENG-013** | Cost Estimation | FR-004, ENG-002 | `tests/api/test_cost_estimation.py`, `tests/api/test_cost_breakdown.py`, `tests/integration/test_cost_reconciliation.py` | Automated | Medium |
@@ -295,7 +295,7 @@ Source evidence:
 | Phase 1: Foundation & Core Infrastructure | 6/6 | ✅ Complete (baseline scope) | Baseline scaffolding and validation confirmed in `docs/phase1_readiness_report.md` |
 | Phase 2: API Foundation & Data Layer | 6/6 | ✅ Complete (merged via PR #1) | `main` includes merge commit `709687a`; this is the canonical baseline for later phases |
 | Phase 3: Core Processing Pipeline & AI Integration | 11/12 | ✅ Complete for Phase 4 kickoff | PR #2 merged to `main`; `SEC-007` remains deferred to its canonical `GA+3 months` milestone |
-| Phase 4: User-Facing Features & Application Logic | 1/14 | 🚧 In Progress (Packet 4A complete) | `FR-001` upload/validation is complete on candidate branch `codex/packet4a-closure`; follow-on Phase 4 work starts after this packet lands on `main` |
+| Phase 4: User-Facing Features & Application Logic | 2/14 on candidate branch/PR | 🚧 In Progress (Packet 4A merged; Packet 4B complete on candidate branch) | `FR-001` upload/validation is merged on `main`; `FR-003` + `DS-001` are complete on `codex/packet4b-completion` pending PR/merge, with Packet 4C next |
 | Phase 5: Advanced Features & UX Refinement | 0/11 | ⏸️ Not Started | Dependent on Phase 4 completion |
 | Phase 6: Production Readiness & Launch | 0/10 | ⏸️ Not Started | Dependent on Phase 5 completion |
 
@@ -350,20 +350,23 @@ Source evidence:
 | SEC-007 | ⏸️ Deferred | Canonically tracked as `GA+3 months` |
 | OPS-003 | ✅ Complete | Incident persistence, severity mapping, alert routing hooks, and runbook references merged to `main` |
 
-### Phase 4 Kickoff Status: User-Facing Features & Application Logic
+### Phase 4 Current Status: User-Facing Features & Application Logic
 
-**Requirements:** 1 of 14 complete on candidate branch `codex/packet4a-closure` (7%)  
-**Status:** Packet 4A complete on 2026-03-08; `main` remains pre-merge until the candidate branch lands  
-**Completed Kickoff Packet:** `Packet 4A = FR-001 (Video Upload and Validation)`
+**Requirements:** 1 of 14 complete on `main`; 2 of 14 complete on the candidate branch/PR (`codex/packet4b-completion`)  
+**Status:** Packet 4A is merged to `main`; Packet 4B is complete on the candidate branch/PR as of 2026-03-12 and is the next merge target  
+**Completed Packets:** `Packet 4A = FR-001 (Video Upload and Validation)` on `main`; `Packet 4B = FR-003 + DS-001 (Fidelity Tier Selection + Configuration UX)` on the candidate branch/PR
 
-| Area | Packet 4A closure note |
+| Area | Current Phase 4 note |
 |---|---|
-| Scope | Signed GCS upload URL generation, resumable upload handling, format/size validation, authenticated metadata persistence, and a thin upload UI shell |
-| Explicit Exclusions | `FR-003`, `FR-004`, `FR-005`, `ENG-013`, `ENG-014`, `ENG-015`, and all `FR-006` preview-review UX remain follow-on Phase 4/5 work |
+| Packet 4A scope on `main` | Signed GCS upload URL generation, resumable upload handling, format/size validation, authenticated metadata persistence, and a thin upload UI shell |
+| Packet 4B scope on candidate branch/PR | Upload-scoped era detection, persona/tier/grain configuration, launch-ready `job_payload_preview`, explicit hobbyist early-photo entitlement gating, and rendered `DS-001` verification |
+| Explicit Exclusions after Packet 4B | `FR-004`, `FR-005`, `ENG-013`, `ENG-014`, `ENG-015`, and all `FR-006` preview-review UX remain follow-on Phase 4/5 work |
 | Dependencies Satisfied | `SEC-013`, `ENG-002`, `ENG-016`; Phase 3 kickoff dependency is satisfied with `SEC-007` deferred per canon |
-| Test Mapping | `tests/api/test_upload.py`, `tests/integration/test_resumable_upload.py`, `tests/load/test_upload_performance.py` |
-| Closure Evidence | Live memory + GCS smoke passed, live Supabase + GCS smoke passed, staging latency probe passed on revision `chronos-phase1-app-00036-blf` (`build_sha=9a5791c4023794af8d6cc96d7dd2561aafdb93bc`) |
-| Context Note | `docs/specs/chronosrefine_phase4_closeout_note.md` |
+| Packet 4A test mapping | `tests/api/test_upload.py`, `tests/integration/test_resumable_upload.py`, `tests/load/test_upload_performance.py` |
+| Packet 4B test mapping | `tests/api/test_fidelity_configuration.py`, `tests/processing/test_tier_parameters.py`, `tests/integration/test_configuration_job_handoff.py`, `tests/ui/test_tier_selection.spec.ts`, `tests/ui/test_fidelity_tier_selector.spec.ts`, `tests/ui/test_era_override_modal.spec.ts`, `tests/accessibility/test_fidelity_config_a11y.spec.ts` |
+| Packet 4A closure evidence | Live memory + GCS smoke passed, live Supabase + GCS smoke passed, staging latency probe passed on revision `chronos-phase1-app-00036-blf` (`build_sha=9a5791c4023794af8d6cc96d7dd2561aafdb93bc`) |
+| Packet 4B branch evidence | Shared fidelity resolver accepts all grain presets across all tiers, hobbyist early-photo saves return `403 Plan Upgrade Required` with no persistence, rendered `DS-001` jsdom tests pass, and `job_payload_preview` is accepted by `/v1/jobs` in integration coverage |
+| Context Note | `docs/specs/chronosrefine_phase4_closeout_note.md` for Packet 4A; Packet 4B remains candidate-branch evidence until PR merge |
 
 ## Progress Tracking Template
 

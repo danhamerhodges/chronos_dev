@@ -1,4 +1,4 @@
-"""Maps to: ENG-002, ENG-010, ENG-011, SEC-009, FR-001"""
+"""Maps to: ENG-002, ENG-010, ENG-011, SEC-009, FR-001, FR-003, DS-001"""
 
 from pathlib import Path
 
@@ -93,6 +93,9 @@ def test_tracked_openapi_spec_covers_phase2_subset() -> None:
     assert "/v1/upload:" in openapi_spec
     assert "/v1/upload/{upload_id}:" in openapi_spec
     assert "/v1/upload/{upload_id}/resume:" in openapi_spec
+    assert "/v1/upload/{upload_id}/detect-era:" in openapi_spec
+    assert "/v1/upload/{upload_id}/configuration:" in openapi_spec
+    assert "/v1/fidelity-tiers:" in openapi_spec
     assert "/v1/detect-era:" in openapi_spec
     assert "/v1/orgs/{org_id}/settings/logs:" in openapi_spec
     assert "/v1/jobs:" in openapi_spec
