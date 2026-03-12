@@ -13,7 +13,6 @@ export default defineConfig({
       "@testing-library/react": fileURLToPath(new URL("./node_modules/@testing-library/react", import.meta.url)),
       "@testing-library/user-event": fileURLToPath(new URL("./node_modules/@testing-library/user-event", import.meta.url)),
       "@testing-library/jest-dom": fileURLToPath(new URL("./node_modules/@testing-library/jest-dom", import.meta.url)),
-      "@testing-library/jest-dom/vitest": fileURLToPath(new URL("./node_modules/@testing-library/jest-dom/dist/vitest.mjs", import.meta.url)),
     },
   },
   test: {

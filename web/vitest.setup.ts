@@ -1,6 +1,6 @@
-import "./node_modules/@testing-library/jest-dom/dist/vitest.mjs";
+import "@testing-library/jest-dom/vitest";
 
-import { cleanup } from "./node_modules/@testing-library/react/dist/@testing-library/react.esm.js";
+import { cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";
 
 afterEach(() => {

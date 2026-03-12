@@ -93,6 +93,76 @@ def test_fidelity_tiers_catalog_returns_persona_defaults_and_current_preferences
     assert payload["preferred_grain_preset"] == "Heavy"
 
 
+def test_fidelity_tiers_catalog_limits_hobbyist_to_enhance_and_resolves_saved_defaults() -> None:
+    repo = UserProfileRepository()
+    repo.get_or_create(
+        user_id="hobbyist-catalog-user",
+        role="member",
+        plan_tier="hobbyist",
+        org_id="org-default",
+        access_token="test-token-for-hobbyist-catalog-user",
+    )
+    repo.update(
+        "hobbyist-catalog-user",
+        {
+            "preferences": {
+                "fidelity_configuration": {
+                    "persona": "archivist",
+                    "preferred_fidelity_tier": "Conserve",
+                    "preferred_grain_preset": "Heavy",
+                }
+            }
+        },
+        access_token="test-token-for-hobbyist-catalog-user",
+    )
+
+    response = client.get("/v1/fidelity-tiers", headers=fake_auth_header("hobbyist-catalog-user", tier="hobbyist"))
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["tier"] for item in payload["tiers"]] == ["Enhance"]
+    assert payload["current_persona"] == "archivist"
+    assert payload["preferred_fidelity_tier"] == "Enhance"
+    assert payload["preferred_grain_preset"] == "Heavy"
+
+
+def test_fidelity_routes_ignore_invalid_saved_preferences() -> None:
+    _seed_upload(upload_id="upload-invalid-prefs", owner_user_id="invalid-pref-user")
+    client.patch(
+        "/v1/users/me",
+        headers=fake_auth_header("invalid-pref-user", tier="pro"),
+        json={
+            "preferences": {
+                "fidelity_configuration": {
+                    "persona": "legacy-operator",
+                    "preferred_fidelity_tier": "Ultra",
+                    "preferred_grain_preset": "Impossible",
+                }
+            }
+        },
+    )
+
+    catalog = client.get("/v1/fidelity-tiers", headers=fake_auth_header("invalid-pref-user", tier="pro"))
+    assert catalog.status_code == 200
+    assert catalog.json()["current_persona"] is None
+    assert catalog.json()["preferred_fidelity_tier"] is None
+    assert catalog.json()["preferred_grain_preset"] is None
+
+    save = client.patch(
+        "/v1/upload/upload-invalid-prefs/configuration",
+        headers=fake_auth_header("invalid-pref-user", tier="pro"),
+        json={
+            "persona": "prosumer",
+            "fidelity_tier": "Enhance",
+            "grain_preset": "Subtle",
+            "estimated_duration_seconds": 120,
+        },
+    )
+
+    assert save.status_code == 200
+    assert save.json()["persona"] == "prosumer"
+
+
 def test_detect_upload_era_requires_completed_upload() -> None:
     _seed_upload(upload_id="upload-pending", owner_user_id="pending-user", status=UploadStatus.PENDING)
 
@@ -304,6 +374,40 @@ def test_save_configuration_allows_grain_override_for_conserve() -> None:
     assert payload["job_payload_preview"]["config"]["fidelity_overrides"]["grain_intensity"] == "Heavy"
 
 
+def test_save_configuration_rejects_hobbyist_non_enhance_tiers_before_validation() -> None:
+    _seed_upload(upload_id="upload-hobbyist-tier", owner_user_id="hobbyist-user")
+
+    response = client.patch(
+        "/v1/upload/upload-hobbyist-tier/configuration",
+        headers=fake_auth_header("hobbyist-user", tier="hobbyist"),
+        json={
+            "persona": "filmmaker",
+            "fidelity_tier": "Restore",
+            "grain_preset": "Matched",
+            "estimated_duration_seconds": 180,
+        },
+    )
+
+    assert response.status_code == 403
+    payload = response.json()
+    assert payload["title"] == "Plan Upgrade Required"
+    assert "Hobbyist includes Enhance only" in payload["detail"]
+
+    repo = UploadRepository()
+    session = repo.get_session(
+        "upload-hobbyist-tier",
+        owner_user_id="hobbyist-user",
+        access_token="test-token-for-hobbyist-user",
+    )
+    assert session is not None
+    assert session.get("launch_config") in ({}, None)
+    assert session.get("configured_at") is None
+
+    profile = client.get("/v1/users/me", headers=fake_auth_header("hobbyist-user", tier="hobbyist"))
+    assert profile.status_code == 200
+    assert profile.json()["preferences"] == {}
+
+
 def test_save_configuration_blocks_hobbyist_early_photo_assets_before_persisting_launch_config() -> None:
     _seed_upload(
         upload_id="upload-early-photo",
@@ -316,8 +420,8 @@ def test_save_configuration_blocks_hobbyist_early_photo_assets_before_persisting
         "/v1/upload/upload-early-photo/configuration",
         headers=fake_auth_header("photo-user", tier="hobbyist"),
         json={
-            "persona": "archivist",
-            "fidelity_tier": "Conserve",
+            "persona": "prosumer",
+            "fidelity_tier": "Enhance",
             "grain_preset": "Matched",
             "estimated_duration_seconds": 180,
         },
@@ -339,5 +443,47 @@ def test_save_configuration_blocks_hobbyist_early_photo_assets_before_persisting
     assert session.get("configured_at") is None
 
     profile = client.get("/v1/users/me", headers=fake_auth_header("photo-user", tier="hobbyist"))
+    assert profile.status_code == 200
+    assert profile.json()["preferences"] == {}
+
+
+def test_save_configuration_keeps_launch_config_when_preference_update_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    _seed_upload(upload_id="upload-partial-success", owner_user_id="partial-user")
+
+    original_update = UserProfileRepository.update
+
+    def failing_update(self: UserProfileRepository, user_id: str, patch: dict[str, object], *, access_token: str | None = None):
+        if user_id == "partial-user":
+            raise RuntimeError("profile persistence unavailable")
+        return original_update(self, user_id, patch, access_token=access_token)
+
+    monkeypatch.setattr(UserProfileRepository, "update", failing_update)
+
+    response = client.patch(
+        "/v1/upload/upload-partial-success/configuration",
+        headers=fake_auth_header("partial-user", tier="pro"),
+        json={
+            "persona": "prosumer",
+            "fidelity_tier": "Enhance",
+            "grain_preset": "Subtle",
+            "estimated_duration_seconds": 180,
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["persona"] == "prosumer"
+
+    repo = UploadRepository()
+    session = repo.get_session(
+        "upload-partial-success",
+        owner_user_id="partial-user",
+        access_token="test-token-for-partial-user",
+    )
+    assert session is not None
+    assert session.get("launch_config")
+    assert session.get("configured_at")
+
+    profile = client.get("/v1/users/me", headers=fake_auth_header("partial-user", tier="pro"))
     assert profile.status_code == 200
     assert profile.json()["preferences"] == {}

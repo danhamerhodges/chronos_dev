@@ -29,6 +29,7 @@ export function EraOverrideModal({
 }: EraOverrideModalProps) {
   const candidateOptions = detection ? [detection.era, ...detection.top_candidates.map((candidate) => candidate.era)] : [];
   const uniqueOptions = Array.from(new Set(candidateOptions.filter(Boolean)));
+  const canApplyOverride = Boolean(selectedEra.trim() && overrideReason.trim());
   return (
     <Modal open={open} onClose={onClose}>
       <div style={{ display: "grid", gap: "var(--spacing-md)" }}>
@@ -46,6 +47,7 @@ export function EraOverrideModal({
           <select
             aria-label="Manual era override"
             onChange={(event) => onSelectEra(event.target.value)}
+            required
             value={selectedEra}
           >
             <option value="">Select an era</option>
@@ -61,6 +63,7 @@ export function EraOverrideModal({
           <textarea
             aria-label="Override reason"
             onChange={(event) => onChangeReason(event.target.value)}
+            required
             rows={3}
             value={overrideReason}
           />
@@ -72,7 +75,7 @@ export function EraOverrideModal({
           <Button onClick={onClose} type="button" variant="secondary">
             Cancel
           </Button>
-          <Button onClick={onConfirm} type="button">
+          <Button disabled={!canApplyOverride} onClick={onConfirm} type="button">
             Apply Override
           </Button>
         </div>

@@ -12,15 +12,17 @@ import { describe, expect, it, vi } from "vitest";
 import { EraOverrideModal } from "../../web/src/components/EraOverrideModal";
 
 describe("EraOverrideModal", () => {
-  it("renders dialog semantics, warning copy, link, and confirm/cancel interactions", async () => {
+  it("requires both an era and a reason before allowing confirm", async () => {
     const onSelectEra = vi.fn();
     const onChangeReason = vi.fn();
     const onClose = vi.fn();
     const onConfirm = vi.fn();
     const user = userEvent.setup();
 
-    render(
-      React.createElement(EraOverrideModal, {
+    function Harness() {
+      const [selectedEra, setSelectedEra] = React.useState("");
+      const [overrideReason, setOverrideReason] = React.useState("");
+      return React.createElement(EraOverrideModal, {
         open: true,
         detection: {
           upload_id: "upload-1",
@@ -42,30 +44,42 @@ describe("EraOverrideModal", () => {
           prompt_version: "v1",
           estimated_usage_minutes: 3,
         },
-        selectedEra: "",
-        overrideReason: "",
+        selectedEra,
+        overrideReason,
         learnMoreUrl: "https://example.test/learn-more",
-        onSelectEra,
-        onChangeReason,
+        onSelectEra: (value) => {
+          onSelectEra(value);
+          setSelectedEra(value);
+        },
+        onChangeReason: (value) => {
+          onChangeReason(value);
+          setOverrideReason(value);
+        },
         onClose,
         onConfirm,
-      }),
-    );
+      });
+    }
+
+    render(React.createElement(Harness));
 
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByText(/current confidence: 61%/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Learn More" })).toHaveAttribute("href", "https://example.test/learn-more");
+    const applyButton = screen.getByRole("button", { name: "Apply Override" });
+    expect(applyButton).toBeDisabled();
 
     await user.selectOptions(screen.getByLabelText("Manual era override"), "1970s Super 8 Film");
     expect(onSelectEra).toHaveBeenCalledWith("1970s Super 8 Film");
+    expect(applyButton).toBeDisabled();
 
     await user.type(screen.getByLabelText("Override reason"), "Visible sprocket pattern");
     expect(onChangeReason).toHaveBeenCalled();
+    expect(applyButton).toBeEnabled();
 
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onClose).toHaveBeenCalledTimes(1);
 
-    await user.click(screen.getByRole("button", { name: "Apply Override" }));
+    await user.click(applyButton);
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 });

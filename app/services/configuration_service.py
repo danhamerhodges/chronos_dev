@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any
@@ -53,6 +54,7 @@ _ERA_RANGE = {
     "1980s VHS Tape": {"start_year": 1980, "end_year": 1989},
     "1990s VHS Tape": {"start_year": 1990, "end_year": 1999},
 }
+_LOGGER = logging.getLogger("chronos.configuration")
 
 
 def _utc_now() -> str:
@@ -74,25 +76,82 @@ def _fidelity_preferences(profile: dict[str, Any]) -> dict[str, Any]:
     return dict(fidelity_preferences) if isinstance(fidelity_preferences, dict) else {}
 
 
-def _persona_from_preferences(profile: dict[str, Any]) -> UserPersona | None:
-    raw_persona = _fidelity_preferences(profile).get("persona")
+def _safe_persona(raw_persona: Any) -> UserPersona | None:
     if not raw_persona:
         return None
-    return UserPersona(raw_persona)
+    try:
+        return UserPersona(str(raw_persona))
+    except ValueError:
+        return None
+
+
+def _safe_tier(raw_tier: Any) -> FidelityTier | None:
+    if not raw_tier:
+        return None
+    try:
+        return FidelityTier(str(raw_tier))
+    except ValueError:
+        return None
+
+
+def _safe_grain(raw_grain: Any) -> GrainPreset | None:
+    if not raw_grain:
+        return None
+    try:
+        return GrainPreset(str(raw_grain))
+    except ValueError:
+        return None
+
+
+def _persona_from_preferences(profile: dict[str, Any]) -> UserPersona | None:
+    return _safe_persona(_fidelity_preferences(profile).get("persona"))
 
 
 def _preferred_tier_from_preferences(profile: dict[str, Any]) -> FidelityTier | None:
-    raw_tier = _fidelity_preferences(profile).get("preferred_fidelity_tier")
-    if not raw_tier:
-        return None
-    return FidelityTier(raw_tier)
+    return _safe_tier(_fidelity_preferences(profile).get("preferred_fidelity_tier"))
 
 
 def _preferred_grain_from_preferences(profile: dict[str, Any]) -> GrainPreset | None:
-    raw_grain = _fidelity_preferences(profile).get("preferred_grain_preset")
-    if not raw_grain:
+    return _safe_grain(_fidelity_preferences(profile).get("preferred_grain_preset"))
+
+
+def _allowed_tiers_for_plan(plan_tier: str) -> list[FidelityTier]:
+    if plan_tier.strip().lower() == "hobbyist":
+        return [FidelityTier.ENHANCE]
+    return list(FidelityTier)
+
+
+def _coerce_tier_for_plan(
+    tier: FidelityTier | None,
+    *,
+    plan_tier: str,
+) -> FidelityTier | None:
+    if tier is None:
         return None
-    return GrainPreset(raw_grain)
+    return tier if tier in _allowed_tiers_for_plan(plan_tier) else FidelityTier.ENHANCE
+
+
+def _default_grain_preset_for_tier(tier: FidelityTier) -> GrainPreset:
+    return GrainPreset(fidelity_profile_for(tier).grain_preset)
+
+
+def _catalog_preferred_tier(profile: dict[str, Any], *, plan_tier: str) -> FidelityTier | None:
+    preferred = _coerce_tier_for_plan(_preferred_tier_from_preferences(profile), plan_tier=plan_tier)
+    if preferred is not None:
+        return preferred
+    if plan_tier.strip().lower() == "hobbyist":
+        return FidelityTier.ENHANCE
+    return None
+
+
+def _catalog_preferred_grain(profile: dict[str, Any], *, plan_tier: str) -> GrainPreset | None:
+    preferred_tier = _catalog_preferred_tier(profile, plan_tier=plan_tier)
+    if preferred_tier is None:
+        return None
+    preferred_grain = _preferred_grain_from_preferences(profile)
+    if preferred_grain in allowed_grain_presets_for_tier(preferred_tier):
+        return preferred_grain
+    return _default_grain_preset_for_tier(preferred_tier)
 
 
 def _merge_fidelity_preferences(
@@ -113,14 +172,14 @@ def _merge_fidelity_preferences(
     return preferences
 
 
-def _resolve_detection_tier_hint(profile: dict[str, Any]) -> FidelityTier:
-    preferred = _preferred_tier_from_preferences(profile)
+def _resolve_detection_tier_hint(profile: dict[str, Any], *, plan_tier: str) -> FidelityTier:
+    preferred = _coerce_tier_for_plan(_preferred_tier_from_preferences(profile), plan_tier=plan_tier)
     if preferred is not None:
         return preferred
     persona = _persona_from_preferences(profile)
     if persona is not None:
-        return default_tier_for_persona(persona)
-    return _DEFAULT_DETECTION_TIER
+        return _coerce_tier_for_plan(default_tier_for_persona(persona), plan_tier=plan_tier) or FidelityTier.ENHANCE
+    return _coerce_tier_for_plan(_DEFAULT_DETECTION_TIER, plan_tier=plan_tier) or FidelityTier.ENHANCE
 
 
 def _require_completed_upload(session: dict[str, Any] | None) -> dict[str, Any]:
@@ -296,6 +355,25 @@ def _ensure_plan_supports_capture_medium(*, capture_medium: str, plan_tier: str)
     )
 
 
+def _ensure_plan_supports_fidelity_tier(*, fidelity_tier: FidelityTier, plan_tier: str) -> None:
+    if plan_tier.strip().lower() != "hobbyist":
+        return
+    if fidelity_tier == FidelityTier.ENHANCE:
+        return
+    raise ProblemException(
+        title="Plan Upgrade Required",
+        detail="Hobbyist includes Enhance only in Packet 4B. Upgrade to Pro or higher to use Restore or Conserve.",
+        status_code=403,
+        errors=[
+            {
+                "field": "fidelity_tier",
+                "message": "Hobbyist supports only the Enhance tier in Packet 4B.",
+                "rule_id": "FR-003",
+            }
+        ],
+    )
+
+
 class ConfigurationService:
     def __init__(
         self,
@@ -324,17 +402,15 @@ class ConfigurationService:
             org_id=org_id,
             access_token=access_token,
         )
+        preferred_tier = _catalog_preferred_tier(profile, plan_tier=plan_tier)
+        preferred_grain = _catalog_preferred_grain(profile, plan_tier=plan_tier)
         return {
             "personas": [item.model_dump() for item in persona_catalog()],
-            "tiers": [item.model_dump() for item in tier_catalog()],
+            "tiers": [item.model_dump() for item in tier_catalog() if item.tier in _allowed_tiers_for_plan(plan_tier)],
             "grain_presets": [preset.value for preset in GrainPreset],
             "current_persona": (_persona_from_preferences(profile).value if _persona_from_preferences(profile) else None),
-            "preferred_fidelity_tier": (
-                _preferred_tier_from_preferences(profile).value if _preferred_tier_from_preferences(profile) else None
-            ),
-            "preferred_grain_preset": (
-                _preferred_grain_from_preferences(profile).value if _preferred_grain_from_preferences(profile) else None
-            ),
+            "preferred_fidelity_tier": preferred_tier.value if preferred_tier else None,
+            "preferred_grain_preset": preferred_grain.value if preferred_grain else None,
         }
 
     def detect_upload_era(
@@ -400,6 +476,7 @@ class ConfigurationService:
 
         fidelity_tier = FidelityTier(payload["fidelity_tier"])
         grain_preset = GrainPreset(payload["grain_preset"])
+        _ensure_plan_supports_fidelity_tier(fidelity_tier=fidelity_tier, plan_tier=plan_tier)
         if grain_preset not in allowed_grain_presets_for_tier(fidelity_tier):
             allowed = ", ".join(preset.value for preset in allowed_grain_presets_for_tier(fidelity_tier))
             raise ProblemException(
@@ -507,11 +584,19 @@ class ConfigurationService:
             fidelity_tier=fidelity_tier,
             grain_preset=grain_preset,
         )
-        self._user_profile_repo.update(
-            user_id,
-            {"preferences": merged_preferences},
-            access_token=access_token,
-        )
+        try:
+            self._user_profile_repo.update(
+                user_id,
+                {"preferences": merged_preferences},
+                access_token=access_token,
+            )
+        except Exception as exc:
+            _LOGGER.warning(
+                "packet4b-preference-update-failed user_id=%s upload_id=%s error=%s",
+                user_id,
+                upload_id,
+                exc,
+            )
 
         return {
             "upload_id": upload_id,
@@ -578,7 +663,7 @@ class ConfigurationService:
             }
 
         estimated_duration_seconds = int(payload["estimated_duration_seconds"])
-        detection_tier_hint = _resolve_detection_tier_hint(profile)
+        detection_tier_hint = _resolve_detection_tier_hint(profile, plan_tier=profile.get("plan_tier", "Pro"))
         estimated_usage_minutes = billable_minutes_for_duration(
             duration_seconds=estimated_duration_seconds,
             mode=detection_tier_hint.value,
