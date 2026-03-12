@@ -123,11 +123,11 @@ describe("Packet 4B App flow", () => {
       detection_id: "detect-1",
       job_id: "upload:upload-1",
       era: "1970s Super 8 Film",
-      confidence: 0.64,
-      manual_confirmation_required: true,
-      top_candidates: [{ era: "1980s VHS Tape", confidence: 0.52 }],
+      confidence: 0.94,
+      manual_confirmation_required: false,
+      top_candidates: [],
       forensic_markers: { grain_structure: "consumer film grain", color_saturation: 0.58, format_artifacts: ["frame_jitter"] },
-      warnings: ["Manual confirmation required due to low confidence."],
+      warnings: [],
       processing_timestamp: "2026-03-11T00:00:00+00:00",
       source: "system",
       model_version: "deterministic-fallback",
@@ -145,11 +145,11 @@ describe("Packet 4B App flow", () => {
         detection_id: "detect-1",
         job_id: "upload:upload-1",
         era: "1970s Super 8 Film",
-        confidence: 0.64,
-        manual_confirmation_required: true,
-        top_candidates: [{ era: "1980s VHS Tape", confidence: 0.52 }],
+        confidence: 0.94,
+        manual_confirmation_required: false,
+        top_candidates: [],
         forensic_markers: { grain_structure: "consumer film grain", color_saturation: 0.58, format_artifacts: ["frame_jitter"] },
-        warnings: ["Manual confirmation required due to low confidence."],
+        warnings: [],
         processing_timestamp: "2026-03-11T00:00:00+00:00",
         source: "system",
         model_version: "deterministic-fallback",
@@ -208,6 +208,9 @@ describe("Packet 4B App flow", () => {
 
     await user.selectOptions(await screen.findByLabelText("Select user persona"), "filmmaker");
     await user.click(screen.getByRole("radio", { name: "Enhance" }));
+    await waitFor(() =>
+      expect((screen.getByLabelText("Select grain preset") as HTMLSelectElement).value).toBe("Subtle"),
+    );
     await user.selectOptions(await screen.findByLabelText("Select grain preset"), "Heavy");
     await user.click(screen.getByRole("button", { name: "Detect Era" }));
 
@@ -238,6 +241,164 @@ describe("Packet 4B App flow", () => {
     expect(screen.getByText((_, element) => element?.textContent === "Tier: Enhance")).toBeInTheDocument();
     expect(screen.getByText((_, element) => element?.textContent === "Grain preset: Heavy")).toBeInTheDocument();
     expect(screen.getByText((_, element) => element?.textContent === "Relative time: <2 min/min")).toBeInTheDocument();
+  });
+
+  it("clears stale manual override state after a normal detection refresh", async () => {
+    const user = userEvent.setup();
+    fetchFidelityCatalog.mockResolvedValue(buildCatalog());
+    detectUploadEra
+      .mockResolvedValueOnce({
+        upload_id: "upload-1",
+        detection_id: "detect-low",
+        job_id: "upload:upload-1",
+        era: "1970s Super 8 Film",
+        confidence: 0.64,
+        manual_confirmation_required: true,
+        top_candidates: [{ era: "1980s VHS Tape", confidence: 0.52 }],
+        forensic_markers: { grain_structure: "consumer film grain", color_saturation: 0.58, format_artifacts: ["frame_jitter"] },
+        warnings: ["Manual confirmation required due to low confidence."],
+        processing_timestamp: "2026-03-11T00:00:00+00:00",
+        source: "system",
+        model_version: "deterministic-fallback",
+        prompt_version: "v1",
+        estimated_usage_minutes: 3,
+      })
+      .mockResolvedValueOnce({
+        upload_id: "upload-1",
+        detection_id: "detect-override",
+        job_id: "upload:upload-1",
+        era: "1980s VHS Tape",
+        confidence: 0.63,
+        manual_confirmation_required: true,
+        top_candidates: [{ era: "1970s Super 8 Film", confidence: 0.51 }],
+        forensic_markers: { grain_structure: "magnetic noise smear", color_saturation: 0.41, format_artifacts: ["head_switching_noise"] },
+        warnings: ["Manual override recorded."],
+        processing_timestamp: "2026-03-11T00:01:00+00:00",
+        source: "user_override",
+        model_version: "deterministic-fallback",
+        prompt_version: "v1",
+        estimated_usage_minutes: 3,
+      })
+      .mockResolvedValueOnce({
+        upload_id: "upload-1",
+        detection_id: "detect-refresh",
+        job_id: "upload:upload-1",
+        era: "1970s Super 8 Film",
+        confidence: 0.91,
+        manual_confirmation_required: false,
+        top_candidates: [],
+        forensic_markers: { grain_structure: "consumer film grain", color_saturation: 0.58, format_artifacts: ["frame_jitter"] },
+        warnings: [],
+        processing_timestamp: "2026-03-11T00:02:00+00:00",
+        source: "system",
+        model_version: "deterministic-fallback",
+        prompt_version: "v1",
+        estimated_usage_minutes: 3,
+      });
+    saveUploadConfiguration.mockResolvedValue({
+      upload_id: "upload-1",
+      status: "completed",
+      persona: "filmmaker",
+      fidelity_tier: "Enhance",
+      grain_preset: "Subtle",
+      detection_snapshot: {
+        upload_id: "upload-1",
+        detection_id: "detect-refresh",
+        job_id: "upload:upload-1",
+        era: "1970s Super 8 Film",
+        confidence: 0.91,
+        manual_confirmation_required: false,
+        top_candidates: [],
+        forensic_markers: { grain_structure: "consumer film grain", color_saturation: 0.58, format_artifacts: ["frame_jitter"] },
+        warnings: [],
+        processing_timestamp: "2026-03-11T00:02:00+00:00",
+        source: "system",
+        model_version: "deterministic-fallback",
+        prompt_version: "v1",
+        estimated_usage_minutes: 3,
+      },
+      resolved_fidelity_profile: { tier: "Enhance", grain_preset: "Subtle" },
+      relative_cost_multiplier: 1.0,
+      relative_processing_time_band: "<2 min/min",
+      job_payload_preview: {
+        media_uri: "gs://chronos-test-bucket/uploads/flow-user/upload-1/archive.mov",
+        original_filename: "archive.mov",
+        mime_type: "video/quicktime",
+        estimated_duration_seconds: 180,
+        source_asset_checksum: "abc12345def67890",
+        fidelity_tier: "Enhance",
+        reproducibility_mode: "perceptual_equivalence",
+        processing_mode: "balanced",
+        era_profile: {},
+        config: {},
+      },
+      configured_at: "2026-03-11T00:05:00+00:00",
+    });
+    executeUploadFlow.mockImplementation(async ({ handlers }) => {
+      handlers.setStatus("completed");
+      handlers.setProgress(100);
+      handlers.setEtaSeconds(0);
+      handlers.setCanResume(false);
+      handlers.setError("");
+      handlers.setUploadSession({
+        upload_id: "upload-1",
+        status: "completed",
+        original_filename: "archive.mov",
+        mime_type: "video/quicktime",
+        size_bytes: 1024,
+        checksum_sha256: "abc12345def67890",
+        bucket_name: "chronos-test-bucket",
+        object_path: "uploads/flow-user/upload-1/archive.mov",
+        media_uri: "gs://chronos-test-bucket/uploads/flow-user/upload-1/archive.mov",
+        resumable_session_url: "https://example.invalid/resumable",
+        created_at: "2026-03-11T00:00:00+00:00",
+        updated_at: "2026-03-11T00:00:00+00:00",
+        completed_at: "2026-03-11T00:00:00+00:00",
+      });
+    });
+
+    render(React.createElement(App));
+
+    const fileInput = screen.getAllByLabelText("Media file")[0];
+    const file = new File(["12345"], "archive.mov", { type: "video/quicktime" });
+    await user.upload(fileInput, file);
+    await user.click(screen.getAllByRole("button", { name: "Start Upload" })[0]);
+
+    await waitFor(() => expect(fetchFidelityCatalog).toHaveBeenCalled());
+    await user.selectOptions(await screen.findByLabelText("Select user persona"), "filmmaker");
+    await user.click(screen.getByRole("button", { name: "Detect Era" }));
+    await waitFor(() => expect(detectUploadEra).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByRole("button", { name: "Override Era" }));
+    await user.selectOptions(await screen.findByLabelText("Manual era override"), "1980s VHS Tape");
+    await user.type(await screen.findByLabelText("Override reason"), "Tape noise pattern matches VHS");
+    await user.click(screen.getByRole("button", { name: "Apply Override" }));
+    await waitFor(() =>
+      expect(detectUploadEra).toHaveBeenNthCalledWith(2, "", "token-123", "upload-1", {
+        estimated_duration_seconds: 180,
+        manual_override_era: "1980s VHS Tape",
+        override_reason: "Tape noise pattern matches VHS",
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Refresh Detection" }));
+    await waitFor(() =>
+      expect(detectUploadEra).toHaveBeenNthCalledWith(3, "", "token-123", "upload-1", {
+        estimated_duration_seconds: 180,
+      }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Save Configuration" }));
+    await waitFor(() =>
+      expect(saveUploadConfiguration).toHaveBeenCalledWith("", "token-123", "upload-1", {
+        persona: "filmmaker",
+        fidelity_tier: "Restore",
+        grain_preset: "Matched",
+        estimated_duration_seconds: 180,
+        manual_override_era: undefined,
+        override_reason: undefined,
+      }),
+    );
   });
 
   it("surfaces the explicit upgrade-required error from the configuration route", async () => {

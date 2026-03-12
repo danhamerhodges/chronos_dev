@@ -288,7 +288,8 @@ def test_save_configuration_updates_preferences_and_returns_job_payload_preview(
     assert payload["grain_preset"] == "Heavy"
     assert payload["relative_cost_multiplier"] == 1.0
     assert payload["relative_processing_time_band"] == "<2 min/min"
-    assert payload["job_payload_preview"] == {
+    preview = payload["job_payload_preview"]
+    assert {key: value for key, value in preview.items() if key != "era_profile"} == {
         "media_uri": "gs://chronos-test-bucket/uploads/config-user/upload-config/sample.mov",
         "original_filename": "sample.mov",
         "mime_type": "video/quicktime",
@@ -297,7 +298,6 @@ def test_save_configuration_updates_preferences_and_returns_job_payload_preview(
         "fidelity_tier": "Enhance",
         "reproducibility_mode": "perceptual_equivalence",
         "processing_mode": "balanced",
-        "era_profile": payload["job_payload_preview"]["era_profile"],
         "config": {
             "persona": "filmmaker",
             "grain_preset": "Heavy",
@@ -314,6 +314,17 @@ def test_save_configuration_updates_preferences_and_returns_job_payload_preview(
             },
         },
     }
+    era_profile = preview["era_profile"]
+    assert isinstance(era_profile, dict)
+    assert era_profile["mode"] == "Enhance"
+    assert era_profile["tier"] == "Pro"
+    assert era_profile["resolution_cap"] == "4k"
+    assert era_profile["hallucination_limit"] == 0.30
+    assert era_profile["manual_confirmation_required"] is False
+    assert era_profile["capture_medium"] in {"super_8", "kodachrome", "16mm", "vhs", "albumen", "daguerreotype"}
+    assert era_profile["artifact_policy"]["grain_intensity"] == "Heavy"
+    assert set(era_profile["era_range"]) == {"start_year", "end_year"}
+    assert era_profile["era_range"]["start_year"] <= era_profile["era_range"]["end_year"]
     profile = client.get("/v1/users/me", headers=fake_auth_header("config-user", tier="pro"))
     assert profile.status_code == 200
     assert profile.json()["preferences"]["fidelity_configuration"] == {

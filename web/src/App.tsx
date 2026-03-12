@@ -161,7 +161,7 @@ export function App() {
       return;
     }
     const allowedPresets = allowedGrainPresetsForTier(catalog, nextTier);
-    setSelectedGrainPreset(allowedPresets[0] ?? defaultGrainPresetForTier(catalog, nextTier));
+    setSelectedGrainPreset(defaultGrainPresetForTier(catalog, nextTier) ?? allowedPresets[0] ?? null);
     setSavedConfiguration(null);
   }
 
@@ -182,12 +182,8 @@ export function App() {
       setDetection(nextDetection);
       setSavedConfiguration(null);
       setError("");
-      if (overrides.manual_override_era) {
-        setManualOverrideEra(overrides.manual_override_era);
-      }
-      if (overrides.override_reason) {
-        setOverrideReason(overrides.override_reason);
-      }
+      setManualOverrideEra(overrides.manual_override_era ?? "");
+      setOverrideReason(overrides.override_reason ?? "");
       setShowOverrideModal(false);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to detect the upload era.");
