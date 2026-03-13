@@ -462,4 +462,70 @@ describe("Packet 4B App flow", () => {
       "Early-photography assets require minimum 2k processing and therefore require Pro or higher.",
     );
   });
+
+  it("treats the empty persona option as a deselect instead of a typed persona value", async () => {
+    const user = userEvent.setup();
+    fetchFidelityCatalog.mockResolvedValue(buildCatalog());
+    detectUploadEra.mockResolvedValue({
+      upload_id: "upload-1",
+      detection_id: "detect-1",
+      job_id: "upload:upload-1",
+      era: "1970s Super 8 Film",
+      confidence: 0.94,
+      manual_confirmation_required: false,
+      top_candidates: [],
+      forensic_markers: { grain_structure: "consumer film grain", color_saturation: 0.58, format_artifacts: ["frame_jitter"] },
+      warnings: [],
+      processing_timestamp: "2026-03-11T00:00:00+00:00",
+      source: "system",
+      model_version: "deterministic-fallback",
+      prompt_version: "v1",
+      estimated_usage_minutes: 3,
+    });
+    executeUploadFlow.mockImplementation(async ({ handlers }) => {
+      handlers.setStatus("completed");
+      handlers.setProgress(100);
+      handlers.setCanResume(false);
+      handlers.setEtaSeconds(0);
+      handlers.setError("");
+      handlers.setUploadSession({
+        upload_id: "upload-1",
+        status: "completed",
+        original_filename: "archive.mov",
+        mime_type: "video/quicktime",
+        size_bytes: 1024,
+        checksum_sha256: "abc12345def67890",
+        bucket_name: "chronos-test-bucket",
+        object_path: "uploads/flow-user/upload-1/archive.mov",
+        media_uri: "gs://chronos-test-bucket/uploads/flow-user/upload-1/archive.mov",
+        resumable_session_url: "https://example.invalid/resumable",
+        created_at: "2026-03-11T00:00:00+00:00",
+        updated_at: "2026-03-11T00:00:00+00:00",
+        completed_at: "2026-03-11T00:00:00+00:00",
+      });
+    });
+
+    render(React.createElement(App));
+
+    const fileInput = screen.getAllByLabelText("Media file")[0];
+    const file = new File(["12345"], "archive.mov", { type: "video/quicktime" });
+    await user.upload(fileInput, file);
+    await user.click(screen.getAllByRole("button", { name: "Start Upload" })[0]);
+    await waitFor(() => expect(fetchFidelityCatalog).toHaveBeenCalled());
+
+    const personaSelect = (await screen.findByLabelText("Select user persona")) as HTMLSelectElement;
+    await user.selectOptions(personaSelect, "filmmaker");
+    expect(personaSelect.value).toBe("filmmaker");
+
+    await user.selectOptions(personaSelect, "");
+    expect(personaSelect.value).toBe("");
+
+    await user.click(screen.getByRole("button", { name: "Detect Era" }));
+    await waitFor(() => expect(detectUploadEra).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByRole("button", { name: "Save Configuration" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Select a persona before saving the Packet 4B configuration.",
+    );
+  });
 });

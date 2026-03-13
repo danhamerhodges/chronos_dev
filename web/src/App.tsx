@@ -155,6 +155,11 @@ export function App() {
     setSavedConfiguration(null);
   }
 
+  function clearPersonaSelection(): void {
+    setSelectedPersona("");
+    setSavedConfiguration(null);
+  }
+
   function handleTierChange(nextTier: FidelityTier): void {
     setSelectedTier(nextTier);
     if (!catalog) {
@@ -325,7 +330,14 @@ export function App() {
                     <div style={{ marginBottom: "var(--spacing-xs)" }}>Persona</div>
                     <select
                       aria-label="Select user persona"
-                      onChange={(event) => handlePersonaChange(event.target.value as UserPersona)}
+                      onChange={(event) => {
+                        const nextPersona = event.target.value;
+                        if (!nextPersona) {
+                          clearPersonaSelection();
+                          return;
+                        }
+                        handlePersonaChange(nextPersona as UserPersona);
+                      }}
                       value={selectedPersona}
                     >
                       <option value="">Select a persona</option>

@@ -125,10 +125,14 @@ class VertexGeminiEraClassifier:
         access_token = self._token_provider.access_token()
         if not access_token:
             raise ClassifierError("Google access token is not available for Vertex Gemini requests.")
-        resolved_era_profile = era_profile or build_default_era_profile(
-            media_uri=media_uri,
-            original_filename=original_filename,
-            mime_type=mime_type,
+        resolved_era_profile = (
+            era_profile
+            if era_profile is not None
+            else build_default_era_profile(
+                media_uri=media_uri,
+                original_filename=original_filename,
+                mime_type=mime_type,
+            )
         )
         response_payload = self._generate_content(
             access_token=access_token,

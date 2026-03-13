@@ -438,6 +438,7 @@ class ConfigurationService:
             upload_id=upload_id,
             session=session,
             profile=profile,
+            plan_tier=plan_tier,
             payload=payload,
             owner_user_id=user_id,
             access_token=access_token,
@@ -493,6 +494,7 @@ class ConfigurationService:
                 upload_id=upload_id,
                 session=session,
                 profile=profile,
+                plan_tier=plan_tier,
                 payload=payload,
                 owner_user_id=user_id,
                 access_token=access_token,
@@ -618,6 +620,7 @@ class ConfigurationService:
         upload_id: str,
         session: dict[str, Any],
         profile: dict[str, Any],
+        plan_tier: str,
         payload: dict[str, object],
         owner_user_id: str,
         access_token: str,
@@ -663,7 +666,7 @@ class ConfigurationService:
             }
 
         estimated_duration_seconds = int(payload["estimated_duration_seconds"])
-        detection_tier_hint = _resolve_detection_tier_hint(profile, plan_tier=profile.get("plan_tier", "Pro"))
+        detection_tier_hint = _resolve_detection_tier_hint(profile, plan_tier=plan_tier)
         estimated_usage_minutes = billable_minutes_for_duration(
             duration_seconds=estimated_duration_seconds,
             mode=detection_tier_hint.value,

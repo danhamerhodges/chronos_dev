@@ -188,6 +188,41 @@ def test_detect_upload_era_enforces_owner_scope() -> None:
     assert response.status_code == 404
 
 
+def test_detect_upload_era_uses_validated_plan_tier_instead_of_stale_profile_data() -> None:
+    _seed_upload(upload_id="upload-stale-plan-tier", owner_user_id="stale-plan-user")
+    repo = UserProfileRepository()
+    repo.get_or_create(
+        user_id="stale-plan-user",
+        role="member",
+        plan_tier="pro",
+        org_id="org-default",
+        access_token="test-token-for-stale-plan-user",
+    )
+    repo.update(
+        "stale-plan-user",
+        {
+            "plan_tier": "pro",
+            "preferences": {
+                "fidelity_configuration": {
+                    "persona": "archivist",
+                    "preferred_fidelity_tier": "Conserve",
+                    "preferred_grain_preset": "Matched",
+                }
+            },
+        },
+        access_token="test-token-for-stale-plan-user",
+    )
+
+    response = client.post(
+        "/v1/upload/upload-stale-plan-tier/detect-era",
+        headers=fake_auth_header("stale-plan-user", tier="hobbyist"),
+        json={"estimated_duration_seconds": 180},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["estimated_usage_minutes"] == 3
+
+
 def test_detect_upload_era_rejects_override_reason_when_missing() -> None:
     _seed_upload(upload_id="upload-override-reason", owner_user_id="override-user", original_filename="mystery.mov")
 
