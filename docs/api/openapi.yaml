@@ -554,6 +554,31 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/JobCancelResponse"
+  /v1/jobs/{job_id}/uncertainty-callouts:
+    get:
+      tags: [jobs]
+      summary: List structured uncertainty callouts for the current user's job
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Structured uncertainty callouts for Packet 4C
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobUncertaintyCalloutsResponse"
+        "404":
+          description: Job not found for the current user
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
   /v1/manifests/{job_id}:
     get:
       tags: [manifests]
@@ -1478,6 +1503,57 @@ components:
           enum: [queued, processing, completed, failed, partial, cancel_requested, cancelled]
         cancel_requested_at:
           type: string
+    UncertaintyCalloutTimeRangeResponse:
+      type: object
+      required: [start, end]
+      properties:
+        start:
+          type: number
+        end:
+          type: number
+    UncertaintyCalloutSourceResponse:
+      type: object
+      properties:
+        segment_index:
+          type: integer
+        metric_key:
+          type: string
+    UncertaintyCalloutResponse:
+      type: object
+      required: [callout_id, code, severity, title, message, scope, time_range_seconds, source]
+      properties:
+        callout_id:
+          type: string
+        code:
+          type: string
+          enum: [low_confidence_era_classification, texture_loss_risk, spectral_boundary_risk, temporal_coherence_risk]
+        severity:
+          type: string
+          enum: [warning, critical]
+        title:
+          type: string
+        message:
+          type: string
+        scope:
+          type: string
+          enum: [segment, global]
+        time_range_seconds:
+          $ref: "#/components/schemas/UncertaintyCalloutTimeRangeResponse"
+        source:
+          $ref: "#/components/schemas/UncertaintyCalloutSourceResponse"
+    JobUncertaintyCalloutsResponse:
+      type: object
+      required: [job_id, status, callouts]
+      properties:
+        job_id:
+          type: string
+        status:
+          type: string
+          enum: [queued, processing, completed, failed, partial, cancel_requested, cancelled]
+        callouts:
+          type: array
+          items:
+            $ref: "#/components/schemas/UncertaintyCalloutResponse"
     QualitySummaryResponse:
       type: object
       required: [e_hf, s_ls_db, t_tc, thresholds_met]

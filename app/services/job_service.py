@@ -13,6 +13,7 @@ from app.services.fidelity_profiles import resolve_fidelity_profile
 from app.services.job_dispatcher import publish_job
 from app.services.job_pipeline import build_segments
 from app.services.reproducibility import validate_reproducibility_mode
+from app.services.uncertainty_callouts import UncertaintyCalloutService
 from app.validation.schema_validation import validate_era_profile
 
 
@@ -21,6 +22,7 @@ class JobService:
         self._repo = JobRepository()
         self._manifests = ManifestRepository()
         self._billing = BillingService()
+        self._callouts = UncertaintyCalloutService()
 
     def create_job(
         self,
@@ -154,6 +156,15 @@ class JobService:
                 status_code=500,
             )
         return job
+
+    def get_uncertainty_callouts(
+        self,
+        job_id: str,
+        *,
+        owner_user_id: str,
+        access_token: str | None = None,
+    ) -> dict[str, object]:
+        return self._callouts.list_callouts(job_id, owner_user_id=owner_user_id, access_token=access_token)
 
     def _progress_from_job(self, job: dict[str, object]) -> dict[str, object]:
         segment_count = int(job.get("segment_count", 0) or 0)
