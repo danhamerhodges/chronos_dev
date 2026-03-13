@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 import { Button } from "./components/Button";
 import { Card } from "./components/Card";
@@ -61,8 +61,14 @@ export function App() {
   const [showOverrideModal, setShowOverrideModal] = useState(false);
   const [manualOverrideEra, setManualOverrideEra] = useState("");
   const [overrideReason, setOverrideReason] = useState("");
+  const activeUploadIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    activeUploadIdRef.current = uploadSession?.upload_id ?? null;
+  }, [uploadSession]);
 
   function resetConfigurationState(): void {
+    setEstimatedDurationSeconds(180);
     setCatalog(null);
     setDetection(null);
     setSavedConfiguration(null);
@@ -177,13 +183,17 @@ export function App() {
       setError("Complete the upload before running era detection.");
       return;
     }
+    const requestUploadId = uploadSession.upload_id;
     setConfigBusy(true);
     try {
       const accessToken = await currentAccessToken();
-      const nextDetection = await detectUploadEra(API_BASE_URL, accessToken, uploadSession.upload_id, {
+      const nextDetection = await detectUploadEra(API_BASE_URL, accessToken, requestUploadId, {
         estimated_duration_seconds: estimatedDurationSeconds,
         ...overrides,
       });
+      if (activeUploadIdRef.current !== requestUploadId) {
+        return;
+      }
       setDetection(nextDetection);
       setSavedConfiguration(null);
       setError("");
@@ -206,10 +216,11 @@ export function App() {
       setError("Select a persona before saving the Packet 4B configuration.");
       return;
     }
+    const requestUploadId = uploadSession.upload_id;
     setConfigBusy(true);
     try {
       const accessToken = await currentAccessToken();
-      const nextConfiguration = await saveUploadConfiguration(API_BASE_URL, accessToken, uploadSession.upload_id, {
+      const nextConfiguration = await saveUploadConfiguration(API_BASE_URL, accessToken, requestUploadId, {
         persona: selectedPersona,
         fidelity_tier: selectedTier,
         grain_preset: selectedGrainPreset,
@@ -217,6 +228,9 @@ export function App() {
         manual_override_era: manualOverrideEra || undefined,
         override_reason: overrideReason || undefined,
       });
+      if (activeUploadIdRef.current !== requestUploadId) {
+        return;
+      }
       setSavedConfiguration(nextConfiguration);
       setDetection(nextConfiguration.detection_snapshot);
       setSelectedPersona(nextConfiguration.persona);

@@ -404,8 +404,18 @@ class ConfigurationService:
         )
         preferred_tier = _catalog_preferred_tier(profile, plan_tier=plan_tier)
         preferred_grain = _catalog_preferred_grain(profile, plan_tier=plan_tier)
+        personas = [
+            {
+                **item.model_dump(),
+                "default_fidelity_tier": _coerce_tier_for_plan(
+                    item.default_fidelity_tier,
+                    plan_tier=plan_tier,
+                ).value,
+            }
+            for item in persona_catalog()
+        ]
         return {
-            "personas": [item.model_dump() for item in persona_catalog()],
+            "personas": personas,
             "tiers": [item.model_dump() for item in tier_catalog() if item.tier in _allowed_tiers_for_plan(plan_tier)],
             "grain_presets": [preset.value for preset in GrainPreset],
             "current_persona": (_persona_from_preferences(profile).value if _persona_from_preferences(profile) else None),

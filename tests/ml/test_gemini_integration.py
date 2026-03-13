@@ -166,7 +166,10 @@ def test_vertex_gemini_classifier_preserves_explicit_empty_era_profile(monkeypat
     )
 
     def _post(url, *, headers=None, json=None, timeout=None):
-        assert json["contents"][0]["parts"][0]["text"]
+        request_text = json["contents"][0]["parts"][0]["text"]
+        assert request_text
+        parsed_request = json_module.loads(request_text)
+        assert parsed_request["era_profile"] == {}
         return httpx.Response(
             200,
             request=httpx.Request("POST", url),

@@ -121,6 +121,11 @@ def test_fidelity_tiers_catalog_limits_hobbyist_to_enhance_and_resolves_saved_de
     assert response.status_code == 200
     payload = response.json()
     assert [item["tier"] for item in payload["tiers"]] == ["Enhance"]
+    assert {item["persona"]: item["default_fidelity_tier"] for item in payload["personas"]} == {
+        "archivist": "Enhance",
+        "filmmaker": "Enhance",
+        "prosumer": "Enhance",
+    }
     assert payload["current_persona"] == "archivist"
     assert payload["preferred_fidelity_tier"] == "Enhance"
     assert payload["preferred_grain_preset"] == "Heavy"
@@ -128,10 +133,17 @@ def test_fidelity_tiers_catalog_limits_hobbyist_to_enhance_and_resolves_saved_de
 
 def test_fidelity_routes_ignore_invalid_saved_preferences() -> None:
     _seed_upload(upload_id="upload-invalid-prefs", owner_user_id="invalid-pref-user")
-    client.patch(
-        "/v1/users/me",
-        headers=fake_auth_header("invalid-pref-user", tier="pro"),
-        json={
+    repo = UserProfileRepository()
+    repo.get_or_create(
+        user_id="invalid-pref-user",
+        role="member",
+        plan_tier="pro",
+        org_id="org-default",
+        access_token="test-token-for-invalid-pref-user",
+    )
+    stored_profile = repo.update(
+        "invalid-pref-user",
+        {
             "preferences": {
                 "fidelity_configuration": {
                     "persona": "legacy-operator",
@@ -140,7 +152,14 @@ def test_fidelity_routes_ignore_invalid_saved_preferences() -> None:
                 }
             }
         },
+        access_token="test-token-for-invalid-pref-user",
     )
+    assert stored_profile is not None
+    assert stored_profile["preferences"]["fidelity_configuration"] == {
+        "persona": "legacy-operator",
+        "preferred_fidelity_tier": "Ultra",
+        "preferred_grain_preset": "Impossible",
+    }
 
     catalog = client.get("/v1/fidelity-tiers", headers=fake_auth_header("invalid-pref-user", tier="pro"))
     assert catalog.status_code == 200

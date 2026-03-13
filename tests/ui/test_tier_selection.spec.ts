@@ -6,7 +6,7 @@
 
 import React from "react";
 
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -57,6 +57,16 @@ vi.mock("../../web/src/lib/supabaseClient", () => ({
 }));
 
 import { App } from "../../web/src/App";
+
+function deferredPromise<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
 
 function buildCatalog() {
   return {
@@ -527,5 +537,196 @@ describe("Packet 4B App flow", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Select a persona before saving the Packet 4B configuration.",
     );
+  });
+
+  it("ignores stale detect responses after the upload changes and resets duration", async () => {
+    const user = userEvent.setup();
+    const detectDeferred = deferredPromise<Awaited<ReturnType<typeof detectUploadEra>>>();
+
+    fetchFidelityCatalog.mockResolvedValue(buildCatalog());
+    detectUploadEra.mockReturnValue(detectDeferred.promise);
+    executeUploadFlow.mockImplementation(async ({ file, handlers }) => {
+      const uploadId = file.name === "archive-a.mov" ? "upload-a" : "upload-b";
+      handlers.setStatus("completed");
+      handlers.setProgress(100);
+      handlers.setCanResume(false);
+      handlers.setEtaSeconds(0);
+      handlers.setError("");
+      handlers.setUploadSession({
+        upload_id: uploadId,
+        status: "completed",
+        original_filename: file.name,
+        mime_type: "video/quicktime",
+        size_bytes: 1024,
+        checksum_sha256: `${uploadId}-checksum`,
+        bucket_name: "chronos-test-bucket",
+        object_path: `uploads/flow-user/${uploadId}/${file.name}`,
+        media_uri: `gs://chronos-test-bucket/uploads/flow-user/${uploadId}/${file.name}`,
+        resumable_session_url: `https://example.invalid/${uploadId}`,
+        created_at: "2026-03-11T00:00:00+00:00",
+        updated_at: "2026-03-11T00:00:00+00:00",
+        completed_at: "2026-03-11T00:00:00+00:00",
+      });
+    });
+
+    render(React.createElement(App));
+
+    const fileInput = screen.getAllByLabelText("Media file")[0];
+    await user.upload(fileInput, new File(["11111"], "archive-a.mov", { type: "video/quicktime" }));
+    await user.click(screen.getAllByRole("button", { name: "Start Upload" })[0]);
+
+    await waitFor(() => expect(fetchFidelityCatalog).toHaveBeenCalledTimes(1));
+    await user.selectOptions(await screen.findByLabelText("Select user persona"), "filmmaker");
+    fireEvent.change(screen.getByRole("spinbutton"), { target: { value: "240" } });
+    await user.click(screen.getByRole("button", { name: "Detect Era" }));
+
+    await waitFor(() =>
+      expect(detectUploadEra).toHaveBeenCalledWith("", "token-123", "upload-a", {
+        estimated_duration_seconds: 240,
+      }),
+    );
+
+    await user.upload(fileInput, new File(["22222"], "archive-b.mov", { type: "video/quicktime" }));
+    await user.click(screen.getAllByRole("button", { name: "Start Upload" })[0]);
+
+    await waitFor(() => expect(fetchFidelityCatalog).toHaveBeenCalledTimes(2));
+    expect((await screen.findByRole("spinbutton")) as HTMLInputElement).toHaveValue(180);
+
+    detectDeferred.resolve({
+      upload_id: "upload-a",
+      detection_id: "detect-a",
+      job_id: "upload:upload-a",
+      era: "1970s Super 8 Film",
+      confidence: 0.91,
+      manual_confirmation_required: false,
+      top_candidates: [],
+      forensic_markers: { grain_structure: "consumer film grain", color_saturation: 0.58, format_artifacts: ["frame_jitter"] },
+      warnings: [],
+      processing_timestamp: "2026-03-11T00:00:00+00:00",
+      source: "system",
+      model_version: "deterministic-fallback",
+      prompt_version: "v1",
+      estimated_usage_minutes: 3,
+    });
+    await Promise.resolve();
+
+    expect(screen.queryByText("1970s Super 8 Film")).not.toBeInTheDocument();
+  });
+
+  it("ignores stale save responses after the upload changes", async () => {
+    const user = userEvent.setup();
+    const saveDeferred = deferredPromise<Awaited<ReturnType<typeof saveUploadConfiguration>>>();
+
+    fetchFidelityCatalog.mockResolvedValue(buildCatalog());
+    detectUploadEra.mockResolvedValue({
+      upload_id: "upload-a",
+      detection_id: "detect-a",
+      job_id: "upload:upload-a",
+      era: "1970s Super 8 Film",
+      confidence: 0.91,
+      manual_confirmation_required: false,
+      top_candidates: [],
+      forensic_markers: { grain_structure: "consumer film grain", color_saturation: 0.58, format_artifacts: ["frame_jitter"] },
+      warnings: [],
+      processing_timestamp: "2026-03-11T00:00:00+00:00",
+      source: "system",
+      model_version: "deterministic-fallback",
+      prompt_version: "v1",
+      estimated_usage_minutes: 3,
+    });
+    saveUploadConfiguration.mockReturnValue(saveDeferred.promise);
+    executeUploadFlow.mockImplementation(async ({ file, handlers }) => {
+      const uploadId = file.name === "archive-a.mov" ? "upload-a" : "upload-b";
+      handlers.setStatus("completed");
+      handlers.setProgress(100);
+      handlers.setCanResume(false);
+      handlers.setEtaSeconds(0);
+      handlers.setError("");
+      handlers.setUploadSession({
+        upload_id: uploadId,
+        status: "completed",
+        original_filename: file.name,
+        mime_type: "video/quicktime",
+        size_bytes: 1024,
+        checksum_sha256: `${uploadId}-checksum`,
+        bucket_name: "chronos-test-bucket",
+        object_path: `uploads/flow-user/${uploadId}/${file.name}`,
+        media_uri: `gs://chronos-test-bucket/uploads/flow-user/${uploadId}/${file.name}`,
+        resumable_session_url: `https://example.invalid/${uploadId}`,
+        created_at: "2026-03-11T00:00:00+00:00",
+        updated_at: "2026-03-11T00:00:00+00:00",
+        completed_at: "2026-03-11T00:00:00+00:00",
+      });
+    });
+
+    render(React.createElement(App));
+
+    const fileInput = screen.getAllByLabelText("Media file")[0];
+    await user.upload(fileInput, new File(["11111"], "archive-a.mov", { type: "video/quicktime" }));
+    await user.click(screen.getAllByRole("button", { name: "Start Upload" })[0]);
+
+    await waitFor(() => expect(fetchFidelityCatalog).toHaveBeenCalledTimes(1));
+    await user.selectOptions(await screen.findByLabelText("Select user persona"), "filmmaker");
+    await user.click(screen.getByRole("button", { name: "Detect Era" }));
+    await waitFor(() => expect(detectUploadEra).toHaveBeenCalled());
+    await user.click(screen.getByRole("button", { name: "Save Configuration" }));
+
+    await waitFor(() =>
+      expect(saveUploadConfiguration).toHaveBeenCalledWith("", "token-123", "upload-a", {
+        persona: "filmmaker",
+        fidelity_tier: "Restore",
+        grain_preset: "Matched",
+        estimated_duration_seconds: 180,
+        manual_override_era: undefined,
+        override_reason: undefined,
+      }),
+    );
+
+    await user.upload(fileInput, new File(["22222"], "archive-b.mov", { type: "video/quicktime" }));
+    await user.click(screen.getAllByRole("button", { name: "Start Upload" })[0]);
+    await waitFor(() => expect(fetchFidelityCatalog).toHaveBeenCalledTimes(2));
+
+    saveDeferred.resolve({
+      upload_id: "upload-a",
+      status: "completed",
+      persona: "filmmaker",
+      fidelity_tier: "Restore",
+      grain_preset: "Matched",
+      detection_snapshot: {
+        upload_id: "upload-a",
+        detection_id: "detect-a",
+        job_id: "upload:upload-a",
+        era: "1970s Super 8 Film",
+        confidence: 0.91,
+        manual_confirmation_required: false,
+        top_candidates: [],
+        forensic_markers: { grain_structure: "consumer film grain", color_saturation: 0.58, format_artifacts: ["frame_jitter"] },
+        warnings: [],
+        processing_timestamp: "2026-03-11T00:00:00+00:00",
+        source: "system",
+        model_version: "deterministic-fallback",
+        prompt_version: "v1",
+        estimated_usage_minutes: 3,
+      },
+      resolved_fidelity_profile: { tier: "Restore", grain_preset: "Matched" },
+      relative_cost_multiplier: 1.5,
+      relative_processing_time_band: "<4 min/min",
+      job_payload_preview: {
+        media_uri: "gs://chronos-test-bucket/uploads/flow-user/upload-a/archive-a.mov",
+        original_filename: "archive-a.mov",
+        mime_type: "video/quicktime",
+        estimated_duration_seconds: 180,
+        source_asset_checksum: "upload-a-checksum",
+        fidelity_tier: "Restore",
+        reproducibility_mode: "perceptual_equivalence",
+        processing_mode: "balanced",
+        era_profile: {},
+        config: {},
+      },
+      configured_at: "2026-03-11T00:05:00+00:00",
+    });
+    await Promise.resolve();
+
+    expect(screen.queryByText((_, element) => element?.textContent === "Persona: filmmaker")).not.toBeInTheDocument();
   });
 });
