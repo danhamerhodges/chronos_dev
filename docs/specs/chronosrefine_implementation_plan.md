@@ -158,7 +158,7 @@ This implementation plan is organized into a logical execution sequence designed
 **Requirements Implemented:** **FR-001**, **FR-003**, **FR-004**, **FR-005**, **ENG-013**, **ENG-014**, **ENG-015**, **DS-001**, **DS-002**, **DS-003**, **DS-004**, **DS-005**, **DS-006**, **NFR-003** (14 requirements)  
 **Coverage Matrix:** See `docs/specs/ChronosRefine Requirements Coverage Matrix.md`
 
-**Current Status Note:** Packets 4A (`FR-001`) and 4B (`FR-003` + `DS-001`) are merged on `main`, with Packet 4B landing in merge commit `fc81b2a568fb7059989963bedeb7a22df8e63008`. Packet 4C remains the next feature packet on `main`. Follow-on packets must still follow the canonical Phase 4 requirement IDs above and the higher-priority requirement specs, not older PRD-style Phase 4 prose. `FR-006` remains a Phase 5 functional requirement; Phase 4 includes only `ENG-014` as the technical preview-generation substrate.
+**Current Status Note:** Packets 4A (`FR-001`) and 4B (`FR-003` + `DS-001`) are merged on `main`, with Packet 4B landing in merge commit `fc81b2a568fb7059989963bedeb7a22df8e63008`. Packet 4C (`FR-004` + the Packet 4C portion of `DS-006`) is complete on candidate branch `codex/packet4c-processing-flow` / PR #8 at `9b741a6`. Packet 4D is the next feature packet once Packet 4C merges. Follow-on packets must still follow the canonical Phase 4 requirement IDs above and the higher-priority requirement specs, not older PRD-style Phase 4 prose. `FR-006` remains a Phase 5 functional requirement; Phase 4 includes only `ENG-014` as the technical preview-generation substrate.
 
 **Entry Criteria:**
 - [x] Phase 3 is complete for kickoff on `main`; `SEC-007` remains deferred per canon and does not block Phase 4 kickoff → **See:** `docs/specs/chronosrefine_implementation_plan.md#phase-3-core-processing-pipeline--ai-integration`
@@ -228,7 +228,7 @@ This implementation plan is organized into a logical execution sequence designed
 - [x] Live Supabase-backed resumable smoke passed with the same persisted-state and owner-boundary evidence → **Req:** **FR-001**, **SEC-013**, **See:** `docs/specs/chronosrefine_phase4_closeout_note.md`
 - [x] Staging revision `chronos-phase1-app-00036-blf` (`build_sha=9a5791c4023794af8d6cc96d7dd2561aafdb93bc`) served upload-session creation successfully and produced recorded latency evidence (`p50=0.7823s`, `p95=9.6927s`, `p99=9.6927s`) → **Req:** **FR-001**, **See:** `docs/specs/chronosrefine_phase4_closeout_note.md`
 
-**Latest Completed Packet: Packet 4B (merged on `main` 2026-03-13 via `fc81b2a`)**
+**Latest Completed Packet on `main`: Packet 4B (merged on `main` 2026-03-13 via `fc81b2a`)**
 
 **Requirement Focus:** `FR-003`, `DS-001`
 
@@ -266,6 +266,44 @@ This implementation plan is organized into a logical execution sequence designed
 - [x] Hobbyist `daguerreotype` / `albumen` configuration saves return `403 Plan Upgrade Required` and do not persist `launch_config`, `configured_at`, or user-preference updates → **Req:** **FR-003**, **See:** `tests/api/test_fidelity_configuration.py`
 - [x] Returned `job_payload_preview` is accepted by the existing `/v1/jobs` path in integration coverage → **Req:** **FR-003** (Packet 4C `/v1/jobs` handoff), **See:** `tests/integration/test_configuration_job_handoff.py`
 - [x] Rendered `DS-001` jsdom tests pass for tier selection, era override, confirmation flow, and the upgrade-required error path → **Req:** **DS-001**, **See:** `tests/ui/test_tier_selection.spec.ts`, `tests/ui/test_fidelity_tier_selector.spec.ts`, `tests/ui/test_era_override_modal.spec.ts`, `tests/accessibility/test_fidelity_config_a11y.spec.ts`
+
+**Current Candidate Packet: Packet 4C (`FR-004` + `DS-006`) on `codex/packet4c-processing-flow` / PR #8**
+
+**Reason for packet choice:** `FR-004` is the next dependency-unlocking Phase 4 packet after Packet 4B. It extends the existing Phase 3 `/v1/jobs` substrate without changing job semantics, while `DS-006` adds the accessible runtime error and warning states required for launch, polling, cancel, and uncertainty-callout surfaces.
+
+**In Scope:**
+- Launch processing directly from the saved Packet 4B `job_payload_preview`
+- Poll existing Phase 3 job-detail APIs for progress and terminal state
+- Allow cancellation through the existing `DELETE /v1/jobs/{job_id}` path
+- Expose uncertainty callouts through `GET /v1/jobs/{job_id}/uncertainty-callouts`
+- Surface DS-006-compliant blocking and non-blocking runtime error states in the Packet 4C UI
+
+**Out of Scope:**
+- Output delivery / download UX (`FR-005`, `ENG-015`)
+- Cost-estimation productization (`ENG-013`, `NFR-003`)
+- Preview-generation follow-on work (`ENG-014`) and all Phase 5 `FR-006` review UX
+- Websocket/SSE transport, refresh-resume job history, or new backend inference signals beyond currently derivable runtime truth
+
+**Dependencies Confirmed:**
+- Packet 4A upload/session substrate is merged on `main`
+- Packet 4B launch-ready configuration and `job_payload_preview` handoff are merged on `main`
+- Existing Phase 3 `/v1/jobs`, job progress, cancellation, and manifest/job runtime surfaces remain the execution substrate
+
+**Mapped Tests:**
+- `tests/api/test_uncertainty_callouts.py`
+- `tests/integration/test_processing_launch_flow.py`
+- `tests/api/test_progress_updates.py`
+- `tests/api/test_async_processing.py`
+- `tests/integration/test_job_lifecycle.py`
+- `tests/ui/test_processing_flow.spec.ts`
+- `tests/accessibility/test_error_messages.spec.ts`
+- `tests/accessibility/test_error_announcements.spec.ts`
+- `tests/accessibility/test_uncertainty_callouts_a11y.spec.ts`
+
+**Packet 4C Candidate-Branch Evidence:**
+- [x] `GET /v1/jobs/{job_id}/uncertainty-callouts` emits owner-scoped global low-confidence/manual-confirmation warnings plus deterministic, deduplicated segment callouts with `time_range_seconds` → **Req:** **FR-004**, **See:** `tests/api/test_uncertainty_callouts.py`
+- [x] Saved Packet 4B `job_payload_preview` launches through the unchanged `/v1/jobs` path and reaches terminal state in integration coverage → **Req:** **FR-004**, **See:** `tests/integration/test_processing_launch_flow.py`, `tests/integration/test_job_lifecycle.py`
+- [x] Rendered Packet 4C tests cover launch, polling, terminal summaries, blocking cancel failures, non-blocking refresh failures, retry affordances, and accessible uncertainty-callout rendering → **Req:** **DS-006**, **See:** `tests/ui/test_processing_flow.spec.ts`, `tests/accessibility/test_error_messages.spec.ts`, `tests/accessibility/test_error_announcements.spec.ts`, `tests/accessibility/test_uncertainty_callouts_a11y.spec.ts`
 
 **Guardrails to Preserve:**
 - End-user JWT / RLS-safe request path by default
