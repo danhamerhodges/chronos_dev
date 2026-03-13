@@ -51,6 +51,13 @@ async function currentAccessToken(): Promise<string> {
   return token;
 }
 
+function processingLaunchKey(configuration: UploadConfigurationResponse | null): string | null {
+  if (!configuration) {
+    return null;
+  }
+  return `${configuration.upload_id}:${configuration.configured_at}`;
+}
+
 export function App() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadSession, setUploadSession] = useState<UploadResponse | null>(null);
@@ -75,6 +82,7 @@ export function App() {
   const [jobCallouts, setJobCallouts] = useState<JobUncertaintyCalloutsResponse | null>(null);
   const [jobBusy, setJobBusy] = useState(false);
   const [statusNotice, setStatusNotice] = useState("");
+  const [lastStartedConfigurationKey, setLastStartedConfigurationKey] = useState<string | null>(null);
   const activeUploadIdRef = useRef<string | null>(null);
   const activeJobIdRef = useRef<string | null>(null);
   const processingStatusRef = useRef<JobDetailResponse["status"] | null>(null);
@@ -96,6 +104,7 @@ export function App() {
     setCatalog(null);
     setDetection(null);
     setSavedConfiguration(null);
+    setLastStartedConfigurationKey(null);
     setSelectedPersona("");
     setSelectedTier(null);
     setSelectedGrainPreset(null);
@@ -114,6 +123,8 @@ export function App() {
   }
 
   const jobActive = isActiveJobStatus(processingJob?.status);
+  const currentLaunchKey = processingLaunchKey(savedConfiguration);
+  const canStartSavedConfiguration = Boolean(savedConfiguration) && (!processingJob || currentLaunchKey !== lastStartedConfigurationKey);
 
   useEffect(() => {
     if (!uploadSession || uploadSession.status !== "completed" || catalog) {
@@ -272,6 +283,7 @@ export function App() {
       setSelectedTier(nextConfiguration.fidelity_tier);
       setSelectedGrainPreset(nextConfiguration.grain_preset);
       setError("");
+      setStatusNotice("");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to save the launch-ready configuration.");
     } finally {
@@ -306,6 +318,11 @@ export function App() {
       setError("Save a launch-ready configuration before starting processing.");
       return;
     }
+    const launchKey = processingLaunchKey(savedConfiguration);
+    if (processingJob && !jobActive && launchKey && launchKey === lastStartedConfigurationKey) {
+      setStatusNotice("Save the configuration again before starting another processing run.");
+      return;
+    }
     const requestUploadId = uploadSession.upload_id;
     setJobBusy(true);
     try {
@@ -319,6 +336,7 @@ export function App() {
       setJobCallouts(null);
       setError("");
       setStatusNotice("");
+      setLastStartedConfigurationKey(launchKey);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to start processing.");
     } finally {
@@ -670,7 +688,7 @@ export function App() {
 
               {!processingJob ? (
                 <div style={{ display: "flex", gap: "var(--spacing-sm)", flexWrap: "wrap" }}>
-                  <Button disabled={jobBusy || !savedConfiguration} onClick={() => void handleStartProcessing()}>
+                  <Button disabled={jobBusy || !canStartSavedConfiguration} onClick={() => void handleStartProcessing()}>
                     {jobBusy ? "Starting..." : "Start Processing"}
                   </Button>
                 </div>
@@ -729,7 +747,7 @@ export function App() {
                         {jobBusy ? "Cancelling..." : "Cancel Processing"}
                       </Button>
                     ) : (
-                      <Button disabled={jobBusy || !savedConfiguration} onClick={() => void handleStartProcessing()}>
+                      <Button disabled={jobBusy || !canStartSavedConfiguration} onClick={() => void handleStartProcessing()}>
                         {jobBusy ? "Starting..." : "Start Processing Again"}
                       </Button>
                     )}

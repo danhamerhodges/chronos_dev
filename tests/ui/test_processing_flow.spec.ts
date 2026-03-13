@@ -147,7 +147,7 @@ function buildDetection() {
   };
 }
 
-function buildSavedConfiguration() {
+function buildSavedConfiguration(configuredAt = "2026-03-13T00:05:00+00:00") {
   return {
     upload_id: "upload-1",
     status: "completed",
@@ -197,7 +197,7 @@ function buildSavedConfiguration() {
         },
       },
     },
-    configured_at: "2026-03-13T00:05:00+00:00",
+    configured_at: configuredAt,
   };
 }
 
@@ -348,6 +348,11 @@ describe("Packet 4C processing flow", () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/Result URI:/)).toBeInTheDocument();
     expect(screen.getByText("Low-confidence era classification")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Start Processing Again" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start Processing Again" })).toBeDisabled();
+
+    saveUploadConfiguration.mockResolvedValueOnce(buildSavedConfiguration("2026-03-13T00:08:00+00:00"));
+    await user.click(screen.getByRole("button", { name: "Save Configuration" }));
+    await waitFor(() => expect(saveUploadConfiguration).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole("button", { name: "Start Processing Again" })).toBeEnabled();
   });
 });

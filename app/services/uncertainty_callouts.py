@@ -36,6 +36,16 @@ def _non_negative_seconds(raw_value: Any) -> float:
         return 0.0
 
 
+def _normalized_confidence(raw_value: Any) -> float | None:
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError):
+        return None
+    if 0.0 <= value <= 1.0:
+        return value
+    return None
+
+
 class UncertaintyCalloutService:
     def __init__(self) -> None:
         self._repo = JobRepository()
@@ -79,19 +89,20 @@ class UncertaintyCalloutService:
         if confidence is None and not manual_confirmation_required:
             return None
 
-        confidence_value = _non_negative_seconds(confidence)
-        low_confidence = confidence is not None and confidence_value < 0.70
+        confidence_value = _normalized_confidence(confidence)
+        low_confidence = confidence is not None and (confidence_value is None or confidence_value < 0.70)
         if not manual_confirmation_required and not low_confidence:
             return None
 
         duration_seconds = _non_negative_seconds(job.get("estimated_duration_seconds"))
         detection_snapshot = (job.get("config") or {}).get("detection_snapshot") or {}
         detected_era = str(detection_snapshot.get("era") or job.get("era_profile", {}).get("capture_medium") or "the current media")
-        detail = (
-            f"Era detection confidence for {detected_era} remained below 0.70. Review the restored output carefully."
-            if low_confidence
-            else "Era detection required manual confirmation. Review the restored output carefully."
-        )
+        if manual_confirmation_required:
+            detail = "Era detection required manual confirmation. Review the restored output carefully."
+        elif confidence_value is None:
+            detail = f"Era detection confidence for {detected_era} could not be validated. Review the restored output carefully."
+        else:
+            detail = f"Era detection confidence for {detected_era} remained below 0.70. Review the restored output carefully."
 
         return {
             "callout_id": f"{job['job_id']}:global:low-confidence-era",
@@ -114,14 +125,19 @@ class UncertaintyCalloutService:
         start_seconds = _non_negative_seconds(segment.get("segment_start_seconds"))
         end_seconds = _non_negative_seconds(segment.get("segment_end_seconds"))
         callouts: list[dict[str, object]] = []
+        seen_callout_ids: set[str] = set()
 
         for slug in segment.get("uncertainty_callouts") or []:
             mapped = _SEGMENT_CALLOUT_MAP.get(str(slug))
             if mapped is None:
                 continue
+            callout_id = f"{job_id}:segment:{segment_index}:{mapped['code']}"
+            if callout_id in seen_callout_ids:
+                continue
+            seen_callout_ids.add(callout_id)
             callouts.append(
                 {
-                    "callout_id": f"{job_id}:segment:{segment_index}:{mapped['code']}",
+                    "callout_id": callout_id,
                     "code": mapped["code"],
                     "severity": "warning",
                     "title": mapped["title"],
