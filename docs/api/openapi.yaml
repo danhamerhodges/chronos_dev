@@ -242,6 +242,165 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ProblemDetail"
+  /v1/upload/{upload_id}/detect-era:
+    post:
+      tags: [uploads]
+      summary: Detect era for a finalized upload without creating a media job
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: upload_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UploadDetectEraRequest"
+      responses:
+        "200":
+          description: Upload-scoped era detection result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadDetectEraResponse"
+        "400":
+          description: Validation or override failure
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "401":
+          description: Missing or invalid bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "403":
+          description: Caller lacks upload permission
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "404":
+          description: Upload session not found for the current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "409":
+          description: Upload must be finalized before detection can run
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "500":
+          description: Detection persistence failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+  /v1/upload/{upload_id}/configuration:
+    patch:
+      tags: [uploads]
+      summary: Save a launch-ready fidelity configuration for a finalized upload
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: upload_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UploadConfigurationRequest"
+      responses:
+        "200":
+          description: Launch-ready configuration persisted for later job submission
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UploadConfigurationResponse"
+        "400":
+          description: Validation or configuration mismatch
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "401":
+          description: Missing or invalid bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "403":
+          description: Caller lacks upload permission
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "404":
+          description: Upload session not found for the current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "409":
+          description: Upload must be finalized before configuration can be saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "500":
+          description: Configuration persistence failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+  /v1/fidelity-tiers:
+    get:
+      tags: [fidelity]
+      summary: Canonical fidelity tiers, personas, and current saved preferences
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Fidelity tier catalog
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FidelityTierCatalogResponse"
+        "401":
+          description: Missing or invalid bearer token
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
   /v1/eras:
     get:
       tags: [era-detection]
@@ -704,6 +863,76 @@ components:
           type: string
         media_uri:
           type: string
+    UserPersona:
+      type: string
+      enum: [archivist, filmmaker, prosumer]
+    GrainPreset:
+      type: string
+      enum: [Matched, Subtle, Heavy]
+    FidelityTierCatalogItem:
+      type: object
+      required:
+        [tier, label, description, default_grain_preset, allowed_grain_presets, relative_cost_multiplier, relative_processing_time_band, thresholds, identity_lock]
+      properties:
+        tier:
+          type: string
+          enum: [Enhance, Restore, Conserve]
+        label:
+          type: string
+        description:
+          type: string
+        default_grain_preset:
+          $ref: "#/components/schemas/GrainPreset"
+        allowed_grain_presets:
+          type: array
+          items:
+            $ref: "#/components/schemas/GrainPreset"
+        relative_cost_multiplier:
+          type: number
+        relative_processing_time_band:
+          type: string
+        thresholds:
+          type: object
+          additionalProperties:
+            type: number
+        identity_lock:
+          type: boolean
+    FidelityPersonaOption:
+      type: object
+      required: [persona, label, default_fidelity_tier, description]
+      properties:
+        persona:
+          $ref: "#/components/schemas/UserPersona"
+        label:
+          type: string
+        default_fidelity_tier:
+          type: string
+          enum: [Enhance, Restore, Conserve]
+        description:
+          type: string
+    FidelityTierCatalogResponse:
+      type: object
+      required: [personas, tiers, grain_presets]
+      properties:
+        personas:
+          type: array
+          items:
+            $ref: "#/components/schemas/FidelityPersonaOption"
+        tiers:
+          type: array
+          items:
+            $ref: "#/components/schemas/FidelityTierCatalogItem"
+        grain_presets:
+          type: array
+          items:
+            $ref: "#/components/schemas/GrainPreset"
+        current_persona:
+          $ref: "#/components/schemas/UserPersona"
+        preferred_fidelity_tier:
+          type: string
+          enum: [Enhance, Restore, Conserve]
+        preferred_grain_preset:
+          $ref: "#/components/schemas/GrainPreset"
     EraCatalogResponse:
       type: object
       required: [eras]
@@ -777,6 +1006,16 @@ components:
           type: string
         era_profile:
           $ref: "#/components/schemas/EraProfileInput"
+    UploadDetectEraRequest:
+      type: object
+      required: [estimated_duration_seconds]
+      properties:
+        estimated_duration_seconds:
+          type: integer
+        manual_override_era:
+          type: string
+        override_reason:
+          type: string
     CandidateEra:
       type: object
       required: [era, confidence]
@@ -832,6 +1071,31 @@ components:
           type: string
         estimated_usage_minutes:
           type: integer
+    UploadDetectEraResponse:
+      allOf:
+        - $ref: "#/components/schemas/DetectEraResponse"
+        - type: object
+          required: [upload_id]
+          properties:
+            upload_id:
+              type: string
+    UploadConfigurationRequest:
+      type: object
+      required: [fidelity_tier, grain_preset, estimated_duration_seconds]
+      properties:
+        persona:
+          $ref: "#/components/schemas/UserPersona"
+        fidelity_tier:
+          type: string
+          enum: [Enhance, Restore, Conserve]
+        grain_preset:
+          $ref: "#/components/schemas/GrainPreset"
+        estimated_duration_seconds:
+          type: integer
+        manual_override_era:
+          type: string
+        override_reason:
+          type: string
     UserProfileResponse:
       type: object
       required: [user_id, email, role, plan_tier, org_id]
@@ -1012,6 +1276,36 @@ components:
         config:
           type: object
           additionalProperties: true
+    UploadConfigurationResponse:
+      type: object
+      required:
+        [upload_id, status, persona, fidelity_tier, grain_preset, detection_snapshot, resolved_fidelity_profile, relative_cost_multiplier, relative_processing_time_band, job_payload_preview, configured_at]
+      properties:
+        upload_id:
+          type: string
+        status:
+          type: string
+          enum: [pending, uploading, completed, failed]
+        persona:
+          $ref: "#/components/schemas/UserPersona"
+        fidelity_tier:
+          type: string
+          enum: [Enhance, Restore, Conserve]
+        grain_preset:
+          $ref: "#/components/schemas/GrainPreset"
+        detection_snapshot:
+          $ref: "#/components/schemas/UploadDetectEraResponse"
+        resolved_fidelity_profile:
+          type: object
+          additionalProperties: true
+        relative_cost_multiplier:
+          type: number
+        relative_processing_time_band:
+          type: string
+        job_payload_preview:
+          $ref: "#/components/schemas/JobCreateRequest"
+        configured_at:
+          type: string
         era_profile:
           $ref: "#/components/schemas/EraProfileInput"
     JobProgressResponse:

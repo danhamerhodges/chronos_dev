@@ -158,7 +158,7 @@ This implementation plan is organized into a logical execution sequence designed
 **Requirements Implemented:** **FR-001**, **FR-003**, **FR-004**, **FR-005**, **ENG-013**, **ENG-014**, **ENG-015**, **DS-001**, **DS-002**, **DS-003**, **DS-004**, **DS-005**, **DS-006**, **NFR-003** (14 requirements)  
 **Coverage Matrix:** See `docs/specs/ChronosRefine Requirements Coverage Matrix.md`
 
-**Current Status Note:** Packet 4A (`FR-001`) is complete on candidate branch `codex/packet4a-closure` and will start Phase 4 on `main` once that branch lands. Phase 4 planning and follow-on packets must still follow the canonical Phase 4 requirement IDs above and the higher-priority requirement specs, not older PRD-style Phase 4 prose. `FR-006` remains a Phase 5 functional requirement; Phase 4 includes only `ENG-014` as the technical preview-generation substrate.
+**Current Status Note:** Packet 4A (`FR-001`) is merged on `main` and starts Phase 4 delivery. Packet 4B (`FR-003` + `DS-001`) is complete on the candidate branch/PR (`codex/packet4b-completion`) and is the next merge target; Packet 4C remains the next feature packet on `main` after Packet 4B lands. Follow-on packets must still follow the canonical Phase 4 requirement IDs above and the higher-priority requirement specs, not older PRD-style Phase 4 prose. `FR-006` remains a Phase 5 functional requirement; Phase 4 includes only `ENG-014` as the technical preview-generation substrate.
 
 **Entry Criteria:**
 - [x] Phase 3 is complete for kickoff on `main`; `SEC-007` remains deferred per canon and does not block Phase 4 kickoff → **See:** `docs/specs/chronosrefine_implementation_plan.md#phase-3-core-processing-pipeline--ai-integration`
@@ -167,7 +167,7 @@ This implementation plan is organized into a logical execution sequence designed
 
 **Deliverables:**
 -   Authenticated upload + validation API and UI surfaces, including signed GCS URL generation, resumable upload handling, format/size validation, and metadata persistence → **Req:** **FR-001**, **Test:** `tests/api/test_upload.py`, `tests/integration/test_resumable_upload.py`, `tests/load/test_upload_performance.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-001-video-upload-and-validation`
--   Fidelity selection and configuration UX using existing Phase 1 design-system primitives → **Req:** **FR-003**, **DS-001**, **Test:** `tests/api/test_fidelity_tiers.py`, `tests/processing/test_tier_parameters.py`, `tests/ui/test_tier_selection.spec.ts`, `tests/ui/test_fidelity_tier_selector.spec.ts`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-003-fidelity-tier-selection`, `docs/specs/chronosrefine_design_requirements.md#ds-001-fidelity-configuration-ux`
+-   Fidelity selection and configuration UX using existing Phase 1 design-system primitives → **Req:** **FR-003**, **DS-001**, **Test:** `tests/api/test_fidelity_configuration.py`, `tests/processing/test_tier_parameters.py`, `tests/ui/test_tier_selection.spec.ts`, `tests/ui/test_fidelity_tier_selector.spec.ts`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-003-fidelity-tier-selection`, `docs/specs/chronosrefine_design_requirements.md#ds-001-fidelity-configuration-ux`
 -   Job launch, progress, and restoration-control flows that extend the Phase 3 job substrate rather than replacing it → **Req:** **FR-004**, **Test:** `tests/processing/test_restoration_pipeline.py`, `tests/processing/test_uncertainty_callouts.py`, `tests/processing/test_retry_logic.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-004-processing-and-restoration`
 -   Output delivery surfaces for encoded artifacts, manifest access, deletion-proof availability, and download-expiry handling → **Req:** **FR-005**, **ENG-015**, **Test:** `tests/api/test_output_delivery.py`, `tests/api/test_transformation_manifest.py`, `tests/api/test_deletion_proof.py`, `tests/integration/test_export_workflow.py`, `tests/processing/test_output_encoding.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-005-output-delivery`, `docs/specs/chronosrefine_engineering_requirements.md#eng-015-output-encoding`
 -   Cost estimation and cost-optimization signals exposed at launch decision points without hardcoded pricing → **Req:** **ENG-013**, **NFR-003**, **Test:** `tests/api/test_cost_estimation.py`, `tests/api/test_cost_breakdown.py`, `tests/integration/test_cost_reconciliation.py`, `tests/ops/test_cost_optimization.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-013-cost-estimation`, `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-003-cost-optimization`
@@ -177,7 +177,7 @@ This implementation plan is organized into a logical execution sequence designed
 **Exit Criteria:**
 - [ ] Upload endpoints are documented in OpenAPI and covered by canonical upload tests → **Req:** **FR-001**, **ENG-002**, **Test:** `tests/api/test_upload.py`, `tests/integration/test_resumable_upload.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-001-video-upload-and-validation`, `docs/specs/chronosrefine_engineering_requirements.md#eng-002-api-endpoint-implementation`, `docs/api/openapi.yaml`
 - [ ] Resumable uploads are validated for files >10GB with simulated network interruptions → **Req:** **FR-001**, **Test:** `tests/integration/test_resumable_upload.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-001-video-upload-and-validation`
-- [ ] Fidelity tier selection and era-override UX persist canonical configuration and meet `DS-001` requirements → **Req:** **FR-003**, **DS-001**, **Test:** `tests/api/test_fidelity_tiers.py`, `tests/ui/test_tier_selection.spec.ts`, `tests/ui/test_fidelity_tier_selector.spec.ts`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-003-fidelity-tier-selection`, `docs/specs/chronosrefine_design_requirements.md#ds-001-fidelity-configuration-ux`
+- [x] Fidelity tier selection and era-override UX persist canonical configuration and meet `DS-001` requirements on the candidate branch/PR (`codex/packet4b-completion`) → **Req:** **FR-003**, **DS-001**, **Test:** `tests/api/test_fidelity_configuration.py`, `tests/processing/test_tier_parameters.py`, `tests/integration/test_configuration_job_handoff.py`, `tests/ui/test_tier_selection.spec.ts`, `tests/ui/test_fidelity_tier_selector.spec.ts`, `tests/ui/test_era_override_modal.spec.ts`, `tests/accessibility/test_fidelity_config_a11y.spec.ts`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-003-fidelity-tier-selection`, `docs/specs/chronosrefine_design_requirements.md#ds-001-fidelity-configuration-ux`
 - [ ] Job launch, progress, and results flows operate on top of the Phase 3 job APIs with authenticated access and accessible error states → **Req:** **FR-004**, **DS-006**, **Test:** `tests/processing/test_restoration_pipeline.py`, `tests/processing/test_uncertainty_callouts.py`, `tests/accessibility/test_error_messages.spec.ts`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-004-processing-and-restoration`, `docs/specs/chronosrefine_design_requirements.md#ds-006-error-messages-accessibility`
 - [ ] Output delivery surfaces expose encoded artifacts, manifest retrieval, deletion-proof availability, and link-expiry handling → **Req:** **FR-005**, **ENG-015**, **Test:** `tests/api/test_output_delivery.py`, `tests/api/test_transformation_manifest.py`, `tests/api/test_deletion_proof.py`, `tests/integration/test_export_workflow.py`, `tests/processing/test_output_encoding.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-005-output-delivery`, `docs/specs/chronosrefine_engineering_requirements.md#eng-015-output-encoding`
 - [ ] Preview artifact generation backend meets `ENG-014` latency and storage expectations for downstream Phase 5 `FR-006` UI work → **Req:** **ENG-014**, **Test:** `tests/processing/test_preview_generation.py`, `tests/processing/test_scene_detection.py`, `tests/load/test_preview_performance.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-014-preview-generation`
@@ -227,6 +227,45 @@ This implementation plan is organized into a logical execution sequence designed
 - [x] Live memory-backed resumable smoke passed with same-`upload_id`, same-`object_path`, persisted `pending -> uploading -> completed`, and denied secondary access → **Req:** **FR-001**, **See:** `docs/specs/chronosrefine_phase4_closeout_note.md`
 - [x] Live Supabase-backed resumable smoke passed with the same persisted-state and owner-boundary evidence → **Req:** **FR-001**, **SEC-013**, **See:** `docs/specs/chronosrefine_phase4_closeout_note.md`
 - [x] Staging revision `chronos-phase1-app-00036-blf` (`build_sha=9a5791c4023794af8d6cc96d7dd2561aafdb93bc`) served upload-session creation successfully and produced recorded latency evidence (`p50=0.7823s`, `p95=9.6927s`, `p99=9.6927s`) → **Req:** **FR-001**, **See:** `docs/specs/chronosrefine_phase4_closeout_note.md`
+
+**Current Candidate Packet: Packet 4B (2026-03-12; complete on candidate branch/PR)**
+
+**Requirement Focus:** `FR-003`, `DS-001`
+
+**Reason for packet choice:** `FR-003` unlocks `FR-004`, and `DS-001` is its direct user-facing pair. The packet extends Packet 4A's upload session into a launch-ready configuration flow without changing `/v1/jobs` semantics ahead of Packet 4C.
+
+**In Scope:**
+- Upload-scoped era detection without `media_jobs` side effects
+- Persona, fidelity-tier, and grain-preset configuration persisted on `upload_sessions`
+- Explicit hobbyist early-photography entitlement gating with `403 Plan Upgrade Required`
+- Launch-ready `job_payload_preview` generation that is accepted by the existing `/v1/jobs` path
+- Rendered `DS-001` verification for the tier selector, era override modal, confirmation flow, and upgrade-required error path
+
+**Out of Scope:**
+- `/v1/jobs` launch/progress UX (`FR-004`)
+- Output delivery (`FR-005`, `ENG-015`)
+- Phase 4 cost-estimation/productized cost controls (`ENG-013`, `NFR-003`)
+- Preview-generation follow-on work (`ENG-014`) and Phase 5 `FR-006` review UX
+
+**Dependencies Confirmed:**
+- `FR-002` and `ENG-001` are already complete on `main`
+- Packet 4A upload/session substrate is already merged on `main`
+- Phase 3 processing/job substrate remains the downstream handoff target for Packet 4C
+
+**Mapped Tests:**
+- `tests/api/test_fidelity_configuration.py`
+- `tests/processing/test_tier_parameters.py`
+- `tests/integration/test_configuration_job_handoff.py`
+- `tests/ui/test_tier_selection.spec.ts`
+- `tests/ui/test_fidelity_tier_selector.spec.ts`
+- `tests/ui/test_era_override_modal.spec.ts`
+- `tests/accessibility/test_fidelity_config_a11y.spec.ts`
+
+**Packet 4B Candidate Evidence:**
+- [x] Shared fidelity resolver accepts all three grain presets across all three tiers while preserving canonical tier defaults → **Req:** **FR-003**, **ENG-005**, **See:** `tests/processing/test_tier_parameters.py`, `tests/processing/test_fidelity_tiers.py`
+- [x] Hobbyist `daguerreotype` / `albumen` configuration saves return `403 Plan Upgrade Required` and do not persist `launch_config`, `configured_at`, or user-preference updates → **Req:** **FR-003**, **See:** `tests/api/test_fidelity_configuration.py`
+- [x] Returned `job_payload_preview` is accepted by the existing `/v1/jobs` path in integration coverage → **Req:** **FR-003** (Packet 4C `/v1/jobs` handoff), **See:** `tests/integration/test_configuration_job_handoff.py`
+- [x] Rendered `DS-001` jsdom tests pass for tier selection, era override, confirmation flow, and the upgrade-required error path → **Req:** **DS-001**, **See:** `tests/ui/test_tier_selection.spec.ts`, `tests/ui/test_fidelity_tier_selector.spec.ts`, `tests/ui/test_era_override_modal.spec.ts`, `tests/accessibility/test_fidelity_config_a11y.spec.ts`
 
 **Guardrails to Preserve:**
 - End-user JWT / RLS-safe request path by default

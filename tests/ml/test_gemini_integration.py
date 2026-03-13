@@ -159,6 +159,68 @@ def test_vertex_gemini_classifier_supports_inline_media(monkeypatch) -> None:
     assert result.usage.total_token_count == 22
 
 
+def test_vertex_gemini_classifier_preserves_explicit_empty_era_profile(monkeypatch) -> None:
+    classifier = VertexGeminiEraClassifier(
+        token_provider=StubTokenProvider(),
+        raw_response_store=StubRawResponseStore(),
+    )
+
+    def _post(url, *, headers=None, json=None, timeout=None):
+        request_text = json["contents"][0]["parts"][0]["text"]
+        assert request_text
+        parsed_request = json_module.loads(request_text)
+        assert parsed_request["era_profile"] == {}
+        return httpx.Response(
+            200,
+            request=httpx.Request("POST", url),
+            json={
+                "responseId": "resp-empty-profile",
+                "modelVersion": "gemini-2.5-pro-live",
+                "usageMetadata": {"totalTokenCount": 18},
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [
+                                {
+                                    "text": json_module.dumps(
+                                        {
+                                            "era": "1970s Super 8 Film",
+                                            "confidence": 0.79,
+                                            "top_candidates": [
+                                                {"era": "1970s Super 8 Film", "confidence": 0.79},
+                                                {"era": "1980s VHS Tape", "confidence": 0.52},
+                                                {"era": "1960s Kodachrome Film", "confidence": 0.41},
+                                            ],
+                                            "forensic_markers": {
+                                                "grain_structure": "consumer film grain",
+                                                "color_saturation": 0.58,
+                                                "format_artifacts": ["frame_jitter"],
+                                            },
+                                        }
+                                    )
+                                }
+                            ]
+                        }
+                    }
+                ],
+            },
+        )
+
+    json_module = json
+    monkeypatch.setattr(httpx, "post", _post)
+
+    result = classifier.classify(
+        job_id="job-empty-profile",
+        media_uri="gs://chronos-dev/uploads/empty-profile.mov",
+        original_filename="empty-profile.mov",
+        mime_type="video/quicktime",
+        era_profile={},
+    )
+
+    assert result.era == "1970s Super 8 Film"
+    assert result.usage.total_token_count == 18
+
+
 def test_vertex_gemini_classifier_marks_unsupported_primary_era_for_manual_confirmation(monkeypatch) -> None:
     classifier = VertexGeminiEraClassifier(
         token_provider=StubTokenProvider(),

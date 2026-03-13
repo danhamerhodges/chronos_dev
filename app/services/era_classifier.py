@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Protocol
 
 
@@ -106,7 +107,7 @@ class EraClassifier(Protocol):
         media_uri: str,
         original_filename: str,
         mime_type: str,
-        era_profile: dict[str, Any],
+        era_profile: dict[str, Any] | None = None,
     ) -> EraClassification: ...
 
 
@@ -152,6 +153,138 @@ def normalize_top_candidates(
     return normalized
 
 
+def infer_capture_medium(*, media_uri: str, original_filename: str, mime_type: str) -> str:
+    hints = " ".join([media_uri, original_filename, mime_type]).casefold()
+    if "daguerreotype" in hints:
+        return "daguerreotype"
+    if "albumen" in hints:
+        return "albumen"
+    if "16mm" in hints:
+        return "16mm"
+    if "super 8" in hints or "super_8" in hints or "8mm" in hints:
+        return "super_8"
+    if "kodachrome" in hints:
+        return "kodachrome"
+    if "vhs" in hints:
+        return "vhs"
+
+    extension = Path(original_filename).suffix.casefold()
+    if mime_type.startswith("image/") or extension in {".tif", ".tiff", ".jpg", ".jpeg", ".png"}:
+        return "albumen"
+    if mime_type in {"video/x-msvideo", "video/avi"} or extension == ".avi":
+        return "vhs"
+    return "super_8"
+
+
+def build_default_era_profile(*, media_uri: str, original_filename: str, mime_type: str) -> dict[str, Any]:
+    capture_medium = infer_capture_medium(
+        media_uri=media_uri,
+        original_filename=original_filename,
+        mime_type=mime_type,
+    )
+    if capture_medium == "daguerreotype":
+        return {
+            "capture_medium": capture_medium,
+            "mode": "Conserve",
+            "tier": "Pro",
+            "resolution_cap": "4k",
+            "hallucination_limit": 0.05,
+            "artifact_policy": {
+                "deinterlace": False,
+                "grain_intensity": "Matched",
+                "preserve_edge_fog": True,
+                "preserve_chromatic_aberration": True,
+            },
+            "era_range": {"start_year": 1840, "end_year": 1849},
+            "gemini_confidence": 1.0,
+            "manual_confirmation_required": False,
+        }
+    if capture_medium == "albumen":
+        return {
+            "capture_medium": capture_medium,
+            "mode": "Conserve",
+            "tier": "Pro",
+            "resolution_cap": "4k",
+            "hallucination_limit": 0.05,
+            "artifact_policy": {
+                "deinterlace": False,
+                "grain_intensity": "Matched",
+                "preserve_edge_fog": True,
+                "preserve_chromatic_aberration": True,
+            },
+            "era_range": {"start_year": 1860, "end_year": 1869},
+            "gemini_confidence": 1.0,
+            "manual_confirmation_required": False,
+        }
+    if capture_medium == "16mm":
+        return {
+            "capture_medium": capture_medium,
+            "mode": "Restore",
+            "tier": "Pro",
+            "resolution_cap": "4k",
+            "hallucination_limit": 0.15,
+            "artifact_policy": {
+                "deinterlace": False,
+                "grain_intensity": "Matched",
+                "preserve_edge_fog": True,
+                "preserve_chromatic_aberration": True,
+            },
+            "era_range": {"start_year": 1930, "end_year": 1939},
+            "gemini_confidence": 1.0,
+            "manual_confirmation_required": False,
+        }
+    if capture_medium == "kodachrome":
+        return {
+            "capture_medium": capture_medium,
+            "mode": "Restore",
+            "tier": "Pro",
+            "resolution_cap": "4k",
+            "hallucination_limit": 0.15,
+            "artifact_policy": {
+                "deinterlace": False,
+                "grain_intensity": "Matched",
+                "preserve_edge_fog": True,
+                "preserve_chromatic_aberration": True,
+            },
+            "era_range": {"start_year": 1955, "end_year": 1969},
+            "gemini_confidence": 1.0,
+            "manual_confirmation_required": False,
+        }
+    if capture_medium == "vhs":
+        return {
+            "capture_medium": capture_medium,
+            "mode": "Restore",
+            "tier": "Pro",
+            "resolution_cap": "1080p",
+            "hallucination_limit": 0.15,
+            "artifact_policy": {
+                "deinterlace": True,
+                "grain_intensity": "Matched",
+                "preserve_edge_fog": False,
+                "preserve_chromatic_aberration": False,
+            },
+            "era_range": {"start_year": 1980, "end_year": 1999},
+            "gemini_confidence": 1.0,
+            "manual_confirmation_required": False,
+        }
+    return {
+        "capture_medium": "super_8",
+        "mode": "Restore",
+        "tier": "Pro",
+        "resolution_cap": "4k",
+        "hallucination_limit": 0.15,
+        "artifact_policy": {
+            "deinterlace": False,
+            "grain_intensity": "Matched",
+            "preserve_edge_fog": True,
+            "preserve_chromatic_aberration": True,
+        },
+        "era_range": {"start_year": 1970, "end_year": 1979},
+        "gemini_confidence": 1.0,
+        "manual_confirmation_required": False,
+    }
+
+
 class DeterministicFallbackEraClassifier:
     def classify(
         self,
@@ -160,9 +293,14 @@ class DeterministicFallbackEraClassifier:
         media_uri: str,
         original_filename: str,
         mime_type: str,
-        era_profile: dict[str, Any],
+        era_profile: dict[str, Any] | None = None,
     ) -> EraClassification:
-        capture_medium = str(era_profile["capture_medium"])
+        resolved_era_profile = era_profile or build_default_era_profile(
+            media_uri=media_uri,
+            original_filename=original_filename,
+            mime_type=mime_type,
+        )
+        capture_medium = str(resolved_era_profile["capture_medium"])
         era, confidence, grain_structure, artifacts = _MEDIUM_DEFAULTS.get(
             capture_medium,
             (UNKNOWN_ERA, 0.55, "unknown grain signature", ["insufficient_signal"]),

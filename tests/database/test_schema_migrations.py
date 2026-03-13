@@ -25,6 +25,7 @@ def test_expected_migrations_present() -> None:
         "0014_phase3_runtime_ops.sql",
         "0015_phase4_upload_sessions.sql",
         "0016_phase4_upload_sessions_rls.sql",
+        "0017_phase4_upload_configuration.sql",
     ]
 
 
@@ -72,3 +73,12 @@ def test_upload_session_migrations_cover_owner_scoped_writes() -> None:
     assert "ALTER TABLE public.upload_sessions ENABLE ROW LEVEL SECURITY" in rls_sql
     assert "CREATE POLICY upload_sessions_owner_access" in rls_sql
     assert "CREATE POLICY gcs_pointers_owner_access" in rls_sql
+
+
+def test_upload_configuration_migration_adds_detection_and_launch_config_columns() -> None:
+    root = Path(__file__).resolve().parents[2]
+    sql = (root / "supabase" / "migrations" / "0017_phase4_upload_configuration.sql").read_text(encoding="utf-8")
+
+    assert "ADD COLUMN IF NOT EXISTS detection_snapshot JSONB NOT NULL DEFAULT '{}'::JSONB" in sql
+    assert "ADD COLUMN IF NOT EXISTS launch_config JSONB NOT NULL DEFAULT '{}'::JSONB" in sql
+    assert "ADD COLUMN IF NOT EXISTS configured_at TIMESTAMPTZ" in sql

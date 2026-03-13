@@ -182,12 +182,12 @@ def validate_era_profile(payload: Mapping[str, Any]) -> ValidationResult:
             )
         )
     if payload.get("mode") == "Conserve" and artifact_policy.get("grain_intensity") != "Matched":
-        result.errors.append(
+        result.warnings.append(
             _issue(
                 "VR-004",
-                "error",
+                "warning",
                 "artifact_policy.grain_intensity",
-                "Conserve mode requires grain_intensity='Matched' to preserve authenticity.",
+                "Conserve mode typically uses grain_intensity='Matched' for maximum authenticity.",
             )
         )
     if payload.get("mode") == "Enhance" and hallucination_limit is not None and hallucination_limit < 0.15:

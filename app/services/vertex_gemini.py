@@ -16,6 +16,7 @@ from app.services.era_classifier import (
     UNKNOWN_ERA,
     EraClassification,
     EraClassifierUsage,
+    build_default_era_profile,
     canonicalize_era_label,
     normalize_top_candidates,
 )
@@ -119,17 +120,26 @@ class VertexGeminiEraClassifier:
         media_uri: str,
         original_filename: str,
         mime_type: str,
-        era_profile: dict[str, Any],
+        era_profile: dict[str, Any] | None = None,
     ) -> EraClassification:
         access_token = self._token_provider.access_token()
         if not access_token:
             raise ClassifierError("Google access token is not available for Vertex Gemini requests.")
+        resolved_era_profile = (
+            era_profile
+            if era_profile is not None
+            else build_default_era_profile(
+                media_uri=media_uri,
+                original_filename=original_filename,
+                mime_type=mime_type,
+            )
+        )
         response_payload = self._generate_content(
             access_token=access_token,
             media_uri=media_uri,
             original_filename=original_filename,
             mime_type=mime_type,
-            era_profile=era_profile,
+            era_profile=resolved_era_profile,
         )
         parsed = self._parse_candidate_payload(response_payload)
         try:

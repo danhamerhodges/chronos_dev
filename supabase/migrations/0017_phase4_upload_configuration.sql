@@ -1,0 +1,6 @@
+-- Maps to: FR-003, DS-001, ENG-016
+
+ALTER TABLE public.upload_sessions
+  ADD COLUMN IF NOT EXISTS detection_snapshot JSONB NOT NULL DEFAULT '{}'::JSONB,
+  ADD COLUMN IF NOT EXISTS launch_config JSONB NOT NULL DEFAULT '{}'::JSONB,
+  ADD COLUMN IF NOT EXISTS configured_at TIMESTAMPTZ;

@@ -10,6 +10,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.era_detection import router as era_detection_router
+from app.api.fidelity import router as fidelity_router
 from app.api.health import router as health_router
 from app.api.internal_workers import router as internal_workers_router
 from app.api.jobs import router as jobs_router
@@ -70,6 +71,7 @@ def create_app() -> FastAPI:
     app.include_router(ops_router, tags=["ops"])
     app.include_router(version_router, tags=["version"])
     app.include_router(uploads_router, tags=["uploads"])
+    app.include_router(fidelity_router, tags=["fidelity"])
     app.include_router(era_detection_router, tags=["era-detection"])
     app.include_router(jobs_router, tags=["jobs"])
     app.include_router(manifests_router, tags=["manifests"])

@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from app.api.problem_details import ProblemException
-from app.api.contracts import FidelityTier
+from app.api.contracts import FidelityTier, FidelityTierCatalogItem, FidelityPersonaOption, GrainPreset, UserPersona
 
 
 @dataclass(frozen=True)
@@ -66,6 +66,49 @@ _FidelityProfileMap = {
     ),
 }
 
+_PERSONA_DEFAULT_TIER = {
+    UserPersona.ARCHIVIST: FidelityTier.CONSERVE,
+    UserPersona.FILMMAKER: FidelityTier.RESTORE,
+    UserPersona.PROSUMER: FidelityTier.ENHANCE,
+}
+
+_PERSONA_LABELS = {
+    UserPersona.ARCHIVIST: "Archivist",
+    UserPersona.FILMMAKER: "Filmmaker",
+    UserPersona.PROSUMER: "Prosumer",
+}
+
+_PERSONA_DESCRIPTIONS = {
+    UserPersona.ARCHIVIST: "Preserve authenticity and retain a defensible audit trail for archival work.",
+    UserPersona.FILMMAKER: "Balance cleanup with era-accurate texture for editorial and documentary use.",
+    UserPersona.PROSUMER: "Prioritize a cleaner family-video presentation while keeping the footage recognizable.",
+}
+
+_TIER_DESCRIPTIONS = {
+    FidelityTier.ENHANCE: "Best for family videos. Reduces grain for a cleaner look.",
+    FidelityTier.RESTORE: "Best for documentaries. Preserves era-accurate texture.",
+    FidelityTier.CONSERVE: "Best for archival work. Maximum authenticity with full audit trail.",
+}
+
+_TIER_COST_MULTIPLIERS = {
+    FidelityTier.ENHANCE: 1.0,
+    FidelityTier.RESTORE: 1.5,
+    FidelityTier.CONSERVE: 2.0,
+}
+
+_TIER_PROCESSING_TIME_BANDS = {
+    FidelityTier.ENHANCE: "<2 min/min",
+    FidelityTier.RESTORE: "<4 min/min",
+    FidelityTier.CONSERVE: "<8 min/min",
+}
+
+_ALL_GRAIN_PRESETS = [GrainPreset.MATCHED, GrainPreset.SUBTLE, GrainPreset.HEAVY]
+_TIER_ALLOWED_GRAIN_PRESETS = {
+    FidelityTier.ENHANCE: list(_ALL_GRAIN_PRESETS),
+    FidelityTier.RESTORE: list(_ALL_GRAIN_PRESETS),
+    FidelityTier.CONSERVE: list(_ALL_GRAIN_PRESETS),
+}
+
 
 def _config_override(config: dict[str, Any], key: str) -> Any:
     if key in config:
@@ -76,8 +119,111 @@ def _config_override(config: dict[str, Any], key: str) -> Any:
     return None
 
 
+def _grain_preset_from(value: Any) -> GrainPreset | None:
+    if value in (None, ""):
+        return None
+    try:
+        return GrainPreset(str(value))
+    except ValueError as exc:
+        raise ProblemException(
+            title="Invalid Fidelity Override",
+            detail="grain_intensity must use one of the canonical grain preset values.",
+            status_code=400,
+        ) from exc
+
+
+def resolve_grain_preset(
+    *,
+    requested_tier: FidelityTier,
+    era_profile: dict[str, Any],
+    config: dict[str, Any],
+) -> GrainPreset:
+    era_grain = _grain_preset_from((era_profile.get("artifact_policy") or {}).get("grain_intensity"))
+    if era_grain is None:
+        raise ProblemException(
+            title="Invalid Fidelity Override",
+            detail="artifact_policy.grain_intensity is required for fidelity resolution.",
+            status_code=400,
+        )
+
+    requested_grain = _grain_preset_from(_config_override(config, "grain_intensity"))
+    if requested_grain is None:
+        requested_grain = _grain_preset_from(config.get("grain_preset"))
+
+    if requested_grain is not None and requested_grain != era_grain:
+        raise ProblemException(
+            title="Invalid Fidelity Override",
+            detail="grain_intensity must match the saved era profile and job configuration.",
+            status_code=400,
+        )
+
+    resolved_grain = requested_grain or era_grain
+    allowed = allowed_grain_presets_for_tier(requested_tier)
+    if resolved_grain not in allowed:
+        allowed_labels = ", ".join(preset.value for preset in allowed)
+        raise ProblemException(
+            title="Invalid Fidelity Override",
+            detail=f"{requested_tier.value} allows these grain presets: {allowed_labels}.",
+            status_code=400,
+        )
+    return resolved_grain
+
+
 def fidelity_profile_for(tier: FidelityTier) -> FidelityProfile:
     return _FidelityProfileMap[tier]
+
+
+def default_tier_for_persona(persona: UserPersona) -> FidelityTier:
+    return _PERSONA_DEFAULT_TIER[persona]
+
+
+def allowed_grain_presets_for_tier(tier: FidelityTier) -> list[GrainPreset]:
+    return list(_TIER_ALLOWED_GRAIN_PRESETS[tier])
+
+
+def relative_cost_multiplier_for_tier(tier: FidelityTier) -> float:
+    return _TIER_COST_MULTIPLIERS[tier]
+
+
+def relative_processing_time_band_for_tier(tier: FidelityTier) -> str:
+    return _TIER_PROCESSING_TIME_BANDS[tier]
+
+
+def tier_catalog() -> list[FidelityTierCatalogItem]:
+    items: list[FidelityTierCatalogItem] = []
+    for tier in FidelityTier:
+        profile = fidelity_profile_for(tier)
+        items.append(
+            FidelityTierCatalogItem(
+                tier=tier,
+                label=tier.value,
+                description=_TIER_DESCRIPTIONS[tier],
+                default_grain_preset=GrainPreset(profile.grain_preset),
+                allowed_grain_presets=allowed_grain_presets_for_tier(tier),
+                relative_cost_multiplier=relative_cost_multiplier_for_tier(tier),
+                relative_processing_time_band=relative_processing_time_band_for_tier(tier),
+                thresholds={
+                    "e_hf_min": profile.e_hf_min,
+                    "s_ls_band_db": profile.s_ls_band_db,
+                    "t_tc_min": profile.t_tc_min,
+                    "hallucination_limit_max": profile.hallucination_limit_max,
+                },
+                identity_lock=profile.identity_lock,
+            )
+        )
+    return items
+
+
+def persona_catalog() -> list[FidelityPersonaOption]:
+    return [
+        FidelityPersonaOption(
+            persona=persona,
+            label=_PERSONA_LABELS[persona],
+            default_fidelity_tier=default_tier_for_persona(persona),
+            description=_PERSONA_DESCRIPTIONS[persona],
+        )
+        for persona in UserPersona
+    ]
 
 
 def resolve_fidelity_profile(
@@ -102,27 +248,17 @@ def resolve_fidelity_profile(
             status_code=400,
         )
 
-    grain_intensity = str((era_profile.get("artifact_policy") or {}).get("grain_intensity", ""))
-    if grain_intensity != profile.grain_preset:
-        raise ProblemException(
-            title="Invalid Fidelity Override",
-            detail=f"{requested_tier.value} requires artifact_policy.grain_intensity='{profile.grain_preset}'.",
-            status_code=400,
-        )
+    resolved_grain_preset = resolve_grain_preset(
+        requested_tier=requested_tier,
+        era_profile=era_profile,
+        config=config,
+    )
 
     requested_hallucination = _config_override(config, "hallucination_limit")
     if requested_hallucination is not None and float(requested_hallucination) > profile.hallucination_limit_max:
         raise ProblemException(
             title="Invalid Fidelity Override",
             detail=f"{requested_tier.value} cannot raise hallucination_limit beyond {profile.hallucination_limit_max:.2f}.",
-            status_code=400,
-        )
-
-    requested_grain = _config_override(config, "grain_intensity")
-    if requested_grain is not None and str(requested_grain) != profile.grain_preset:
-        raise ProblemException(
-            title="Invalid Fidelity Override",
-            detail=f"{requested_tier.value} locks grain_intensity to '{profile.grain_preset}'.",
             status_code=400,
         )
 
@@ -151,6 +287,7 @@ def resolve_fidelity_profile(
 
     resolved = asdict(profile)
     resolved["tier"] = profile.tier.value
+    resolved["grain_preset"] = resolved_grain_preset.value
     resolved["hallucination_limit"] = min(hallucination_limit, profile.hallucination_limit_max)
     resolved["codeformer_weight"] = codeformer_weight
     resolved["thresholds"] = {
