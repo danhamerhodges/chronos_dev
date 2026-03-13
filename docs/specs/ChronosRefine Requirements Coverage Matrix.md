@@ -295,7 +295,7 @@ Source evidence:
 | Phase 1: Foundation & Core Infrastructure | 6/6 | ✅ Complete (baseline scope) | Baseline scaffolding and validation confirmed in `docs/phase1_readiness_report.md` |
 | Phase 2: API Foundation & Data Layer | 6/6 | ✅ Complete (merged via PR #1) | `main` includes merge commit `709687a`; this is the canonical baseline for later phases |
 | Phase 3: Core Processing Pipeline & AI Integration | 11/12 | ✅ Complete for Phase 4 kickoff | PR #2 merged to `main`; `SEC-007` remains deferred to its canonical `GA+3 months` milestone |
-| Phase 4: User-Facing Features & Application Logic | 2/14 on candidate branch/PR | 🚧 In Progress (Packet 4A merged; Packet 4B complete on candidate branch) | `FR-001` upload/validation is merged on `main`; `FR-003` + `DS-001` are complete on `codex/packet4b-completion` pending PR/merge, with Packet 4C next |
+| Phase 4: User-Facing Features & Application Logic | 2/14 on `main` | 🚧 In Progress (Packets 4A and 4B merged) | `FR-001` upload/validation and `FR-003` + `DS-001` are merged on `main` as of merge commit `fc81b2a`; Packet 4C is next |
 | Phase 5: Advanced Features & UX Refinement | 0/11 | ⏸️ Not Started | Dependent on Phase 4 completion |
 | Phase 6: Production Readiness & Launch | 0/10 | ⏸️ Not Started | Dependent on Phase 5 completion |
 
@@ -352,21 +352,21 @@ Source evidence:
 
 ### Phase 4 Current Status: User-Facing Features & Application Logic
 
-**Requirements:** 1 of 14 complete on `main`; 2 of 14 complete on the candidate branch/PR (`codex/packet4b-completion`)  
-**Status:** Packet 4A is merged to `main`; Packet 4B is complete on the candidate branch/PR as of 2026-03-12 and is the next merge target  
-**Completed Packets:** `Packet 4A = FR-001 (Video Upload and Validation)` on `main`; `Packet 4B = FR-003 + DS-001 (Fidelity Tier Selection + Configuration UX)` on the candidate branch/PR
+**Requirements:** 2 of 14 complete on `main`  
+**Status:** Packets 4A and 4B are merged to `main` as of 2026-03-13 (`fc81b2a`); Packet 4C is the next feature packet  
+**Completed Packets:** `Packet 4A = FR-001 (Video Upload and Validation)` on `main`; `Packet 4B = FR-003 + DS-001 (Fidelity Tier Selection + Configuration UX)` on `main`
 
 | Area | Current Phase 4 note |
 |---|---|
 | Packet 4A scope on `main` | Signed GCS upload URL generation, resumable upload handling, format/size validation, authenticated metadata persistence, and a thin upload UI shell |
-| Packet 4B scope on candidate branch/PR | Upload-scoped era detection, persona/tier/grain configuration, launch-ready `job_payload_preview`, explicit hobbyist early-photo entitlement gating, and rendered `DS-001` verification |
+| Packet 4B scope on `main` | Upload-scoped era detection, persona/tier/grain configuration, launch-ready `job_payload_preview`, explicit hobbyist early-photo entitlement gating, and rendered `DS-001` verification |
 | Explicit Exclusions after Packet 4B | `FR-004`, `FR-005`, `ENG-013`, `ENG-014`, `ENG-015`, and all `FR-006` preview-review UX remain follow-on Phase 4/5 work |
 | Dependencies Satisfied | `SEC-013`, `ENG-002`, `ENG-016`; Phase 3 kickoff dependency is satisfied with `SEC-007` deferred per canon |
 | Packet 4A test mapping | `tests/api/test_upload.py`, `tests/integration/test_resumable_upload.py`, `tests/load/test_upload_performance.py` |
 | Packet 4B test mapping | `tests/api/test_fidelity_configuration.py`, `tests/processing/test_tier_parameters.py`, `tests/integration/test_configuration_job_handoff.py`, `tests/ui/test_tier_selection.spec.ts`, `tests/ui/test_fidelity_tier_selector.spec.ts`, `tests/ui/test_era_override_modal.spec.ts`, `tests/accessibility/test_fidelity_config_a11y.spec.ts` |
 | Packet 4A closure evidence | Live memory + GCS smoke passed, live Supabase + GCS smoke passed, staging latency probe passed on revision `chronos-phase1-app-00036-blf` (`build_sha=9a5791c4023794af8d6cc96d7dd2561aafdb93bc`) |
-| Packet 4B branch evidence | Shared fidelity resolver accepts all grain presets across all tiers, hobbyist early-photo saves return `403 Plan Upgrade Required` with no persistence, rendered `DS-001` jsdom tests pass, and `job_payload_preview` is accepted by `/v1/jobs` in integration coverage |
-| Context Note | `docs/specs/chronosrefine_phase4_closeout_note.md` for Packet 4A; Packet 4B remains candidate-branch evidence until PR merge |
+| Packet 4B merge evidence | Shared fidelity resolver accepts all grain presets across all tiers, hobbyist early-photo saves return `403 Plan Upgrade Required` with no persistence, rendered `DS-001` jsdom tests pass, and `job_payload_preview` is accepted by `/v1/jobs` in integration coverage; merged to `main` in `fc81b2a568fb7059989963bedeb7a22df8e63008` |
+| Context Note | `docs/specs/chronosrefine_phase4_closeout_note.md` for Packet 4A; Packet 4B evidence is now reflected directly on `main` |
 
 ## Progress Tracking Template
 
