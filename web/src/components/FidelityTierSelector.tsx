@@ -6,12 +6,14 @@ type FidelityTierSelectorProps = {
   tiers: FidelityTierCatalogItem[];
   selectedTier: FidelityTier | null;
   onSelect: (tier: FidelityTier) => void;
+  disabled?: boolean;
 };
 
 export function FidelityTierSelector({
   tiers,
   selectedTier,
   onSelect,
+  disabled = false,
 }: FidelityTierSelectorProps) {
   return (
     <div aria-label="Select restoration intensity: Conserve, Restore, or Enhance" role="radiogroup">
@@ -30,13 +32,15 @@ export function FidelityTierSelector({
                 borderRadius: "var(--radius-md)",
                 padding: "var(--spacing-md)",
                 background: checked ? "#edf5fb" : "white",
-                cursor: "pointer",
+                cursor: disabled ? "not-allowed" : "pointer",
+                opacity: disabled ? 0.7 : 1,
               }}
             >
               <span style={{ display: "flex", alignItems: "center", gap: "var(--spacing-xs)" }}>
                 <input
                   aria-label={tier.label}
                   checked={checked}
+                  disabled={disabled}
                   id={inputId}
                   name="fidelity-tier"
                   onChange={() => onSelect(tier.tier)}
