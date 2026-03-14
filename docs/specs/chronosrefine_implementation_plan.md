@@ -158,7 +158,7 @@ This implementation plan is organized into a logical execution sequence designed
 **Requirements Implemented:** **FR-001**, **FR-003**, **FR-004**, **FR-005**, **ENG-013**, **ENG-014**, **ENG-015**, **DS-001**, **DS-002**, **DS-003**, **DS-004**, **DS-005**, **DS-006**, **NFR-003** (14 requirements)  
 **Coverage Matrix:** See `docs/specs/ChronosRefine Requirements Coverage Matrix.md`
 
-**Current Status Note:** Packets 4A (`FR-001`), 4B (`FR-003` + `DS-001`), and 4C (`FR-004` + the Packet 4C portion of `DS-006`) are merged on `main`, with Packet 4C landing in merge commit `8e8798c394c36faf3e34e65b1c373f851e486f52`. Candidate branch `codex/packet4d-output-delivery` completes Packet 4D (`FR-005` + `ENG-015`) and the export-flow slices of `DS-002`, `DS-003`, `DS-004`, and `DS-005` without marking those design requirements globally complete. Phase 4 therefore stands at `5/14` complete on `main` and `7/14` complete on candidate branch `codex/packet4d-output-delivery`. Packet 4E is next. Follow-on packets must still follow the canonical Phase 4 requirement IDs above and the higher-priority requirement specs, not older PRD-style Phase 4 prose. `FR-006` remains a Phase 5 functional requirement; Phase 4 includes only `ENG-014` as the technical preview-generation substrate.
+**Current Status Note:** Packets 4A (`FR-001`), 4B (`FR-003` + `DS-001`), 4C (`FR-004` + the Packet 4C portion of `DS-006`), and 4D (`FR-005` + `ENG-015`) are merged on `main`, with Packet 4D landing in merge commit `f0667c8ab052324fdecd25292e6912933cf871a2`. Phase 4 therefore stands at `7/14` complete on `main`. Packet 4E is next. The Packet 4D merge also delivers the export-flow slices of `DS-002`, `DS-003`, `DS-004`, and `DS-005` without marking those design requirements globally complete. Follow-on packets must still follow the canonical Phase 4 requirement IDs above and the higher-priority requirement specs, not older PRD-style Phase 4 prose. `FR-006` remains a Phase 5 functional requirement; Phase 4 includes only `ENG-014` as the technical preview-generation substrate.
 
 **Entry Criteria:**
 - [x] Phase 3 is complete for kickoff on `main`; `SEC-007` remains deferred per canon and does not block Phase 4 kickoff → **See:** `docs/specs/chronosrefine_implementation_plan.md#phase-3-core-processing-pipeline--ai-integration`
@@ -179,7 +179,7 @@ This implementation plan is organized into a logical execution sequence designed
 - [ ] Resumable uploads are validated for files >10GB with simulated network interruptions → **Req:** **FR-001**, **Test:** `tests/integration/test_resumable_upload.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-001-video-upload-and-validation`
 - [x] Fidelity tier selection and era-override UX persist canonical configuration and meet `DS-001` requirements on `main` → **Req:** **FR-003**, **DS-001**, **Test:** `tests/api/test_fidelity_configuration.py`, `tests/processing/test_tier_parameters.py`, `tests/integration/test_configuration_job_handoff.py`, `tests/ui/test_tier_selection.spec.ts`, `tests/ui/test_fidelity_tier_selector.spec.ts`, `tests/ui/test_era_override_modal.spec.ts`, `tests/accessibility/test_fidelity_config_a11y.spec.ts`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-003-fidelity-tier-selection`, `docs/specs/chronosrefine_design_requirements.md#ds-001-fidelity-configuration-ux`
 - [x] Job launch, progress, and results flows operate on top of the Phase 3 job APIs with authenticated access and accessible error states on `main` → **Req:** **FR-004**, **DS-006**, **Test:** `tests/api/test_uncertainty_callouts.py`, `tests/integration/test_processing_launch_flow.py`, `tests/api/test_progress_updates.py`, `tests/api/test_async_processing.py`, `tests/integration/test_job_lifecycle.py`, `tests/ui/test_processing_flow.spec.ts`, `tests/accessibility/test_error_messages.spec.ts`, `tests/accessibility/test_error_announcements.spec.ts`, `tests/accessibility/test_uncertainty_callouts_a11y.spec.ts`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-004-processing-and-restoration`, `docs/specs/chronosrefine_design_requirements.md#ds-006-error-messages-accessibility`
-- [x] Output delivery surfaces expose encoded artifacts, manifest retrieval, deletion-proof availability, and link-expiry handling on candidate branch `codex/packet4d-output-delivery` → **Req:** **FR-005**, **ENG-015**, **Test:** `tests/api/test_output_delivery.py`, `tests/api/test_transformation_manifest.py`, `tests/api/test_deletion_proof.py`, `tests/integration/test_export_workflow.py`, `tests/processing/test_output_encoding.py`, `tests/processing/test_av1_encoding.py`, `tests/processing/test_metadata_preservation.py`, `tests/processing/test_encoding_performance.py`, `tests/ui/test_output_delivery.spec.ts`, `tests/accessibility/test_focus_management.spec.ts`, `tests/accessibility/test_keyboard_navigation.spec.ts`, `tests/accessibility/test_screen_reader_support.spec.ts`, `tests/accessibility/test_color_contrast.spec.ts`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-005-output-delivery`, `docs/specs/chronosrefine_engineering_requirements.md#eng-015-output-encoding`
+- [x] Output delivery surfaces expose encoded artifacts, manifest retrieval, deletion-proof availability, and link-expiry handling on `main` → **Req:** **FR-005**, **ENG-015**, **Test:** `tests/api/test_output_delivery.py`, `tests/api/test_transformation_manifest.py`, `tests/api/test_deletion_proof.py`, `tests/integration/test_export_workflow.py`, `tests/processing/test_output_encoding.py`, `tests/processing/test_av1_encoding.py`, `tests/processing/test_metadata_preservation.py`, `tests/processing/test_encoding_performance.py`, `tests/ui/test_output_delivery.spec.ts`, `tests/accessibility/test_focus_management.spec.ts`, `tests/accessibility/test_keyboard_navigation.spec.ts`, `tests/accessibility/test_screen_reader_support.spec.ts`, `tests/accessibility/test_color_contrast.spec.ts`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-005-output-delivery`, `docs/specs/chronosrefine_engineering_requirements.md#eng-015-output-encoding`
 - [ ] Preview artifact generation backend meets `ENG-014` latency and storage expectations for downstream Phase 5 `FR-006` UI work → **Req:** **ENG-014**, **Test:** `tests/processing/test_preview_generation.py`, `tests/processing/test_scene_detection.py`, `tests/load/test_preview_performance.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-014-preview-generation`
 - [ ] Accessibility audit passes WCAG 2.1 AA for `DS-002` through `DS-006` → **Req:** **DS-002**, **DS-003**, **DS-004**, **DS-005**, **DS-006**, **Test:** `tests/accessibility/test_keyboard_navigation.spec.ts`, `tests/accessibility/test_screen_reader_support.spec.ts`, `tests/accessibility/test_color_contrast.spec.ts`, `tests/accessibility/test_focus_management.spec.ts`, `tests/accessibility/test_error_messages.spec.ts`, **See:** `docs/specs/chronosrefine_design_requirements.md#ds-002-keyboard-navigation`, `docs/specs/chronosrefine_design_requirements.md#ds-003-screen-reader-support`, `docs/specs/chronosrefine_design_requirements.md#ds-004-color-contrast`, `docs/specs/chronosrefine_design_requirements.md#ds-005-focus-indicators`, `docs/specs/chronosrefine_design_requirements.md#ds-006-error-messages-accessibility`
 - [ ] Cost-estimate accuracy and Phase 4 cost-optimization guardrails align with `ENG-013` + `NFR-003` with no hardcoded pricing or entitlements → **Req:** **ENG-013**, **NFR-003**, **Test:** `tests/api/test_cost_estimation.py`, `tests/api/test_cost_breakdown.py`, `tests/integration/test_cost_reconciliation.py`, `tests/ops/test_cost_optimization.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-013-cost-estimation`, `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-003-cost-optimization`
@@ -304,6 +304,49 @@ This implementation plan is organized into a logical execution sequence designed
 - [x] `GET /v1/jobs/{job_id}/uncertainty-callouts` emits owner-scoped global low-confidence/manual-confirmation warnings plus deterministic, deduplicated segment callouts with `time_range_seconds` → **Req:** **FR-004**, **See:** `tests/api/test_uncertainty_callouts.py`
 - [x] Saved Packet 4B `job_payload_preview` launches through the unchanged `/v1/jobs` path and reaches terminal state in integration coverage → **Req:** **FR-004**, **See:** `tests/integration/test_processing_launch_flow.py`, `tests/integration/test_job_lifecycle.py`
 - [x] Rendered Packet 4C tests cover launch, polling, terminal summaries, blocking cancel failures, non-blocking refresh failures, retry affordances, and accessible uncertainty-callout rendering → **Req:** **DS-006**, **See:** `tests/ui/test_processing_flow.spec.ts`, `tests/accessibility/test_error_messages.spec.ts`, `tests/accessibility/test_error_announcements.spec.ts`, `tests/accessibility/test_uncertainty_callouts_a11y.spec.ts`
+
+**Latest Completed Packet on `main`: Packet 4D (merged on `main` 2026-03-14 via `f0667c8`)**
+
+**Requirement Focus:** `FR-005`, `ENG-015`
+
+**Reason for packet choice:** Packet 4D completes the next user-visible delivery slice after Packet 4C by turning terminal jobs into owner-scoped downloadable artifacts without changing `/v1/jobs` semantics. It also lands the export-flow accessibility and deterministic encoding metadata required to make Packet 4C results actually deliverable.
+
+**In Scope:**
+- Deterministic AV1 primary and H.264 compatibility export packaging for completed and partial jobs
+- Owner-scoped `GET /v1/jobs/{job_id}/export` and `GET /v1/deletion-proofs/{proof_id}` delivery surfaces
+- Terminal-state UI actions for package download, manifest viewing, and deletion-proof retrieval
+- Export-flow accessibility coverage across focus, keyboard navigation, screen reader, and color-contrast states
+
+**Out of Scope:**
+- Cost-estimation/productized optimization work (`ENG-013`, `NFR-003`)
+- Preview-generation substrate (`ENG-014`) and all Phase 5 `FR-006` review UX
+- Full Phase 6 `SEC-010` / `SEC-011` compliance closure
+- Email notifications for export links
+
+**Dependencies Confirmed:**
+- Packet 4A upload/session substrate is merged on `main`
+- Packet 4B launch-ready configuration and `job_payload_preview` handoff are merged on `main`
+- Packet 4C processing launch, polling, cancellation, and uncertainty-callout surfaces are merged on `main`
+
+**Mapped Tests:**
+- `tests/api/test_output_delivery.py`
+- `tests/api/test_transformation_manifest.py`
+- `tests/api/test_deletion_proof.py`
+- `tests/integration/test_export_workflow.py`
+- `tests/processing/test_output_encoding.py`
+- `tests/processing/test_av1_encoding.py`
+- `tests/processing/test_metadata_preservation.py`
+- `tests/processing/test_encoding_performance.py`
+- `tests/ui/test_output_delivery.spec.ts`
+- `tests/accessibility/test_focus_management.spec.ts`
+- `tests/accessibility/test_keyboard_navigation.spec.ts`
+- `tests/accessibility/test_screen_reader_support.spec.ts`
+- `tests/accessibility/test_color_contrast.spec.ts`
+
+**Packet 4D Merge Evidence:**
+- [x] Completed and partial jobs materialize deterministic AV1 + H.264 export packages with manifest, uncertainty-callout, quality-report, and deletion-proof artifacts at finalization time → **Req:** **FR-005**, **ENG-015**, **See:** `tests/api/test_output_delivery.py`, `tests/integration/test_export_workflow.py`
+- [x] Owner-scoped export and deletion-proof routes return signed delivery URLs with retention enforcement, expiry handling, and deterministic proof linkage on `main` → **Req:** **FR-005**, **See:** `tests/api/test_output_delivery.py`, `tests/api/test_deletion_proof.py`, `tests/api/test_endpoints.py`
+- [x] Packet 4D terminal delivery actions and export-path accessibility coverage pass on `main` for manifest viewing, package download, proof retrieval, focus management, keyboard navigation, screen reader support, and contrast expectations → **Req:** **ENG-015**, **DS-002**, **DS-003**, **DS-004**, **DS-005**, **See:** `tests/ui/test_output_delivery.spec.ts`, `tests/accessibility/test_focus_management.spec.ts`, `tests/accessibility/test_keyboard_navigation.spec.ts`, `tests/accessibility/test_screen_reader_support.spec.ts`, `tests/accessibility/test_color_contrast.spec.ts`
 
 **Guardrails to Preserve:**
 - End-user JWT / RLS-safe request path by default
