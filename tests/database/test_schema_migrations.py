@@ -26,6 +26,8 @@ def test_expected_migrations_present() -> None:
         "0015_phase4_upload_sessions.sql",
         "0016_phase4_upload_sessions_rls.sql",
         "0017_phase4_upload_configuration.sql",
+        "0018_phase4_output_delivery.sql",
+        "0019_phase4_output_delivery_rls.sql",
     ]
 
 
@@ -82,3 +84,18 @@ def test_upload_configuration_migration_adds_detection_and_launch_config_columns
     assert "ADD COLUMN IF NOT EXISTS detection_snapshot JSONB NOT NULL DEFAULT '{}'::JSONB" in sql
     assert "ADD COLUMN IF NOT EXISTS launch_config JSONB NOT NULL DEFAULT '{}'::JSONB" in sql
     assert "ADD COLUMN IF NOT EXISTS configured_at TIMESTAMPTZ" in sql
+
+
+def test_output_delivery_migrations_add_export_and_job_proof_tables() -> None:
+    root = Path(__file__).resolve().parents[2]
+    sql = (root / "supabase" / "migrations" / "0018_phase4_output_delivery.sql").read_text(encoding="utf-8")
+    rls_sql = (root / "supabase" / "migrations" / "0019_phase4_output_delivery_rls.sql").read_text(encoding="utf-8")
+
+    assert "CREATE TABLE IF NOT EXISTS public.job_deletion_proofs" in sql
+    assert "CREATE TABLE IF NOT EXISTS public.job_export_packages" in sql
+    assert "variant IN ('av1', 'h264')" in sql
+    assert "CONSTRAINT job_export_packages_deletion_proof_fk" in sql
+    assert "ALTER TABLE public.job_deletion_proofs ENABLE ROW LEVEL SECURITY" in rls_sql
+    assert "ALTER TABLE public.job_export_packages ENABLE ROW LEVEL SECURITY" in rls_sql
+    assert "CREATE POLICY job_deletion_proofs_owner_select" in rls_sql
+    assert "CREATE POLICY job_export_packages_owner_select" in rls_sql

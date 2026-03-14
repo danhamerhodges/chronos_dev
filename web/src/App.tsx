@@ -33,6 +33,14 @@ import {
   type JobUncertaintyCalloutsResponse,
 } from "./lib/processingHelpers";
 import {
+  fetchCurrentUserProfile,
+  fetchDeletionProof,
+  fetchJobExport,
+  fetchTransformationManifest,
+  type DeliveryRequestError,
+  type ExportVariant,
+} from "./lib/outputDeliveryHelpers";
+import {
   UploadResponse,
   executeUploadFlow,
   isSupportedUploadFormat,
@@ -56,6 +64,29 @@ function processingLaunchKey(configuration: UploadConfigurationResponse | null):
     return null;
   }
   return `${configuration.upload_id}:${configuration.configured_at}`;
+}
+
+type DeliveryActionKey = "av1" | "h264" | "manifest" | "proof";
+type DeliveryRetryAction =
+  | { type: "export"; variant: ExportVariant }
+  | { type: "manifest" }
+  | { type: "proof" };
+
+function isExportReadyStatus(status: JobDetailResponse["status"] | null | undefined): boolean {
+  return status === "completed" || status === "partial";
+}
+
+function deliveryActionLabel(action: DeliveryRetryAction | null): string {
+  if (!action) {
+    return "Retry";
+  }
+  if (action.type === "export") {
+    return action.variant === "av1" ? "Retry AV1 Download" : "Retry Compatibility Download";
+  }
+  if (action.type === "manifest") {
+    return "Retry Manifest";
+  }
+  return "Retry Deletion Proof";
 }
 
 export function App() {
@@ -82,11 +113,26 @@ export function App() {
   const [jobCallouts, setJobCallouts] = useState<JobUncertaintyCalloutsResponse | null>(null);
   const [jobBusy, setJobBusy] = useState(false);
   const [statusNotice, setStatusNotice] = useState("");
+  const [deliveryPlanTier, setDeliveryPlanTier] = useState<string | null>(null);
+  const [deliveryRetentionDays, setDeliveryRetentionDays] = useState(7);
+  const [deliveryBusy, setDeliveryBusy] = useState<Record<DeliveryActionKey, boolean>>({
+    av1: false,
+    h264: false,
+    manifest: false,
+    proof: false,
+  });
+  const [deliveryNotice, setDeliveryNotice] = useState("");
+  const [deliveryError, setDeliveryError] = useState("");
+  const [deliveryRetryAction, setDeliveryRetryAction] = useState<DeliveryRetryAction | null>(null);
   const [lastStartedConfigurationKey, setLastStartedConfigurationKey] = useState<string | null>(null);
   const activeUploadIdRef = useRef<string | null>(null);
   const activeJobIdRef = useRef<string | null>(null);
   const processingStatusRef = useRef<JobDetailResponse["status"] | null>(null);
   const latestRefreshTokenRef = useRef(0);
+  const lastTerminalStatusRef = useRef<JobDetailResponse["status"] | null>(null);
+  const terminalHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  const deliveryAlertRef = useRef<HTMLDivElement | null>(null);
+  const deliveryPlanLoadedJobIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     activeUploadIdRef.current = uploadSession?.upload_id ?? null;
@@ -99,6 +145,21 @@ export function App() {
   useEffect(() => {
     processingStatusRef.current = processingJob?.status ?? null;
   }, [processingJob?.status]);
+
+  useEffect(() => {
+    const nextStatus = processingJob?.status ?? null;
+    const previousStatus = lastTerminalStatusRef.current;
+    if (nextStatus && isExportReadyStatus(nextStatus) && previousStatus !== nextStatus) {
+      terminalHeadingRef.current?.focus();
+    }
+    lastTerminalStatusRef.current = nextStatus;
+  }, [processingJob?.status]);
+
+  useEffect(() => {
+    if (deliveryError) {
+      deliveryAlertRef.current?.focus();
+    }
+  }, [deliveryError]);
 
   function resetConfigurationState(): void {
     setEstimatedDurationSeconds(180);
@@ -118,16 +179,45 @@ export function App() {
     latestRefreshTokenRef.current += 1;
     activeJobIdRef.current = null;
     processingStatusRef.current = null;
+    deliveryPlanLoadedJobIdRef.current = null;
     setProcessingJob(null);
     setJobCallouts(null);
     setJobBusy(false);
     setStatusNotice("");
+    setDeliveryPlanTier(null);
+    setDeliveryRetentionDays(7);
+    setDeliveryBusy({ av1: false, h264: false, manifest: false, proof: false });
+    setDeliveryNotice("");
+    setDeliveryError("");
+    setDeliveryRetryAction(null);
   }
 
   const jobActive = isActiveJobStatus(processingJob?.status);
   const jobLocked = jobBusy || jobActive;
+  const exportReady = isExportReadyStatus(processingJob?.status);
   const currentLaunchKey = processingLaunchKey(savedConfiguration);
   const canStartSavedConfiguration = Boolean(savedConfiguration) && (!processingJob || currentLaunchKey !== lastStartedConfigurationKey);
+  const isMuseumPlan = deliveryPlanTier === "museum";
+
+  function setDeliveryBusyFor(action: DeliveryActionKey, value: boolean): void {
+    setDeliveryBusy((current) => ({ ...current, [action]: value }));
+  }
+
+  function clearDeliveryFeedback(): void {
+    setDeliveryNotice("");
+    setDeliveryError("");
+    setDeliveryRetryAction(null);
+  }
+
+  function openBrowserTarget(url: string, target: "_self" | "_blank"): void {
+    window.setTimeout(() => {
+      window.open(url, target, target === "_blank" ? "noopener,noreferrer" : undefined);
+    }, 0);
+  }
+
+  function isCurrentDeliveryJob(jobId: string): boolean {
+    return activeJobIdRef.current === jobId;
+  }
 
   useEffect(() => {
     if (!uploadSession || uploadSession.status !== "completed" || catalog) {
@@ -164,6 +254,34 @@ export function App() {
       ignore = true;
     };
   }, [catalog, uploadSession]);
+
+  useEffect(() => {
+    if (!exportReady || !processingJob?.job_id || deliveryPlanLoadedJobIdRef.current === processingJob.job_id) {
+      return;
+    }
+    let ignore = false;
+    const requestJobId = processingJob.job_id;
+    void (async () => {
+      try {
+        const accessToken = await currentAccessToken();
+        const profile = await fetchCurrentUserProfile(API_BASE_URL, accessToken);
+        if (ignore || !isCurrentDeliveryJob(requestJobId)) {
+          return;
+        }
+        deliveryPlanLoadedJobIdRef.current = requestJobId;
+        setDeliveryPlanTier(profile.plan_tier.toLowerCase());
+      } catch (caught) {
+        if (!ignore && isCurrentDeliveryJob(requestJobId)) {
+          deliveryPlanLoadedJobIdRef.current = null;
+          setDeliveryPlanTier(null);
+          setDeliveryNotice(caught instanceof Error ? `${caught.message} Using the default 7-day retention window.` : "Using the default 7-day retention window.");
+        }
+      }
+    })();
+    return () => {
+      ignore = true;
+    };
+  }, [exportReady, processingJob?.job_id]);
 
   async function runUpload(resumeExisting: boolean): Promise<void> {
     if (!selectedFile) {
@@ -358,10 +476,17 @@ export function App() {
         return;
       }
       activeJobIdRef.current = createdJob.job_id;
+      deliveryPlanLoadedJobIdRef.current = null;
       setProcessingJob(createdJob);
       setJobCallouts(null);
       setError("");
       setStatusNotice("");
+      setDeliveryPlanTier(null);
+      setDeliveryRetentionDays(7);
+      setDeliveryBusy({ av1: false, h264: false, manifest: false, proof: false });
+      setDeliveryNotice("");
+      setDeliveryError("");
+      setDeliveryRetryAction(null);
       setLastStartedConfigurationKey(launchKey);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to start processing.");
@@ -414,6 +539,179 @@ export function App() {
     } catch (caught) {
       setStatusNotice(caught instanceof Error ? caught.message : "Unable to refresh processing status.");
     }
+  }
+
+  async function handleDownloadPackage(variant: ExportVariant): Promise<void> {
+    if (!processingJob) {
+      return;
+    }
+    const requestJobId = processingJob.job_id;
+    clearDeliveryFeedback();
+    setDeliveryBusyFor(variant, true);
+    try {
+      const accessToken = await currentAccessToken();
+      if (!isCurrentDeliveryJob(requestJobId)) {
+        return;
+      }
+      const payload = await fetchJobExport(API_BASE_URL, accessToken, requestJobId, {
+        variant,
+        retentionDays: isMuseumPlan ? deliveryRetentionDays : 7,
+      });
+      if (!isCurrentDeliveryJob(requestJobId)) {
+        return;
+      }
+      setDeliveryRetryAction(null);
+      setDeliveryNotice(
+        variant === "av1" ? "AV1 package download ready." : "Compatibility package download ready.",
+      );
+      openBrowserTarget(payload.download_url, "_self");
+    } catch (caught) {
+      if (!isCurrentDeliveryJob(requestJobId)) {
+        return;
+      }
+      const deliveryErrorPayload = caught as DeliveryRequestError;
+      if (deliveryErrorPayload.status === 409) {
+        setDeliveryNotice(deliveryErrorPayload.message || "The delivery package is not ready yet.");
+        setDeliveryRetryAction({ type: "export", variant });
+        return;
+      }
+      if (deliveryErrorPayload.status === 410) {
+        setDeliveryError(
+          deliveryErrorPayload.message || "The delivery package has expired. Save a new configuration and run processing again.",
+        );
+        setDeliveryRetryAction(null);
+        return;
+      }
+      if (deliveryErrorPayload.status === 403) {
+        setDeliveryError(deliveryErrorPayload.message || "Extended retention is not available for the current plan.");
+        setDeliveryRetryAction(null);
+        return;
+      }
+      setDeliveryError(deliveryErrorPayload.message || "Unable to fetch the delivery package.");
+      setDeliveryRetryAction({ type: "export", variant });
+    } finally {
+      if (isCurrentDeliveryJob(requestJobId)) {
+        setDeliveryBusyFor(variant, false);
+      }
+    }
+  }
+
+  async function handleViewManifest(): Promise<void> {
+    if (!processingJob) {
+      return;
+    }
+    const requestJobId = processingJob.job_id;
+    clearDeliveryFeedback();
+    setDeliveryBusyFor("manifest", true);
+    const manifestWindow = window.open("about:blank", "_blank", "noopener,noreferrer");
+    try {
+      const accessToken = await currentAccessToken();
+      if (!isCurrentDeliveryJob(requestJobId)) {
+        manifestWindow?.close();
+        return;
+      }
+      const payload = await fetchTransformationManifest(API_BASE_URL, accessToken, requestJobId);
+      if (!isCurrentDeliveryJob(requestJobId)) {
+        manifestWindow?.close();
+        return;
+      }
+      const manifestUrl = URL.createObjectURL(
+        new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }),
+      );
+      setDeliveryNotice("Transformation manifest ready.");
+      if (manifestWindow) {
+        manifestWindow.location.href = manifestUrl;
+      } else {
+        openBrowserTarget(manifestUrl, "_blank");
+      }
+      window.setTimeout(() => URL.revokeObjectURL(manifestUrl), 60_000);
+    } catch (caught) {
+      manifestWindow?.close();
+      if (!isCurrentDeliveryJob(requestJobId)) {
+        return;
+      }
+      const deliveryErrorPayload = caught as DeliveryRequestError;
+      if (deliveryErrorPayload.status === 409) {
+        setDeliveryNotice(deliveryErrorPayload.message || "The transformation manifest is not ready yet.");
+        setDeliveryRetryAction({ type: "manifest" });
+        return;
+      }
+      if (deliveryErrorPayload.status === 410 || deliveryErrorPayload.status === 403) {
+        setDeliveryError(deliveryErrorPayload.message || "Unable to fetch the transformation manifest.");
+        setDeliveryRetryAction(null);
+        return;
+      }
+      setDeliveryError(deliveryErrorPayload.message || "Unable to fetch the transformation manifest.");
+      setDeliveryRetryAction({ type: "manifest" });
+    } finally {
+        if (isCurrentDeliveryJob(requestJobId)) {
+          setDeliveryBusyFor("manifest", false);
+      }
+    }
+  }
+
+  async function handleDownloadDeletionProof(): Promise<void> {
+    if (!processingJob) {
+      return;
+    }
+    const requestJobId = processingJob.job_id;
+    const deletionProofId = processingJob.deletion_proof_id;
+    clearDeliveryFeedback();
+    setDeliveryBusyFor("proof", true);
+    try {
+      if (!deletionProofId) {
+        setDeliveryError("Deletion proof metadata is not available yet.");
+        setDeliveryRetryAction({ type: "proof" });
+        return;
+      }
+      const accessToken = await currentAccessToken();
+      if (!isCurrentDeliveryJob(requestJobId)) {
+        return;
+      }
+      const proofPayload = await fetchDeletionProof(API_BASE_URL, accessToken, deletionProofId);
+      if (!isCurrentDeliveryJob(requestJobId)) {
+        return;
+      }
+      setDeliveryNotice("Deletion proof download ready.");
+      setDeliveryRetryAction(null);
+      openBrowserTarget(proofPayload.pdf_download_url, "_self");
+    } catch (caught) {
+      if (!isCurrentDeliveryJob(requestJobId)) {
+        return;
+      }
+      const deliveryErrorPayload = caught as DeliveryRequestError;
+      if (deliveryErrorPayload.status === 409) {
+        setDeliveryNotice(deliveryErrorPayload.message || "The deletion proof is not ready yet.");
+        setDeliveryRetryAction({ type: "proof" });
+        return;
+      }
+      if (deliveryErrorPayload.status === 410 || deliveryErrorPayload.status === 403) {
+        setDeliveryError(deliveryErrorPayload.message || "Unable to fetch the deletion proof.");
+        setDeliveryRetryAction(null);
+        return;
+      }
+      setDeliveryError(deliveryErrorPayload.message || "Unable to fetch the deletion proof.");
+      setDeliveryRetryAction({ type: "proof" });
+    } finally {
+      if (isCurrentDeliveryJob(requestJobId)) {
+        setDeliveryBusyFor("proof", false);
+      }
+    }
+  }
+
+  async function handleRetryDeliveryAction(): Promise<void> {
+    if (!deliveryRetryAction) {
+      return;
+    }
+    if (deliveryRetryAction.type === "export") {
+      await handleDownloadPackage(deliveryRetryAction.variant);
+      return;
+    }
+    if (deliveryRetryAction.type === "manifest") {
+      await handleViewManifest();
+      return;
+    }
+    await handleDownloadDeletionProof();
   }
 
   useEffect(() => {
@@ -800,6 +1098,117 @@ export function App() {
                     </div>
                   ) : null}
                   <UncertaintyCalloutsList callouts={jobCallouts?.callouts ?? []} />
+
+                  {exportReady ? (
+                    <section aria-labelledby="packet-4d-delivery-heading" style={{ display: "grid", gap: "var(--spacing-md)" }}>
+                      <h3
+                        id="packet-4d-delivery-heading"
+                        ref={terminalHeadingRef}
+                        tabIndex={-1}
+                        style={{ marginBottom: 0 }}
+                      >
+                        Packet 4D Delivery
+                      </h3>
+                      <p style={{ color: "var(--color-text-muted)", margin: 0 }}>
+                        Download the encoded delivery packages, open the transformation manifest, and retrieve the
+                        deletion proof once processing reaches a terminal state.
+                      </p>
+
+                      {isMuseumPlan ? (
+                        <label>
+                          <div style={{ marginBottom: "var(--spacing-xs)" }}>Retention window</div>
+                          <select
+                            aria-label="Select retention window"
+                            onChange={(event) => setDeliveryRetentionDays(Number(event.target.value))}
+                            value={deliveryRetentionDays}
+                          >
+                            <option value={7}>7 days</option>
+                            <option value={30}>30 days</option>
+                            <option value={90}>90 days</option>
+                          </select>
+                        </label>
+                      ) : null}
+
+                      <div style={{ display: "flex", gap: "var(--spacing-sm)", flexWrap: "wrap" }}>
+                        <Button
+                          aria-label="Download AV1 Package"
+                          disabled={deliveryBusy.av1}
+                          onClick={() => void handleDownloadPackage("av1")}
+                        >
+                          {deliveryBusy.av1 ? "Preparing AV1..." : "Download AV1 Package"}
+                        </Button>
+                        <Button
+                          aria-label="Download Compatibility Package"
+                          disabled={deliveryBusy.h264}
+                          onClick={() => void handleDownloadPackage("h264")}
+                          variant="secondary"
+                        >
+                          {deliveryBusy.h264 ? "Preparing Compatibility..." : "Download Compatibility Package"}
+                        </Button>
+                        <Button
+                          aria-label="View Manifest JSON"
+                          disabled={deliveryBusy.manifest}
+                          onClick={() => void handleViewManifest()}
+                          variant="secondary"
+                        >
+                          {deliveryBusy.manifest ? "Loading Manifest..." : "View Manifest JSON"}
+                        </Button>
+                        <Button
+                          aria-label="Download Deletion Proof PDF"
+                          disabled={deliveryBusy.proof}
+                          onClick={() => void handleDownloadDeletionProof()}
+                          variant="secondary"
+                        >
+                          {deliveryBusy.proof ? "Loading Proof..." : "Download Deletion Proof PDF"}
+                        </Button>
+                      </div>
+
+                      {deliveryNotice ? (
+                        <div
+                          aria-live="polite"
+                          role="status"
+                          style={{
+                            borderRadius: "var(--radius-md)",
+                            background: "#eef5ff",
+                            padding: "var(--spacing-sm) var(--spacing-md)",
+                          }}
+                        >
+                          <div>{deliveryNotice}</div>
+                          {deliveryRetryAction ? (
+                            <div style={{ marginTop: "var(--spacing-sm)" }}>
+                              <Button variant="secondary" onClick={() => void handleRetryDeliveryAction()}>
+                                {deliveryActionLabel(deliveryRetryAction)}
+                              </Button>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+
+                      {deliveryError ? (
+                        <div
+                          ref={deliveryAlertRef}
+                          aria-live="assertive"
+                          role="alert"
+                          tabIndex={-1}
+                          style={{
+                            borderRadius: "var(--radius-md)",
+                            background: "#fff0f0",
+                            color: "#8a1f1f",
+                            padding: "var(--spacing-sm) var(--spacing-md)",
+                          }}
+                        >
+                          <div>{deliveryError}</div>
+                          {deliveryRetryAction ? (
+                            <div style={{ marginTop: "var(--spacing-sm)" }}>
+                              <Button variant="secondary" onClick={() => void handleRetryDeliveryAction()}>
+                                {deliveryActionLabel(deliveryRetryAction)}
+                              </Button>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </section>
+                  ) : null}
                 </>
               )}
             </div>

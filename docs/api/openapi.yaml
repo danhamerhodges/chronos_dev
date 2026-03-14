@@ -20,6 +20,7 @@ tags:
   - name: era-detection
   - name: jobs
   - name: manifests
+  - name: deletion-proofs
   - name: ops
   - name: users
   - name: security
@@ -579,6 +580,65 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetail"
+  /v1/jobs/{job_id}/export:
+    get:
+      tags: [jobs]
+      summary: Generate a fresh signed download URL for a completed or partial job export package
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: variant
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [av1, h264]
+            default: av1
+        - name: retention_days
+          in: query
+          required: false
+          description: Default is 7 days. Non-Museum plans may request 1 to 7 days; Museum may request 1 to 90 days.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 90
+            default: 7
+      responses:
+        "200":
+          description: Signed output-delivery package URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobExportResponse"
+        "403":
+          description: Extended retention requires Museum tier
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "404":
+          description: Job or package not found for the current user
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "409":
+          description: Export package not ready because the job has not reached a successful terminal state
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "410":
+          description: Export package expired and has been deleted
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
   /v1/manifests/{job_id}:
     get:
       tags: [manifests]
@@ -600,6 +660,31 @@ paths:
                 $ref: "#/components/schemas/TransformationManifestResponse"
         "404":
           description: Manifest not found for the current user
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+  /v1/deletion-proofs/{proof_id}:
+    get:
+      tags: [deletion-proofs]
+      summary: Get the signed deletion-proof PDF metadata for a delivered job
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: proof_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deletion-proof metadata and a fresh signed PDF URL
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeletionProofResponse"
+        "404":
+          description: Deletion proof not found for the current user
           content:
             application/problem+json:
               schema:
@@ -1465,6 +1550,9 @@ components:
               type: string
             last_error:
               type: string
+            deletion_proof_id:
+              type: string
+              nullable: true
             segments:
               type: array
               items:
@@ -1504,6 +1592,57 @@ components:
         cancel_requested_at:
           type: string
           nullable: true
+    JobExportResponse:
+      type: object
+      required: [job_id, status, variant, download_url, expires_at, file_name, size_bytes, sha256, deletion_proof_id, package_contents]
+      properties:
+        job_id:
+          type: string
+        status:
+          type: string
+          enum: [queued, processing, completed, failed, partial, cancel_requested, cancelled]
+        variant:
+          type: string
+          enum: [av1, h264]
+        download_url:
+          type: string
+        expires_at:
+          type: string
+        file_name:
+          type: string
+        size_bytes:
+          type: integer
+        sha256:
+          type: string
+        deletion_proof_id:
+          type: string
+        package_contents:
+          type: array
+          items:
+            type: string
+    DeletionProofResponse:
+      type: object
+      required: [deletion_proof_id, job_id, generated_at, signature_algorithm, signature, proof_sha256, pdf_download_url, pdf_expires_at, verification_summary]
+      properties:
+        deletion_proof_id:
+          type: string
+        job_id:
+          type: string
+        generated_at:
+          type: string
+        signature_algorithm:
+          type: string
+        signature:
+          type: string
+        proof_sha256:
+          type: string
+        pdf_download_url:
+          type: string
+        pdf_expires_at:
+          type: string
+        verification_summary:
+          type: object
+          additionalProperties: true
     UncertaintyCalloutTimeRangeResponse:
       type: object
       required: [start, end]

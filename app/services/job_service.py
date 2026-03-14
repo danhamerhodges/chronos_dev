@@ -5,13 +5,14 @@ from __future__ import annotations
 from uuid import uuid4
 
 from app.api.problem_details import ProblemException
-from app.db.phase2_store import JobRepository, ManifestRepository
+from app.db.phase2_store import JobDeletionProofRepository, JobRepository, ManifestRepository
 from app.models.processing import ReproducibilityMode
 from app.models.status import JobStatus
 from app.services.billing_service import BillingService, billable_minutes_for_duration
 from app.services.fidelity_profiles import resolve_fidelity_profile
 from app.services.job_dispatcher import publish_job
 from app.services.job_pipeline import build_segments
+from app.services.output_delivery import OutputDeliveryService
 from app.services.reproducibility import validate_reproducibility_mode
 from app.services.uncertainty_callouts import UncertaintyCalloutService
 from app.validation.schema_validation import validate_era_profile
@@ -21,8 +22,10 @@ class JobService:
     def __init__(self) -> None:
         self._repo = JobRepository()
         self._manifests = ManifestRepository()
+        self._deletion_proofs = JobDeletionProofRepository()
         self._billing = BillingService()
         self._callouts = UncertaintyCalloutService()
+        self._output_delivery = OutputDeliveryService()
 
     def create_job(
         self,
@@ -119,7 +122,7 @@ class JobService:
                 status_code=404,
             )
         segments = self._repo.list_segments(job_id, owner_user_id=owner_user_id, access_token=access_token)
-        return self._job_response_payload(job, include_segments=True, segments=segments)
+        return self._job_response_payload(job, include_segments=True, segments=segments, access_token=access_token)
 
     def list_jobs(self, *, owner_user_id: str, access_token: str | None = None) -> list[dict[str, object]]:
         jobs = self._repo.list_jobs(owner_user_id=owner_user_id, access_token=access_token)
@@ -166,6 +169,38 @@ class JobService:
     ) -> dict[str, object]:
         return self._callouts.list_callouts(job_id, owner_user_id=owner_user_id, access_token=access_token)
 
+    def get_export(
+        self,
+        job_id: str,
+        *,
+        owner_user_id: str,
+        plan_tier: str,
+        variant: str,
+        retention_days: int,
+        access_token: str | None = None,
+    ) -> dict[str, object]:
+        return self._output_delivery.get_export(
+            job_id,
+            owner_user_id=owner_user_id,
+            plan_tier=plan_tier,
+            variant=variant,
+            retention_days=retention_days,
+            access_token=access_token,
+        )
+
+    def get_deletion_proof(
+        self,
+        proof_id: str,
+        *,
+        owner_user_id: str,
+        access_token: str | None = None,
+    ) -> dict[str, object]:
+        return self._output_delivery.get_deletion_proof(
+            proof_id,
+            owner_user_id=owner_user_id,
+            access_token=access_token,
+        )
+
     def _progress_from_job(self, job: dict[str, object]) -> dict[str, object]:
         segment_count = int(job.get("segment_count", 0) or 0)
         completed = int(job.get("completed_segment_count", 0) or 0)
@@ -188,6 +223,7 @@ class JobService:
         *,
         include_segments: bool = False,
         segments: list[dict[str, object]] | None = None,
+        access_token: str | None = None,
     ) -> dict[str, object]:
         stage_timings = job.get("stage_timings") or {
             "upload_ms": None,
@@ -274,12 +310,21 @@ class JobService:
             "progress": self._progress_from_job(job),
         }
         if include_segments:
+            deletion_proof_id = None
+            if str(job["status"]) in {JobStatus.COMPLETED.value, JobStatus.PARTIAL.value}:
+                proof = self._deletion_proofs.get_proof_for_job(
+                    str(job["job_id"]),
+                    owner_user_id=str(job["owner_user_id"]),
+                    access_token=access_token,
+                )
+                deletion_proof_id = proof["deletion_proof_id"] if proof else None
             payload.update(
                 {
                     "started_at": job.get("started_at"),
                     "completed_at": job.get("completed_at"),
                     "cancel_requested_at": job.get("cancel_requested_at"),
                     "last_error": job.get("last_error"),
+                    "deletion_proof_id": deletion_proof_id,
                     "segments": [self._segment_response_payload(segment) for segment in (segments or [])],
                 }
             )

@@ -74,6 +74,7 @@ class Settings:
     pro_rate_limit_per_minute: int = int(os.getenv("PRO_RATE_LIMIT_PER_MINUTE", "1000"))
     museum_rate_limit_per_minute: int = int(os.getenv("MUSEUM_RATE_LIMIT_PER_MINUTE", "1000"))
     gcs_bucket_name: str = os.getenv("GCS_BUCKET_NAME", "")
+    output_delivery_signing_secret: str = os.getenv("OUTPUT_DELIVERY_SIGNING_SECRET", "")
     gcp_project_id: str = _env_with_fallback("GCP_PROJECT_ID", "GOOGLE_CLOUD_PROJECT")
     gcp_region: str = _env_with_fallback("GCP_REGION", "VERTEX_AI_LOCATION", default="us-central1")
     gcp_access_token: str = os.getenv("GCP_ACCESS_TOKEN", "")
@@ -110,6 +111,17 @@ class Settings:
     slo_degradation_threshold_percent: float = float(os.getenv("SLO_DEGRADATION_THRESHOLD_PERCENT", "10.0"))
     monthly_error_budget_percent: float = float(os.getenv("MONTHLY_ERROR_BUDGET_PERCENT", "5.0"))
     museum_processing_sla_enabled: bool = _as_bool(os.getenv("MUSEUM_PROCESSING_SLA_ENABLED", "true"), default=True)
+
+    def __post_init__(self) -> None:
+        if self.output_delivery_signing_secret:
+            return
+        if self.environment == "test":
+            object.__setattr__(self, "output_delivery_signing_secret", "chronos-output-delivery-test-secret")
+            return
+        if self.environment in {"dev", "development"} or self.app_env in {"dev", "development"}:
+            object.__setattr__(self, "output_delivery_signing_secret", "chronos-output-delivery-dev-secret")
+            return
+        raise ValueError("OUTPUT_DELIVERY_SIGNING_SECRET must be set outside local development and tests.")
 
 
 settings = Settings()

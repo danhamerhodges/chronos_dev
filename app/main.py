@@ -14,6 +14,7 @@ from app.api.fidelity import router as fidelity_router
 from app.api.health import router as health_router
 from app.api.internal_workers import router as internal_workers_router
 from app.api.jobs import router as jobs_router
+from app.api.deletion_proofs import router as deletion_proofs_router
 from app.api.logs import router as logs_router
 from app.api.manifests import router as manifests_router
 from app.api.metrics import router as metrics_router
@@ -74,6 +75,7 @@ def create_app() -> FastAPI:
     app.include_router(fidelity_router, tags=["fidelity"])
     app.include_router(era_detection_router, tags=["era-detection"])
     app.include_router(jobs_router, tags=["jobs"])
+    app.include_router(deletion_proofs_router, tags=["deletion-proofs"])
     app.include_router(manifests_router, tags=["manifests"])
     app.include_router(users_router, tags=["users"])
     app.include_router(logs_router, tags=["security"])

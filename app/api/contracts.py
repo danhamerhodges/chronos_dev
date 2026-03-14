@@ -305,6 +305,11 @@ class WebhookEventType(StrEnum):
     CANCELLED = "cancelled"
 
 
+class ExportVariant(StrEnum):
+    AV1 = "av1"
+    H264 = "h264"
+
+
 class QualitySummaryResponse(StrictModel):
     e_hf: float = 0.0
     s_ls_db: float = 0.0
@@ -484,6 +489,7 @@ class JobDetailResponse(JobSummaryResponse):
     completed_at: str | None = None
     cancel_requested_at: str | None = None
     last_error: str | None = None
+    deletion_proof_id: str | None = None
     segments: list[JobSegmentResponse] = Field(default_factory=list)
 
 
@@ -522,6 +528,31 @@ class JobUncertaintyCalloutsResponse(StrictModel):
     job_id: str
     status: JobStatus
     callouts: list[UncertaintyCalloutResponse] = Field(default_factory=list)
+
+
+class JobExportResponse(StrictModel):
+    job_id: str
+    status: JobStatus
+    variant: ExportVariant
+    download_url: str
+    expires_at: str
+    file_name: str
+    size_bytes: int
+    sha256: str
+    deletion_proof_id: str
+    package_contents: list[str] = Field(default_factory=list)
+
+
+class DeletionProofResponse(StrictModel):
+    deletion_proof_id: str
+    job_id: str
+    generated_at: str
+    signature_algorithm: str
+    signature: str
+    proof_sha256: str
+    pdf_download_url: str
+    pdf_expires_at: str
+    verification_summary: dict[str, Any] = Field(default_factory=dict)
 
 
 class TransformationManifestSamplingProtocol(StrictModel):

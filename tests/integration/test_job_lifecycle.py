@@ -194,6 +194,88 @@ def test_process_job_releases_gpu_on_exception_before_finalize(monkeypatch) -> N
     assert released == [("job-fail-after-allocate", 0)]
 
 
+def test_process_job_reports_output_delivery_failures_without_overwriting_manifest_errors(monkeypatch) -> None:
+    class StubRepo:
+        def __init__(self) -> None:
+            self.job = {
+                "job_id": "job-delivery-fail",
+                "status": "processing",
+                "owner_user_id": "delivery-user",
+                "plan_tier": "pro",
+                "fidelity_tier": "Restore",
+                "reproducibility_mode": "perceptual_equivalence",
+                "estimated_duration_seconds": 27,
+                "updated_at": "2026-03-07T00:00:00+00:00",
+                "warnings": [],
+                "manifest_available": False,
+                "stage_timings": {},
+                "gpu_summary": {},
+            }
+
+        def get_job_for_worker(self, job_id: str) -> dict[str, object]:
+            assert job_id == "job-delivery-fail"
+            return dict(self.job)
+
+        def update_job_for_worker(self, job_id: str, *, patch: dict[str, object]) -> dict[str, object]:
+            assert job_id == "job-delivery-fail"
+            self.job.update(patch)
+            return dict(self.job)
+
+        def list_segments(self, job_id: str) -> list[dict[str, object]]:
+            assert job_id == "job-delivery-fail"
+            return []
+
+    repo = StubRepo()
+    billed: list[dict[str, object]] = []
+
+    monkeypatch.setattr(job_runtime, "finalize_manifest_payload", lambda **kwargs: {
+        "manifest_uri": "gs://chronos/manifests/job-delivery-fail.json",
+        "manifest_sha256": "manifest-hash",
+        "generated_at": "2026-03-07T00:00:00+00:00",
+        "size_bytes": 256,
+    })
+    monkeypatch.setattr(
+        job_runtime,
+        "ManifestRepository",
+        lambda: SimpleNamespace(upsert_manifest_for_worker=lambda **kwargs: None),
+    )
+    monkeypatch.setattr(
+        job_runtime,
+        "OutputDeliveryService",
+        lambda: SimpleNamespace(
+            materialize_delivery_artifacts=lambda **kwargs: (_ for _ in ()).throw(RuntimeError("zip signing failed")),
+        ),
+    )
+    monkeypatch.setattr(
+        job_runtime,
+        "release_gpu",
+        lambda job_id, gpu_runtime_seconds: {
+            "desired_warm_instances": 1,
+            "active_warm_instances": 1,
+            "busy_instances": 0,
+            "utilization_percent": 0.0,
+        },
+    )
+    monkeypatch.setattr(job_runtime, "record_job_stage_timings", lambda *args, **kwargs: None)
+    monkeypatch.setattr(job_runtime, "evaluate_runtime_snapshot", lambda *args, **kwargs: None)
+    monkeypatch.setattr(job_runtime, "record_job_runtime_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        job_runtime,
+        "BillingService",
+        lambda: SimpleNamespace(consume_minutes=lambda **kwargs: billed.append(kwargs)),
+    )
+
+    finalized, billed_minutes = job_runtime._finalize_job(repo, "job-delivery-fail", trusted_token="trusted")
+
+    assert billed_minutes is True
+    assert finalized["status"] == "failed"
+    assert finalized["manifest_available"] is True
+    assert finalized["last_error"] == "Output delivery packaging failed: zip signing failed"
+    assert "Output delivery packaging failed after processing completed." in finalized["warnings"]
+    assert finalized["current_operation"] == "Output delivery packaging failed"
+    assert billed == [{"user_id": "delivery-user", "plan_tier": "pro", "minutes": 0}]
+
+
 def test_process_job_rejects_invalid_plan_tier_before_runtime_processing(monkeypatch) -> None:
     class StubRepo:
         def __init__(self) -> None:

@@ -19,6 +19,10 @@ const {
   fetchJobDetail,
   fetchUncertaintyCallouts,
   cancelProcessing,
+  fetchCurrentUserProfile,
+  fetchJobExport,
+  fetchDeletionProof,
+  fetchTransformationManifest,
 } = vi.hoisted(() => ({
   fetchFidelityCatalog: vi.fn(),
   detectUploadEra: vi.fn(),
@@ -28,6 +32,10 @@ const {
   fetchJobDetail: vi.fn(),
   fetchUncertaintyCallouts: vi.fn(),
   cancelProcessing: vi.fn(),
+  fetchCurrentUserProfile: vi.fn(),
+  fetchJobExport: vi.fn(),
+  fetchDeletionProof: vi.fn(),
+  fetchTransformationManifest: vi.fn(),
 }));
 
 vi.mock("../../web/src/lib/configurationHelpers", async () => {
@@ -60,6 +68,19 @@ vi.mock("../../web/src/lib/processingHelpers", async () => {
     fetchJobDetail,
     fetchUncertaintyCallouts,
     cancelProcessing,
+  };
+});
+
+vi.mock("../../web/src/lib/outputDeliveryHelpers", async () => {
+  const actual = await vi.importActual<typeof import("../../web/src/lib/outputDeliveryHelpers")>(
+    "../../web/src/lib/outputDeliveryHelpers",
+  );
+  return {
+    ...actual,
+    fetchCurrentUserProfile,
+    fetchJobExport,
+    fetchDeletionProof,
+    fetchTransformationManifest,
   };
 });
 
@@ -330,6 +351,11 @@ describe("Packet 4C processing flow", () => {
     fetchJobDetail.mockReset();
     fetchUncertaintyCallouts.mockReset();
     cancelProcessing.mockReset();
+    fetchCurrentUserProfile.mockReset();
+    fetchJobExport.mockReset();
+    fetchDeletionProof.mockReset();
+    fetchTransformationManifest.mockReset();
+    fetchCurrentUserProfile.mockResolvedValue({ user_id: "flow-user", plan_tier: "pro" });
   });
 
   afterEach(() => {
