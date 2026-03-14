@@ -105,6 +105,21 @@ _SUPABASE_SEGMENT_UPDATE_FIELDS = {
     "uncertainty_callouts",
 }
 
+_SUPABASE_EXPORT_PACKAGE_JSON_FIELDS = {
+    "package_contents",
+    "artifact_metadata",
+    "encoding_metadata",
+}
+
+_SUPABASE_EXPORT_PACKAGE_UPDATE_FIELDS = {
+    "deleted_at",
+}
+
+_SUPABASE_JOB_DELETION_PROOF_JSON_FIELDS = {
+    "proof_payload",
+    "verification_summary",
+}
+
 
 def _validated_update_assignments(
     *,
@@ -153,6 +168,8 @@ class Phase2Store:
     jobs: dict[str, dict[str, Any]] = field(default_factory=dict)
     job_segments: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     job_manifests: dict[str, dict[str, Any]] = field(default_factory=dict)
+    job_export_packages: dict[str, dict[str, Any]] = field(default_factory=dict)
+    job_output_deletion_proofs: dict[str, dict[str, Any]] = field(default_factory=dict)
     gpu_leases: dict[str, dict[str, Any]] = field(default_factory=dict)
     incidents: dict[str, dict[str, Any]] = field(default_factory=dict)
     era_detections: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
@@ -174,6 +191,8 @@ def reset_phase2_store() -> None:
     _STORE.jobs.clear()
     _STORE.job_segments.clear()
     _STORE.job_manifests.clear()
+    _STORE.job_export_packages.clear()
+    _STORE.job_output_deletion_proofs.clear()
     _STORE.gpu_leases.clear()
     _STORE.incidents.clear()
     _STORE.era_detections.clear()
@@ -715,6 +734,65 @@ class _MemoryManifestRepository:
             return None
         manifest = _STORE.job_manifests.get(job_id)
         return dict(manifest) if manifest else None
+
+
+class _MemoryJobExportPackageRepository:
+    def upsert_package_for_worker(self, *, payload: dict[str, Any]) -> dict[str, Any]:
+        key = f"{payload['job_id']}:{payload['variant']}"
+        record = dict(payload)
+        record.setdefault("created_at", _utc_now())
+        record["updated_at"] = _utc_now()
+        _STORE.job_export_packages[key] = record
+        return dict(record)
+
+    def get_package(
+        self,
+        job_id: str,
+        *,
+        variant: str,
+        owner_user_id: str | None = None,
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        del access_token
+        job = _STORE.jobs.get(job_id)
+        if job is None:
+            return None
+        if owner_user_id and job["owner_user_id"] != owner_user_id:
+            return None
+        package = _STORE.job_export_packages.get(f"{job_id}:{variant}")
+        return dict(package) if package else None
+
+    def update_package_for_worker(self, job_id: str, *, variant: str, patch: dict[str, Any]) -> dict[str, Any]:
+        key = f"{job_id}:{variant}"
+        package = dict(_STORE.job_export_packages[key])
+        package.update(patch)
+        package["updated_at"] = _utc_now()
+        _STORE.job_export_packages[key] = package
+        return dict(package)
+
+
+class _MemoryJobDeletionProofRepository:
+    def upsert_proof_for_worker(self, *, payload: dict[str, Any]) -> dict[str, Any]:
+        record = dict(payload)
+        record.setdefault("created_at", _utc_now())
+        record["updated_at"] = _utc_now()
+        _STORE.job_output_deletion_proofs[record["deletion_proof_id"]] = record
+        return dict(record)
+
+    def get_proof(
+        self,
+        proof_id: str,
+        *,
+        owner_user_id: str | None = None,
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        del access_token
+        proof = _STORE.job_output_deletion_proofs.get(proof_id)
+        if proof is None:
+            return None
+        if owner_user_id and proof["owner_user_id"] != owner_user_id:
+            return None
+        return dict(proof)
 
 
 class _MemoryRuntimeOpsRepository:
@@ -2336,6 +2414,234 @@ class _SupabaseManifestRepository(_SupabaseRepositoryBase):
         return row["payload"]
 
 
+class _SupabaseJobExportPackageRepository(_SupabaseRepositoryBase):
+    def _package_from_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "job_id": row["external_job_id"],
+            "owner_user_id": row["external_user_id"],
+            "variant": row["variant"],
+            "package_uri": row["package_uri"],
+            "file_name": row["file_name"],
+            "size_bytes": row["size_bytes"],
+            "sha256": row["sha256"],
+            "package_contents": row.get("package_contents") or [],
+            "artifact_metadata": row.get("artifact_metadata") or {},
+            "encoding_metadata": row.get("encoding_metadata") or {},
+            "deletion_proof_id": row["external_deletion_proof_id"],
+            "available_until": row["available_until"],
+            "generated_at": row["generated_at"],
+            "deleted_at": row.get("deleted_at"),
+            "created_at": row["created_at"],
+            "updated_at": row.get("updated_at") or row["created_at"],
+        }
+
+    def upsert_package_for_worker(self, *, payload: dict[str, Any]) -> dict[str, Any]:
+        from psycopg.types.json import Jsonb
+
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into public.job_export_packages (
+                    id, job_id, external_job_id, owner_user_id, external_user_id, variant,
+                    package_uri, file_name, size_bytes, sha256, package_contents,
+                    artifact_metadata, encoding_metadata, external_deletion_proof_id,
+                    available_until, generated_at, deleted_at, updated_at
+                )
+                select
+                    %s, public.media_jobs.id, public.media_jobs.external_job_id, public.media_jobs.owner_user_id,
+                    public.media_jobs.external_user_id, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now()
+                from public.media_jobs
+                where public.media_jobs.external_job_id = %s
+                on conflict (job_id, variant) do update
+                set package_uri = excluded.package_uri,
+                    file_name = excluded.file_name,
+                    size_bytes = excluded.size_bytes,
+                    sha256 = excluded.sha256,
+                    package_contents = excluded.package_contents,
+                    artifact_metadata = excluded.artifact_metadata,
+                    encoding_metadata = excluded.encoding_metadata,
+                    external_deletion_proof_id = excluded.external_deletion_proof_id,
+                    available_until = excluded.available_until,
+                    generated_at = excluded.generated_at,
+                    deleted_at = excluded.deleted_at,
+                    updated_at = now()
+                returning *
+                """,
+                (
+                    str(uuid4()),
+                    payload["variant"],
+                    payload["package_uri"],
+                    payload["file_name"],
+                    payload["size_bytes"],
+                    payload["sha256"],
+                    Jsonb(payload.get("package_contents") or []),
+                    Jsonb(payload.get("artifact_metadata") or {}),
+                    Jsonb(payload.get("encoding_metadata") or {}),
+                    payload["deletion_proof_id"],
+                    payload["available_until"],
+                    payload["generated_at"],
+                    payload.get("deleted_at"),
+                    payload["job_id"],
+                ),
+            )
+            row = cur.fetchone()
+        if row is None:
+            raise RuntimeError(f"Export package upsert failed for job {payload['job_id']}:{payload['variant']}")
+        return self._package_from_row(row)
+
+    def get_package(
+        self,
+        job_id: str,
+        *,
+        variant: str,
+        owner_user_id: str | None = None,
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        if access_token:
+            headers = self._client.user_scoped_headers(access_token)
+            rows = self._client.rest_select(
+                "job_export_packages",
+                params={
+                    "select": "*",
+                    "external_job_id": f"eq.{job_id}",
+                    "variant": f"eq.{variant}",
+                    "limit": "1",
+                },
+                headers=headers,
+            )
+            return self._package_from_row(rows[0]) if rows else None
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                select *
+                from public.job_export_packages
+                where external_job_id = %s and variant = %s
+                limit 1
+                """,
+                (job_id, variant),
+            )
+            row = cur.fetchone()
+        if row is None:
+            return None
+        if owner_user_id and row["external_user_id"] != owner_user_id:
+            return None
+        return self._package_from_row(row)
+
+    def update_package_for_worker(self, job_id: str, *, variant: str, patch: dict[str, Any]) -> dict[str, Any]:
+        assignments, values = _validated_update_assignments(
+            patch=patch,
+            allowed_fields=_SUPABASE_EXPORT_PACKAGE_UPDATE_FIELDS,
+            json_fields=_SUPABASE_EXPORT_PACKAGE_JSON_FIELDS,
+        )
+        assignments.append("updated_at = now()")
+        values.extend([job_id, variant])
+        query = (
+            f"update public.job_export_packages set {', '.join(assignments)} "
+            "where external_job_id = %s and variant = %s returning *"
+        )
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(query, tuple(values))
+            row = cur.fetchone()
+        if row is None:
+            raise RuntimeError(f"Export package {job_id}:{variant} not found")
+        return self._package_from_row(row)
+
+
+class _SupabaseJobDeletionProofRepository(_SupabaseRepositoryBase):
+    def _proof_from_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "deletion_proof_id": row["external_deletion_proof_id"],
+            "job_id": row["external_job_id"],
+            "owner_user_id": row["external_user_id"],
+            "generated_at": row["generated_at"],
+            "signature_algorithm": row["signature_algorithm"],
+            "signature": row["signature"],
+            "proof_sha256": row["proof_sha256"],
+            "pdf_uri": row["pdf_uri"],
+            "verification_summary": row.get("verification_summary") or {},
+            "proof_payload": row.get("proof_payload") or {},
+            "created_at": row["created_at"],
+            "updated_at": row.get("updated_at") or row["created_at"],
+        }
+
+    def upsert_proof_for_worker(self, *, payload: dict[str, Any]) -> dict[str, Any]:
+        from psycopg.types.json import Jsonb
+
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into public.job_deletion_proofs (
+                    id, job_id, external_job_id, owner_user_id, external_user_id,
+                    external_deletion_proof_id, generated_at, signature_algorithm, signature,
+                    proof_sha256, verification_summary, proof_payload, pdf_uri, updated_at
+                )
+                select
+                    %s, public.media_jobs.id, public.media_jobs.external_job_id, public.media_jobs.owner_user_id,
+                    public.media_jobs.external_user_id, %s, %s, %s, %s, %s, %s, %s, %s, now()
+                from public.media_jobs
+                where public.media_jobs.external_job_id = %s
+                on conflict (external_deletion_proof_id) do update
+                set generated_at = excluded.generated_at,
+                    signature_algorithm = excluded.signature_algorithm,
+                    signature = excluded.signature,
+                    proof_sha256 = excluded.proof_sha256,
+                    verification_summary = excluded.verification_summary,
+                    proof_payload = excluded.proof_payload,
+                    pdf_uri = excluded.pdf_uri,
+                    updated_at = now()
+                returning *
+                """,
+                (
+                    _stable_uuid(payload["deletion_proof_id"]),
+                    payload["deletion_proof_id"],
+                    payload["generated_at"],
+                    payload["signature_algorithm"],
+                    payload["signature"],
+                    payload["proof_sha256"],
+                    Jsonb(payload.get("verification_summary") or {}),
+                    Jsonb(payload.get("proof_payload") or {}),
+                    payload["pdf_uri"],
+                    payload["job_id"],
+                ),
+            )
+            row = cur.fetchone()
+        if row is None:
+            raise RuntimeError(f"Deletion proof upsert failed for job {payload['job_id']}")
+        return self._proof_from_row(row)
+
+    def get_proof(
+        self,
+        proof_id: str,
+        *,
+        owner_user_id: str | None = None,
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        if access_token:
+            headers = self._client.user_scoped_headers(access_token)
+            rows = self._client.rest_select(
+                "job_deletion_proofs",
+                params={"select": "*", "external_deletion_proof_id": f"eq.{proof_id}", "limit": "1"},
+                headers=headers,
+            )
+            return self._proof_from_row(rows[0]) if rows else None
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                select *
+                from public.job_deletion_proofs
+                where external_deletion_proof_id = %s
+                limit 1
+                """,
+                (proof_id,),
+            )
+            row = cur.fetchone()
+        if row is None:
+            return None
+        if owner_user_id and row["external_user_id"] != owner_user_id:
+            return None
+        return self._proof_from_row(row)
+
+
 class _SupabaseRuntimeOpsRepository(_SupabaseRepositoryBase):
     def list_gpu_leases(self) -> list[dict[str, Any]]:
         with self._connect() as conn, conn.cursor() as cur:
@@ -2493,6 +2799,14 @@ def _webhook_subscription_backend() -> _MemoryWebhookSubscriptionRepository | _S
 
 def _manifest_backend() -> _MemoryManifestRepository | _SupabaseManifestRepository:
     return _SupabaseManifestRepository() if phase2_backend_name() == "supabase" else _MemoryManifestRepository()
+
+
+def _job_export_package_backend() -> _MemoryJobExportPackageRepository | _SupabaseJobExportPackageRepository:
+    return _SupabaseJobExportPackageRepository() if phase2_backend_name() == "supabase" else _MemoryJobExportPackageRepository()
+
+
+def _job_deletion_proof_backend() -> _MemoryJobDeletionProofRepository | _SupabaseJobDeletionProofRepository:
+    return _SupabaseJobDeletionProofRepository() if phase2_backend_name() == "supabase" else _MemoryJobDeletionProofRepository()
 
 
 def _runtime_ops_backend() -> _MemoryRuntimeOpsRepository | _SupabaseRuntimeOpsRepository:
@@ -2783,6 +3097,49 @@ class ManifestRepository:
         access_token: str | None = None,
     ) -> dict[str, Any] | None:
         return self._backend.get_manifest(job_id, owner_user_id=owner_user_id, access_token=access_token)
+
+
+class JobExportPackageRepository:
+    def __init__(self) -> None:
+        self._backend = _job_export_package_backend()
+
+    def upsert_package_for_worker(self, *, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._backend.upsert_package_for_worker(payload=payload)
+
+    def get_package(
+        self,
+        job_id: str,
+        *,
+        variant: str,
+        owner_user_id: str | None = None,
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        return self._backend.get_package(
+            job_id,
+            variant=variant,
+            owner_user_id=owner_user_id,
+            access_token=access_token,
+        )
+
+    def update_package_for_worker(self, job_id: str, *, variant: str, patch: dict[str, Any]) -> dict[str, Any]:
+        return self._backend.update_package_for_worker(job_id, variant=variant, patch=patch)
+
+
+class JobDeletionProofRepository:
+    def __init__(self) -> None:
+        self._backend = _job_deletion_proof_backend()
+
+    def upsert_proof_for_worker(self, *, payload: dict[str, Any]) -> dict[str, Any]:
+        return self._backend.upsert_proof_for_worker(payload=payload)
+
+    def get_proof(
+        self,
+        proof_id: str,
+        *,
+        owner_user_id: str | None = None,
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        return self._backend.get_proof(proof_id, owner_user_id=owner_user_id, access_token=access_token)
 
 
 class WebhookSubscriptionRepository:

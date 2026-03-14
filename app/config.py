@@ -74,6 +74,10 @@ class Settings:
     pro_rate_limit_per_minute: int = int(os.getenv("PRO_RATE_LIMIT_PER_MINUTE", "1000"))
     museum_rate_limit_per_minute: int = int(os.getenv("MUSEUM_RATE_LIMIT_PER_MINUTE", "1000"))
     gcs_bucket_name: str = os.getenv("GCS_BUCKET_NAME", "")
+    output_delivery_signing_secret: str = os.getenv(
+        "OUTPUT_DELIVERY_SIGNING_SECRET",
+        os.getenv("JOB_WORKER_TRUSTED_TOKEN", "chronos-output-delivery-test-secret"),
+    )
     gcp_project_id: str = _env_with_fallback("GCP_PROJECT_ID", "GOOGLE_CLOUD_PROJECT")
     gcp_region: str = _env_with_fallback("GCP_REGION", "VERTEX_AI_LOCATION", default="us-central1")
     gcp_access_token: str = os.getenv("GCP_ACCESS_TOKEN", "")
