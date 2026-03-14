@@ -99,6 +99,8 @@ def test_tracked_openapi_spec_covers_phase2_subset() -> None:
     assert "/v1/detect-era:" in openapi_spec
     assert "/v1/orgs/{org_id}/settings/logs:" in openapi_spec
     assert "/v1/jobs:" in openapi_spec
+    assert "/v1/jobs/{job_id}/export:" in openapi_spec
     assert "/v1/jobs/{job_id}/uncertainty-callouts:" in openapi_spec
+    assert "/v1/deletion-proofs/{proof_id}:" in openapi_spec
     assert "/v1/manifests/{job_id}:" in openapi_spec
     assert "/v1/ops/runtime:" in openapi_spec
