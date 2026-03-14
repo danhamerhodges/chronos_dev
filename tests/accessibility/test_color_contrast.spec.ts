@@ -16,6 +16,8 @@ const {
   detectUploadEra,
   saveUploadConfiguration,
   executeUploadFlow,
+  fetchJobEstimate,
+  approveSingleJobOverage,
   startProcessing,
   fetchJobDetail,
   fetchUncertaintyCallouts,
@@ -29,6 +31,8 @@ const {
   detectUploadEra: vi.fn(),
   saveUploadConfiguration: vi.fn(),
   executeUploadFlow: vi.fn(),
+  fetchJobEstimate: vi.fn(),
+  approveSingleJobOverage: vi.fn(),
   startProcessing: vi.fn(),
   fetchJobDetail: vi.fn(),
   fetchUncertaintyCallouts: vi.fn(),
@@ -39,6 +43,12 @@ const {
   fetchTransformationManifest: vi.fn(),
 }));
 
+vi.mock("../../web/src/lib/costEstimateHelpers", async () => {
+  const actual = await vi.importActual<typeof import("../../web/src/lib/costEstimateHelpers")>(
+    "../../web/src/lib/costEstimateHelpers",
+  );
+  return { ...actual, fetchJobEstimate, approveSingleJobOverage };
+});
 vi.mock("../../web/src/lib/configurationHelpers", async () => {
   const actual = await vi.importActual<typeof import("../../web/src/lib/configurationHelpers")>(
     "../../web/src/lib/configurationHelpers",
@@ -73,8 +83,52 @@ vi.mock("../../web/src/lib/supabaseClient", () => ({
 
 import { App } from "../../web/src/App";
 
+function buildEstimate() {
+  return {
+    estimated_usage_minutes: 5,
+    operational_cost_breakdown_usd: { gpu_time: 2.16, storage: 0.04, api_calls: 0.0, total: 2.2 },
+    billing_breakdown_usd: {
+      included_usage: 5,
+      overage_minutes: 0,
+      overage_rate_usd_per_minute: 0.75,
+      estimated_charge_total_usd: 0.0,
+    },
+    confidence_interval_usd: { low: 1.94, high: 2.46 },
+    usage_snapshot: {
+      user_id: "contrast-user",
+      plan_tier: "pro",
+      used_minutes: 120,
+      monthly_limit_minutes: 500,
+      remaining_minutes: 380,
+      estimated_next_job_minutes: 5,
+      approved_overage_minutes: 0,
+      remaining_approved_overage_minutes: 0,
+      threshold_alerts: [],
+      overage_approval_scope: null,
+      hard_stop: false,
+      price_reference: "price_subscription",
+      overage_price_reference: "price_overage",
+      reconciliation_source: "user_usage_monthly",
+      reconciliation_status: "estimate_pending",
+    },
+    launch_blocker: "none" as const,
+    estimator_version: "packet4e-v1",
+    generated_at: "2026-03-14T00:05:00+00:00",
+  };
+}
+
 describe("Packet 4D color contrast states", () => {
   beforeEach(() => {
+    fetchJobEstimate.mockResolvedValue(buildEstimate());
+    approveSingleJobOverage.mockResolvedValue({
+      user_id: "contrast-user",
+      approval_scope: "single_job",
+      approved_for_minutes: 5,
+      remaining_approved_overage_minutes: 5,
+      remaining_minutes: 0,
+      threshold_alerts: [],
+      overage_price_reference: "price_overage",
+    });
     fetchFidelityCatalog.mockResolvedValue({
       personas: [{ persona: "filmmaker", label: "Filmmaker", default_fidelity_tier: "Restore", description: "Preserve era texture." }],
       tiers: [
@@ -217,6 +271,8 @@ describe("Packet 4D color contrast states", () => {
     await user.click(screen.getByRole("button", { name: "Start Upload" }));
     await user.click(await screen.findByRole("button", { name: "Detect Era" }));
     await user.click(screen.getByRole("button", { name: "Save Configuration" }));
+    await user.click(screen.getByRole("button", { name: "Review Cost & Start" }));
+    await waitFor(() => expect(fetchJobEstimate).toHaveBeenCalled());
     await user.click(screen.getByRole("button", { name: "Start Processing" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Download AV1 Package" })).toBeInTheDocument());
 
