@@ -674,11 +674,6 @@ def _finalize_job(repo: JobRepository, job_id: str, *, trusted_token: str | None
                         "manifest_size_bytes": manifest_payload["size_bytes"],
                     },
                 )
-                OutputDeliveryService().materialize_delivery_artifacts(
-                    job=finalized,
-                    segments=repo.list_segments(job_id),
-                    manifest_payload=manifest_payload,
-                )
             except Exception as exc:
                 finalized = repo.update_job_for_worker(
                     job_id,
@@ -690,6 +685,24 @@ def _finalize_job(repo: JobRepository, job_id: str, *, trusted_token: str | None
                     },
                 )
                 status = JobStatus.FAILED
+            else:
+                try:
+                    OutputDeliveryService().materialize_delivery_artifacts(
+                        job=finalized,
+                        segments=repo.list_segments(job_id),
+                        manifest_payload=manifest_payload,
+                    )
+                except Exception as exc:
+                    finalized = repo.update_job_for_worker(
+                        job_id,
+                        patch={
+                            "status": JobStatus.FAILED.value,
+                            "last_error": f"Output delivery packaging failed: {exc}",
+                            "warnings": (finalized.get("warnings") or []) + ["Output delivery packaging failed after processing completed."],
+                            "current_operation": "Output delivery packaging failed",
+                        },
+                    )
+                    status = JobStatus.FAILED
         record_job_runtime_event(status.value)
         if status in {JobStatus.COMPLETED, JobStatus.PARTIAL}:
             BillingService().consume_minutes(

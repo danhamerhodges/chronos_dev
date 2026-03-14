@@ -43,6 +43,7 @@ def test_deletion_proof_route_returns_job_linked_metadata_and_signed_pdf_url() -
     assert payload["signature_algorithm"] == "HMAC-SHA256"
     assert payload["proof_sha256"]
     assert payload["pdf_download_url"].startswith("https://storage.googleapis.com/")
+    assert "X-Goog-Algorithm=GOOG4-HMAC-SHA256" in payload["pdf_download_url"]
     assert payload["verification_summary"]["status"] == "verified"
 
 

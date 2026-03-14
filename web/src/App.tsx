@@ -215,6 +215,10 @@ export function App() {
     }, 0);
   }
 
+  function isCurrentDeliveryJob(jobId: string): boolean {
+    return activeJobIdRef.current === jobId;
+  }
+
   useEffect(() => {
     if (!uploadSession || uploadSession.status !== "completed" || catalog) {
       return;
@@ -256,17 +260,19 @@ export function App() {
       return;
     }
     let ignore = false;
-    deliveryPlanLoadedJobIdRef.current = processingJob.job_id;
+    const requestJobId = processingJob.job_id;
     void (async () => {
       try {
         const accessToken = await currentAccessToken();
         const profile = await fetchCurrentUserProfile(API_BASE_URL, accessToken);
-        if (ignore || activeJobIdRef.current !== processingJob.job_id) {
+        if (ignore || !isCurrentDeliveryJob(requestJobId)) {
           return;
         }
+        deliveryPlanLoadedJobIdRef.current = requestJobId;
         setDeliveryPlanTier(profile.plan_tier.toLowerCase());
       } catch (caught) {
-        if (!ignore && activeJobIdRef.current === processingJob.job_id) {
+        if (!ignore && isCurrentDeliveryJob(requestJobId)) {
+          deliveryPlanLoadedJobIdRef.current = null;
           setDeliveryPlanTier(null);
           setDeliveryNotice(caught instanceof Error ? `${caught.message} Using the default 7-day retention window.` : "Using the default 7-day retention window.");
         }
@@ -539,20 +545,30 @@ export function App() {
     if (!processingJob) {
       return;
     }
+    const requestJobId = processingJob.job_id;
     clearDeliveryFeedback();
     setDeliveryBusyFor(variant, true);
     try {
       const accessToken = await currentAccessToken();
-      const payload = await fetchJobExport(API_BASE_URL, accessToken, processingJob.job_id, {
+      if (!isCurrentDeliveryJob(requestJobId)) {
+        return;
+      }
+      const payload = await fetchJobExport(API_BASE_URL, accessToken, requestJobId, {
         variant,
         retentionDays: isMuseumPlan ? deliveryRetentionDays : 7,
       });
+      if (!isCurrentDeliveryJob(requestJobId)) {
+        return;
+      }
       setDeliveryRetryAction(null);
       setDeliveryNotice(
         variant === "av1" ? "AV1 package download ready." : "Compatibility package download ready.",
       );
       openBrowserTarget(payload.download_url, "_self");
     } catch (caught) {
+      if (!isCurrentDeliveryJob(requestJobId)) {
+        return;
+      }
       const deliveryErrorPayload = caught as DeliveryRequestError;
       if (deliveryErrorPayload.status === 409) {
         setDeliveryNotice(deliveryErrorPayload.message || "The delivery package is not ready yet.");
@@ -574,7 +590,9 @@ export function App() {
       setDeliveryError(deliveryErrorPayload.message || "Unable to fetch the delivery package.");
       setDeliveryRetryAction({ type: "export", variant });
     } finally {
-      setDeliveryBusyFor(variant, false);
+      if (isCurrentDeliveryJob(requestJobId)) {
+        setDeliveryBusyFor(variant, false);
+      }
     }
   }
 
@@ -582,23 +600,43 @@ export function App() {
     if (!processingJob) {
       return;
     }
+    const requestJobId = processingJob.job_id;
     clearDeliveryFeedback();
     setDeliveryBusyFor("manifest", true);
+    const manifestWindow = window.open("about:blank", "_blank", "noopener,noreferrer");
     try {
       const accessToken = await currentAccessToken();
-      const payload = await fetchTransformationManifest(API_BASE_URL, accessToken, processingJob.job_id);
+      if (!isCurrentDeliveryJob(requestJobId)) {
+        manifestWindow?.close();
+        return;
+      }
+      const payload = await fetchTransformationManifest(API_BASE_URL, accessToken, requestJobId);
+      if (!isCurrentDeliveryJob(requestJobId)) {
+        manifestWindow?.close();
+        return;
+      }
       const manifestUrl = URL.createObjectURL(
         new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }),
       );
       setDeliveryNotice("Transformation manifest ready.");
-      openBrowserTarget(manifestUrl, "_blank");
+      if (manifestWindow) {
+        manifestWindow.location.href = manifestUrl;
+      } else {
+        openBrowserTarget(manifestUrl, "_blank");
+      }
       window.setTimeout(() => URL.revokeObjectURL(manifestUrl), 60_000);
     } catch (caught) {
+      manifestWindow?.close();
+      if (!isCurrentDeliveryJob(requestJobId)) {
+        return;
+      }
       const deliveryErrorPayload = caught as DeliveryRequestError;
       setDeliveryError(deliveryErrorPayload.message || "Unable to fetch the transformation manifest.");
       setDeliveryRetryAction({ type: "manifest" });
     } finally {
-      setDeliveryBusyFor("manifest", false);
+      if (isCurrentDeliveryJob(requestJobId)) {
+        setDeliveryBusyFor("manifest", false);
+      }
     }
   }
 
@@ -606,21 +644,31 @@ export function App() {
     if (!processingJob) {
       return;
     }
+    const requestJobId = processingJob.job_id;
+    const deletionProofId = processingJob.deletion_proof_id;
     clearDeliveryFeedback();
     setDeliveryBusyFor("proof", true);
     try {
-      const deletionProofId = processingJob.deletion_proof_id;
       if (!deletionProofId) {
         setDeliveryError("Deletion proof metadata is not available yet.");
         setDeliveryRetryAction({ type: "proof" });
         return;
       }
       const accessToken = await currentAccessToken();
+      if (!isCurrentDeliveryJob(requestJobId)) {
+        return;
+      }
       const proofPayload = await fetchDeletionProof(API_BASE_URL, accessToken, deletionProofId);
+      if (!isCurrentDeliveryJob(requestJobId)) {
+        return;
+      }
       setDeliveryNotice("Deletion proof download ready.");
       setDeliveryRetryAction(null);
       openBrowserTarget(proofPayload.pdf_download_url, "_self");
     } catch (caught) {
+      if (!isCurrentDeliveryJob(requestJobId)) {
+        return;
+      }
       const deliveryErrorPayload = caught as DeliveryRequestError;
       if (deliveryErrorPayload.status === 409) {
         setDeliveryNotice(deliveryErrorPayload.message || "The deletion proof is not ready yet.");
@@ -635,7 +683,9 @@ export function App() {
       setDeliveryError(deliveryErrorPayload.message || "Unable to fetch the deletion proof.");
       setDeliveryRetryAction({ type: "proof" });
     } finally {
-      setDeliveryBusyFor("proof", false);
+      if (isCurrentDeliveryJob(requestJobId)) {
+        setDeliveryBusyFor("proof", false);
+      }
     }
   }
 

@@ -398,11 +398,20 @@ class OutputDeliveryService:
         else:
             bucket_name = settings.gcs_bucket_name or "chronos-refine-downloads"
             object_path = object_uri.lstrip("/")
-        expires_token = str(int(expires_at.timestamp()))
-        signature = _sign_value(f"{object_uri}:{file_name}:{expires_token}")
+        request_time = _utc_now()
+        request_date = request_time.strftime("%Y%m%d")
+        request_timestamp = request_time.strftime("%Y%m%dT%H%M%SZ")
+        expires_seconds = max(int((expires_at - request_time).total_seconds()), 1)
+        credential = f"chronos-output-delivery/{request_date}/auto/storage/goog4_request"
+        signature = _sign_value(f"{object_uri}:{file_name}:{request_timestamp}:{expires_seconds}")
         encoded_object = quote(object_path, safe="/")
         return (
-            f"https://storage.googleapis.com/download/storage/v1/b/{bucket_name}/o/{encoded_object}"
-            f"?alt=media&response-content-disposition=attachment%3Bfilename%3D{quote(file_name)}"
-            f"&expires={expires_token}&signature={signature}"
+            f"https://storage.googleapis.com/{bucket_name}/{encoded_object}"
+            f"?X-Goog-Algorithm=GOOG4-HMAC-SHA256"
+            f"&X-Goog-Credential={quote(credential, safe='')}"
+            f"&X-Goog-Date={request_timestamp}"
+            f"&X-Goog-Expires={expires_seconds}"
+            f"&X-Goog-SignedHeaders=host"
+            f"&response-content-disposition=attachment%3Bfilename%3D{quote(file_name)}"
+            f"&X-Goog-Signature={signature}"
         )

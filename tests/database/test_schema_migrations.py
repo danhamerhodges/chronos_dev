@@ -94,6 +94,7 @@ def test_output_delivery_migrations_add_export_and_job_proof_tables() -> None:
     assert "CREATE TABLE IF NOT EXISTS public.job_deletion_proofs" in sql
     assert "CREATE TABLE IF NOT EXISTS public.job_export_packages" in sql
     assert "variant IN ('av1', 'h264')" in sql
+    assert "CONSTRAINT job_export_packages_deletion_proof_fk" in sql
     assert "ALTER TABLE public.job_deletion_proofs ENABLE ROW LEVEL SECURITY" in rls_sql
     assert "ALTER TABLE public.job_export_packages ENABLE ROW LEVEL SECURITY" in rls_sql
     assert "CREATE POLICY job_deletion_proofs_owner_select" in rls_sql

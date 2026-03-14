@@ -47,6 +47,12 @@ def test_owner_can_fetch_default_av1_export_for_completed_job() -> None:
     assert payload["status"] == "completed"
     assert payload["variant"] == "av1"
     assert payload["download_url"].startswith("https://storage.googleapis.com/")
+    assert "/download/storage/v1/" not in payload["download_url"]
+    assert "X-Goog-Algorithm=GOOG4-HMAC-SHA256" in payload["download_url"]
+    assert "X-Goog-Credential=" in payload["download_url"]
+    assert "X-Goog-Date=" in payload["download_url"]
+    assert "X-Goog-Expires=" in payload["download_url"]
+    assert "X-Goog-Signature=" in payload["download_url"]
     assert payload["file_name"].endswith("-av1.zip")
     assert set(payload["package_contents"]) == {
         f"{job_id}-av1.mp4",

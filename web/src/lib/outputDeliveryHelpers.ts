@@ -102,7 +102,7 @@ export async function fetchJobExport(
     variant,
     retention_days: String(retentionDays),
   });
-  const response = await fetchFn(apiUrl(apiBaseUrl, `/v1/jobs/${jobId}/export?${params.toString()}`), {
+  const response = await fetchFn(apiUrl(apiBaseUrl, `/v1/jobs/${encodeURIComponent(jobId)}/export?${params.toString()}`), {
     headers: {
       Authorization: `Bearer ${accessToken}`,
     },
@@ -119,7 +119,7 @@ export async function fetchDeletionProof(
   proofId: string,
   fetchFn: typeof fetch = globalThis.fetch.bind(globalThis),
 ): Promise<DeletionProofResponse> {
-  const response = await fetchFn(apiUrl(apiBaseUrl, `/v1/deletion-proofs/${proofId}`), {
+  const response = await fetchFn(apiUrl(apiBaseUrl, `/v1/deletion-proofs/${encodeURIComponent(proofId)}`), {
     headers: {
       Authorization: `Bearer ${accessToken}`,
     },
@@ -136,7 +136,7 @@ export async function fetchTransformationManifest(
   jobId: string,
   fetchFn: typeof fetch = globalThis.fetch.bind(globalThis),
 ): Promise<TransformationManifestResponse> {
-  const response = await fetchFn(apiUrl(apiBaseUrl, `/v1/manifests/${jobId}`), {
+  const response = await fetchFn(apiUrl(apiBaseUrl, `/v1/manifests/${encodeURIComponent(jobId)}`), {
     headers: {
       Authorization: `Bearer ${accessToken}`,
     },

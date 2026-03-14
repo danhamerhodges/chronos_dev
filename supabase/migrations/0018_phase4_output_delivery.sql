@@ -45,7 +45,11 @@ CREATE TABLE IF NOT EXISTS public.job_export_packages (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   CONSTRAINT job_export_packages_variant_check CHECK (variant IN ('av1', 'h264')),
-  CONSTRAINT job_export_packages_job_variant_unique UNIQUE (job_id, variant)
+  CONSTRAINT job_export_packages_job_variant_unique UNIQUE (job_id, variant),
+  CONSTRAINT job_export_packages_deletion_proof_fk
+    FOREIGN KEY (external_deletion_proof_id)
+    REFERENCES public.job_deletion_proofs (external_deletion_proof_id)
+    ON DELETE RESTRICT
 );
 
 CREATE INDEX IF NOT EXISTS idx_job_export_packages_external_job
