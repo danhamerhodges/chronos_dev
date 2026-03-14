@@ -12,6 +12,7 @@ from app.services.billing_service import BillingService, billable_minutes_for_du
 from app.services.fidelity_profiles import resolve_fidelity_profile
 from app.services.job_dispatcher import publish_job
 from app.services.job_pipeline import build_segments
+from app.services.output_delivery import OutputDeliveryService
 from app.services.reproducibility import validate_reproducibility_mode
 from app.services.uncertainty_callouts import UncertaintyCalloutService
 from app.validation.schema_validation import validate_era_profile
@@ -23,6 +24,7 @@ class JobService:
         self._manifests = ManifestRepository()
         self._billing = BillingService()
         self._callouts = UncertaintyCalloutService()
+        self._output_delivery = OutputDeliveryService()
 
     def create_job(
         self,
@@ -165,6 +167,38 @@ class JobService:
         access_token: str | None = None,
     ) -> dict[str, object]:
         return self._callouts.list_callouts(job_id, owner_user_id=owner_user_id, access_token=access_token)
+
+    def get_export(
+        self,
+        job_id: str,
+        *,
+        owner_user_id: str,
+        plan_tier: str,
+        variant: str,
+        retention_days: int,
+        access_token: str | None = None,
+    ) -> dict[str, object]:
+        return self._output_delivery.get_export(
+            job_id,
+            owner_user_id=owner_user_id,
+            plan_tier=plan_tier,
+            variant=variant,
+            retention_days=retention_days,
+            access_token=access_token,
+        )
+
+    def get_deletion_proof(
+        self,
+        proof_id: str,
+        *,
+        owner_user_id: str,
+        access_token: str | None = None,
+    ) -> dict[str, object]:
+        return self._output_delivery.get_deletion_proof(
+            proof_id,
+            owner_user_id=owner_user_id,
+            access_token=access_token,
+        )
 
     def _progress_from_job(self, job: dict[str, object]) -> dict[str, object]:
         segment_count = int(job.get("segment_count", 0) or 0)

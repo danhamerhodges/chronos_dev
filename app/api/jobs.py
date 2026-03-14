@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 
 from app.api.contracts import (
+    ExportVariant,
     JobCancelResponse,
     JobCreateRequest,
     JobCreateResponse,
     JobDetailResponse,
+    JobExportResponse,
     JobListResponse,
     JobUncertaintyCalloutsResponse,
 )
@@ -61,6 +63,27 @@ def get_uncertainty_callouts(
     response.headers["Cache-Control"] = "private, max-age=1"
     payload = _job_service.get_uncertainty_callouts(job_id, owner_user_id=user.user_id, access_token=user.access_token)
     return JobUncertaintyCalloutsResponse.model_validate(payload)
+
+
+@router.get("/v1/jobs/{job_id}/export", response_model=JobExportResponse)
+def get_export(
+    job_id: str,
+    response: Response,
+    variant: ExportVariant = Query(default=ExportVariant.AV1),
+    retention_days: int = Query(default=7, ge=1, le=90),
+    user: AuthenticatedUser = Depends(require_permission("jobs:read")),
+) -> JobExportResponse:
+    apply_rate_limit(user, "/v1/jobs/{job_id}/export")
+    response.headers["Cache-Control"] = "private, max-age=0"
+    payload = _job_service.get_export(
+        job_id,
+        owner_user_id=user.user_id,
+        plan_tier=user.plan_tier,
+        variant=variant.value,
+        retention_days=retention_days,
+        access_token=user.access_token,
+    )
+    return JobExportResponse.model_validate(payload)
 
 
 @router.get("/v1/jobs", response_model=JobListResponse)
