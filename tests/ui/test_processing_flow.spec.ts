@@ -6,7 +6,7 @@
 
 import React from "react";
 
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -78,6 +78,21 @@ vi.mock("../../web/src/lib/supabaseClient", () => ({
 }));
 
 import { App } from "../../web/src/App";
+
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+async function flushAsyncWork(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
 
 function buildCatalog() {
   return {
@@ -354,5 +369,81 @@ describe("Packet 4C processing flow", () => {
     await user.click(screen.getByRole("button", { name: "Save Configuration" }));
     await waitFor(() => expect(saveUploadConfiguration).toHaveBeenCalledTimes(2));
     expect(screen.getByRole("button", { name: "Start Processing Again" })).toBeEnabled();
+  });
+
+  it("locks Packet 4B controls while processing launch is pending", async () => {
+    const user = userEvent.setup();
+    const pendingLaunch = createDeferred<ReturnType<typeof buildJob>>();
+    startProcessing.mockImplementation(() => pendingLaunch.promise);
+    fetchJobDetail.mockResolvedValue(buildJob("processing"));
+    fetchUncertaintyCallouts.mockResolvedValue(buildCallouts("processing"));
+
+    await completePacket4BConfiguration(user);
+    await user.click(screen.getByRole("button", { name: "Start Processing" }));
+
+    expect(screen.getByLabelText("Media file")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Start Upload" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Resume Upload" })).toBeDisabled();
+    expect(screen.getByLabelText("Select user persona")).toBeDisabled();
+    expect(screen.getByLabelText("Select grain preset")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Refresh Detection" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Override Era" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save Configuration" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Starting..." })).toBeDisabled();
+
+    pendingLaunch.resolve(buildJob("processing"));
+
+    const processingCard = screen.getByRole("heading", { name: "Packet 4C Processing Flow" }).closest("section");
+    expect(processingCard).not.toBeNull();
+    expect(
+      await within(processingCard as HTMLElement).findByText((_, element) => element?.textContent === "Status: processing"),
+    ).toBeInTheDocument();
+  });
+
+  it("ignores stale processing refresh responses when a newer refresh completes first", async () => {
+    const user = userEvent.setup();
+    const staleDetail = createDeferred<ReturnType<typeof buildJob>>();
+    const freshDetail = createDeferred<ReturnType<typeof buildJob>>();
+    const freshCallouts = createDeferred<ReturnType<typeof buildCallouts>>();
+
+    startProcessing.mockResolvedValue(buildJob("queued"));
+    fetchJobDetail
+      .mockImplementationOnce(() => staleDetail.promise)
+      .mockImplementationOnce(() => freshDetail.promise);
+    fetchUncertaintyCallouts.mockImplementationOnce(() => freshCallouts.promise);
+    cancelProcessing.mockResolvedValue({
+      job_id: "job-1",
+      status: "cancel_requested",
+      cancel_requested_at: "2026-03-13T00:06:30+00:00",
+    });
+
+    await completePacket4BConfiguration(user);
+    await user.click(screen.getByRole("button", { name: "Start Processing" }));
+
+    await waitFor(() => expect(fetchJobDetail).toHaveBeenCalledTimes(1));
+    await user.click(screen.getByRole("button", { name: "Cancel Processing" }));
+    await waitFor(() => expect(fetchJobDetail).toHaveBeenCalledTimes(2));
+
+    freshDetail.resolve(buildJob("completed"));
+    await act(async () => {
+      await flushAsyncWork();
+    });
+    expect(fetchUncertaintyCallouts).toHaveBeenCalledTimes(1);
+    freshCallouts.resolve(buildCallouts("completed"));
+    await act(async () => {
+      await flushAsyncWork();
+    });
+
+    const processingCard = screen.getByRole("heading", { name: "Packet 4C Processing Flow" }).closest("section");
+    expect(processingCard).not.toBeNull();
+    expect(within(processingCard as HTMLElement).getByText((_, element) => element?.textContent === "Status: completed")).toBeInTheDocument();
+
+    staleDetail.resolve(buildJob("processing"));
+    await act(async () => {
+      await flushAsyncWork();
+    });
+
+    expect(fetchUncertaintyCallouts).toHaveBeenCalledTimes(1);
+    expect(within(processingCard as HTMLElement).getByText((_, element) => element?.textContent === "Status: completed")).toBeInTheDocument();
   });
 });

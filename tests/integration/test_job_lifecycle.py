@@ -48,6 +48,17 @@ def test_job_cancellation_is_cooperatively_applied() -> None:
     assert response.json()["status"] == "cancelled"
 
 
+def test_terminal_job_cancellation_returns_nullable_cancel_requested_timestamp() -> None:
+    created = client.post("/v1/jobs", headers=fake_auth_header("terminal-cancel-user"), json=valid_job_request()).json()
+
+    run_all_jobs()
+    cancel = client.delete(f"/v1/jobs/{created['job_id']}", headers=fake_auth_header("terminal-cancel-user"))
+
+    assert cancel.status_code == 200
+    assert cancel.json()["status"] == "completed"
+    assert cancel.json()["cancel_requested_at"] is None
+
+
 def test_process_job_releases_gpu_on_cancellation_after_allocation(monkeypatch) -> None:
     class StubRepo:
         def __init__(self) -> None:

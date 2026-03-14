@@ -86,6 +86,7 @@ export function App() {
   const activeUploadIdRef = useRef<string | null>(null);
   const activeJobIdRef = useRef<string | null>(null);
   const processingStatusRef = useRef<JobDetailResponse["status"] | null>(null);
+  const latestRefreshTokenRef = useRef(0);
 
   useEffect(() => {
     activeUploadIdRef.current = uploadSession?.upload_id ?? null;
@@ -114,6 +115,7 @@ export function App() {
   }
 
   function resetProcessingState(): void {
+    latestRefreshTokenRef.current += 1;
     activeJobIdRef.current = null;
     processingStatusRef.current = null;
     setProcessingJob(null);
@@ -123,6 +125,7 @@ export function App() {
   }
 
   const jobActive = isActiveJobStatus(processingJob?.status);
+  const jobLocked = jobBusy || jobActive;
   const currentLaunchKey = processingLaunchKey(savedConfiguration);
   const canStartSavedConfiguration = Boolean(savedConfiguration) && (!processingJob || currentLaunchKey !== lastStartedConfigurationKey);
 
@@ -292,21 +295,44 @@ export function App() {
   }
 
   async function refreshProcessingState(jobId: string, uploadId: string): Promise<void> {
-    const accessToken = await currentAccessToken();
-    const nextJob = await fetchJobDetail(API_BASE_URL, accessToken, jobId);
-    if (activeUploadIdRef.current !== uploadId || activeJobIdRef.current !== jobId) {
+    const refreshToken = latestRefreshTokenRef.current + 1;
+    latestRefreshTokenRef.current = refreshToken;
+    const isCurrentRefresh = (): boolean =>
+      latestRefreshTokenRef.current === refreshToken && activeUploadIdRef.current === uploadId && activeJobIdRef.current === jobId;
+    let accessToken: string;
+    try {
+      accessToken = await currentAccessToken();
+    } catch (caught) {
+      if (!isCurrentRefresh()) {
+        return;
+      }
+      throw caught;
+    }
+    if (!isCurrentRefresh()) {
+      return;
+    }
+    let nextJob: JobDetailResponse;
+    try {
+      nextJob = await fetchJobDetail(API_BASE_URL, accessToken, jobId);
+    } catch (caught) {
+      if (!isCurrentRefresh()) {
+        return;
+      }
+      throw caught;
+    }
+    if (!isCurrentRefresh()) {
       return;
     }
     setProcessingJob(nextJob);
     setStatusNotice("");
     try {
       const nextCallouts = await fetchUncertaintyCallouts(API_BASE_URL, accessToken, jobId);
-      if (activeUploadIdRef.current !== uploadId || activeJobIdRef.current !== jobId) {
+      if (!isCurrentRefresh()) {
         return;
       }
       setJobCallouts(nextCallouts);
     } catch (caught) {
-      if (activeUploadIdRef.current !== uploadId || activeJobIdRef.current !== jobId) {
+      if (!isCurrentRefresh()) {
         return;
       }
       setStatusNotice(caught instanceof Error ? caught.message : "Unable to refresh uncertainty callouts.");
@@ -467,14 +493,14 @@ export function App() {
                   resetConfigurationState();
                   resetProcessingState();
                 }}
-                disabled={busy || jobActive}
+                disabled={busy || jobLocked}
               />
             </label>
             <div style={{ display: "flex", gap: "var(--spacing-sm)", flexWrap: "wrap" }}>
-              <Button onClick={() => void runUpload(false)} disabled={busy || jobActive || !selectedFile}>
+              <Button onClick={() => void runUpload(false)} disabled={busy || jobLocked || !selectedFile}>
                 {busy ? "Uploading..." : "Start Upload"}
               </Button>
-              <Button variant="secondary" onClick={() => void runUpload(true)} disabled={busy || jobActive || !selectedFile || !canResume}>
+              <Button variant="secondary" onClick={() => void runUpload(true)} disabled={busy || jobLocked || !selectedFile || !canResume}>
                 Resume Upload
               </Button>
             </div>
@@ -524,7 +550,7 @@ export function App() {
                   onChange={(event) => setEstimatedDurationSeconds(Math.max(Number(event.target.value || 0), 1))}
                   type="number"
                   value={estimatedDurationSeconds}
-                  disabled={configBusy || jobActive}
+                  disabled={configBusy || jobLocked}
                 />
               </label>
               {catalog ? (
@@ -542,7 +568,7 @@ export function App() {
                         handlePersonaChange(nextPersona as UserPersona);
                       }}
                       value={selectedPersona}
-                      disabled={configBusy || jobActive}
+                      disabled={configBusy || jobLocked}
                     >
                       <option value="">Select a persona</option>
                       {catalog.personas.map((persona) => (
@@ -558,7 +584,7 @@ export function App() {
                       onSelect={handleTierChange}
                       selectedTier={selectedTier}
                       tiers={catalog.tiers}
-                      disabled={configBusy || jobActive}
+                      disabled={configBusy || jobLocked}
                     />
                   </div>
                   <label>
@@ -567,7 +593,7 @@ export function App() {
                       aria-label="Select grain preset"
                       onChange={(event) => setSelectedGrainPreset(event.target.value as GrainPreset)}
                       value={selectedGrainPreset ?? ""}
-                      disabled={configBusy || jobActive}
+                      disabled={configBusy || jobLocked}
                     >
                       <option value="">Select a grain preset</option>
                       {grainOptions.map((preset) => (
@@ -582,11 +608,11 @@ export function App() {
                 <div>Loading configuration options...</div>
               )}
               <div style={{ display: "flex", gap: "var(--spacing-sm)", flexWrap: "wrap" }}>
-                <Button disabled={configBusy || jobActive} onClick={() => void handleDetectEra()}>
+                <Button disabled={configBusy || jobLocked} onClick={() => void handleDetectEra()}>
                   {configBusy ? "Working..." : detection ? "Refresh Detection" : "Detect Era"}
                 </Button>
                 <Button
-                  disabled={configBusy || jobActive || !canOverrideEra(detection)}
+                  disabled={configBusy || jobLocked || !canOverrideEra(detection)}
                   onClick={() => setShowOverrideModal(true)}
                   type="button"
                   variant="secondary"
@@ -594,7 +620,7 @@ export function App() {
                   Override Era
                 </Button>
                 <Button
-                  disabled={configBusy || jobActive || !detection || !selectedTier || !selectedGrainPreset}
+                  disabled={configBusy || jobLocked || !detection || !selectedTier || !selectedGrainPreset}
                   onClick={() => void handleSaveConfiguration()}
                   type="button"
                 >

@@ -494,7 +494,7 @@ class JobListResponse(StrictModel):
 class JobCancelResponse(StrictModel):
     job_id: str
     status: JobStatus
-    cancel_requested_at: str
+    cancel_requested_at: str | None = None
 
 
 class UncertaintyCalloutTimeRangeResponse(StrictModel):

@@ -294,6 +294,7 @@ describe("Packet 4C status announcements", () => {
     await user.click(screen.getByRole("button", { name: "Cancel Processing" }));
 
     const statusRegion = await screen.findByRole("status");
+    expect(cancelProcessing).toHaveBeenCalledTimes(1);
     expect(statusRegion).toHaveTextContent("Unable to refresh processing status.");
     expect(screen.getByRole("button", { name: "Retry Status Refresh" })).toBeInTheDocument();
   });

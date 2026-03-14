@@ -1494,7 +1494,7 @@ components:
             $ref: "#/components/schemas/JobSummaryResponse"
     JobCancelResponse:
       type: object
-      required: [job_id, status, cancel_requested_at]
+      required: [job_id, status]
       properties:
         job_id:
           type: string
@@ -1503,6 +1503,7 @@ components:
           enum: [queued, processing, completed, failed, partial, cancel_requested, cancelled]
         cancel_requested_at:
           type: string
+          nullable: true
     UncertaintyCalloutTimeRangeResponse:
       type: object
       required: [start, end]

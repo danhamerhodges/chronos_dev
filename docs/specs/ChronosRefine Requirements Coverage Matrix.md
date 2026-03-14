@@ -295,7 +295,7 @@ Source evidence:
 | Phase 1: Foundation & Core Infrastructure | 6/6 | ✅ Complete (baseline scope) | Baseline scaffolding and validation confirmed in `docs/phase1_readiness_report.md` |
 | Phase 2: API Foundation & Data Layer | 6/6 | ✅ Complete (merged via PR #1) | `main` includes merge commit `709687a`; this is the canonical baseline for later phases |
 | Phase 3: Core Processing Pipeline & AI Integration | 11/12 | ✅ Complete for Phase 4 kickoff | PR #2 merged to `main`; `SEC-007` remains deferred to its canonical `GA+3 months` milestone |
-| Phase 4: User-Facing Features & Application Logic | 3/14 on candidate branch / PR #8 | 🚧 In Progress (Packets 4A and 4B merged on `main`; Packet 4C complete on branch) | `FR-001` upload/validation and `FR-003` + `DS-001` are merged on `main`; `FR-004` + the Packet 4C portion of `DS-006` are complete on `codex/packet4c-processing-flow` / PR #8 |
+| Phase 4: User-Facing Features & Application Logic | 5/14 on candidate branch / PR #8 (`3/14` on `main`) | 🚧 In Progress (Packets 4A and 4B merged on `main`; Packet 4C complete on branch) | `FR-001` upload/validation and `FR-003` + `DS-001` are merged on `main`; `FR-004` + the Packet 4C portion of `DS-006` are complete on `codex/packet4c-processing-flow` / PR #8 |
 | Phase 5: Advanced Features & UX Refinement | 0/11 | ⏸️ Not Started | Dependent on Phase 4 completion |
 | Phase 6: Production Readiness & Launch | 0/10 | ⏸️ Not Started | Dependent on Phase 5 completion |
 
@@ -352,8 +352,8 @@ Source evidence:
 
 ### Phase 4 Current Status: User-Facing Features & Application Logic
 
-**Requirements:** 3 of 14 complete on candidate branch / PR #8  
-**Status:** Packets 4A and 4B are merged to `main` as of 2026-03-13 (`fc81b2a`); `Packet 4C = FR-004 + DS-006 (processing launch, progress, uncertainty callouts, and accessible runtime errors)` is complete on `codex/packet4c-processing-flow` / PR #8 as of `9b741a6`  
+**Requirements:** 5 of 14 complete on candidate branch / PR #8 (`3 of 14` on `main`)  
+**Status:** Packets 4A and 4B are merged to `main` as of 2026-03-13 (`fc81b2a`); `Packet 4C = FR-004 + DS-006 (processing launch, progress, uncertainty callouts, and accessible runtime errors)` is complete on `codex/packet4c-processing-flow` / PR #8  
 **Completed Packets:** `Packet 4A = FR-001 (Video Upload and Validation)` on `main`; `Packet 4B = FR-003 + DS-001 (Fidelity Tier Selection + Configuration UX)` on `main`; `Packet 4C = FR-004 + DS-006 (Processing Launch, Progress, and Accessible Runtime Errors)` on candidate branch / PR #8
 
 | Area | Current Phase 4 note |
@@ -368,7 +368,7 @@ Source evidence:
 | Packet 4C test mapping | `tests/api/test_uncertainty_callouts.py`, `tests/integration/test_processing_launch_flow.py`, `tests/api/test_progress_updates.py`, `tests/api/test_async_processing.py`, `tests/integration/test_job_lifecycle.py`, `tests/ui/test_processing_flow.spec.ts`, `tests/accessibility/test_error_messages.spec.ts`, `tests/accessibility/test_error_announcements.spec.ts`, `tests/accessibility/test_uncertainty_callouts_a11y.spec.ts` |
 | Packet 4A closure evidence | Live memory + GCS smoke passed, live Supabase + GCS smoke passed, staging latency probe passed on revision `chronos-phase1-app-00036-blf` (`build_sha=9a5791c4023794af8d6cc96d7dd2561aafdb93bc`) |
 | Packet 4B merge evidence | Shared fidelity resolver accepts all grain presets across all tiers, hobbyist early-photo saves return `403 Plan Upgrade Required` with no persistence, rendered `DS-001` jsdom tests pass, and `job_payload_preview` is accepted by `/v1/jobs` in integration coverage; merged to `main` in `fc81b2a568fb7059989963bedeb7a22df8e63008` |
-| Packet 4C candidate-branch evidence | `GET /v1/jobs/{job_id}/uncertainty-callouts` derives global low-confidence/manual-confirmation warnings plus deterministic segment callouts, Packet 4B `job_payload_preview` launches unchanged through `/v1/jobs`, and rendered DS-006 tests cover launch failures, cancel failures, non-blocking refresh failures, and terminal callout summaries on `codex/packet4c-processing-flow` / PR #8 (`9b741a6`) |
+| Packet 4C candidate-branch evidence | `GET /v1/jobs/{job_id}/uncertainty-callouts` derives global low-confidence/manual-confirmation warnings plus deterministic segment callouts, Packet 4B `job_payload_preview` launches unchanged through `/v1/jobs`, and rendered DS-006 tests cover launch failures, cancel failures, non-blocking refresh failures, and terminal callout summaries on `codex/packet4c-processing-flow` / PR #8 |
 | Context Note | `docs/specs/chronosrefine_phase4_closeout_note.md` for Packet 4A; Packet 4B evidence is now reflected directly on `main` |
 
 ## Progress Tracking Template

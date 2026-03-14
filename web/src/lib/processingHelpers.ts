@@ -39,7 +39,7 @@ export type JobDetailResponse = {
 export type JobCancelResponse = {
   job_id: string;
   status: JobStatus;
-  cancel_requested_at: string;
+  cancel_requested_at?: string | null;
 };
 
 export type UncertaintyCallout = {
