@@ -158,7 +158,7 @@ This implementation plan is organized into a logical execution sequence designed
 **Phase 4 Requirement Set:** **FR-001**, **FR-003**, **FR-004**, **FR-005**, **ENG-013**, **ENG-014**, **ENG-015**, **DS-001**, **DS-002**, **DS-003**, **DS-004**, **DS-005**, **DS-006**, **NFR-003** (14 requirements)  
 **Coverage Matrix:** See `docs/specs/ChronosRefine Requirements Coverage Matrix.md`
 
-**Current Status Note:** Packets 4A (`FR-001`), 4B (`FR-003` + `DS-001`), 4C (`FR-004` + the Packet 4C portion of `DS-006`), and 4D (`FR-005` + `ENG-015`) are merged on `main`, with Packet 4D landing in merge commit `f0667c8ab052324fdecd25292e6912933cf871a2`. Phase 4 therefore stands at `7/14` complete on `main`. Packet 4E (`ENG-013` + the launch-time slice of `NFR-003`) is complete on `codex/packet4e-cost-controls`, which moves the candidate branch to `8/14` complete pending PR/merge. Packet 4E adds `POST /v1/jobs/estimate`, launch-time cost review, single-job overage approval inside the launch modal, and per-job estimate/reconciliation summaries without marking `NFR-003` globally complete. The Packet 4D merge also delivers the export-flow slices of `DS-002`, `DS-003`, `DS-004`, and `DS-005` without marking those design requirements globally complete. Follow-on packets must still follow the canonical Phase 4 requirement IDs above and the higher-priority requirement specs, not older PRD-style Phase 4 prose. `FR-006` remains a Phase 5 functional requirement; Phase 4 includes only `ENG-014` as the technical preview-generation substrate, and Packet 4F is next.
+**Current Status Note:** Packets 4A (`FR-001`), 4B (`FR-003` + `DS-001`), 4C (`FR-004` + the Packet 4C portion of `DS-006`), 4D (`FR-005` + `ENG-015`), and 4E (`ENG-013` + the launch-time slice of `NFR-003`) are merged on `main`, with Packet 4E landing in merge commit `3303c6584005e374e2d21ce8f028338ec3950177`. Phase 4 therefore stands at `8/14` complete on `main`. Packet 4E adds `POST /v1/jobs/estimate`, launch-time cost review, single-job overage approval inside the launch modal, and per-job estimate/reconciliation summaries without marking `NFR-003` globally complete. The Packet 4D merge also delivers the export-flow slices of `DS-002`, `DS-003`, `DS-004`, and `DS-005` without marking those design requirements globally complete. Follow-on packets must still follow the canonical Phase 4 requirement IDs above and the higher-priority requirement specs, not older PRD-style Phase 4 prose. `FR-006` remains a Phase 5 functional requirement; Phase 4 includes only `ENG-014` as the technical preview-generation substrate, and Packet 4F is next.
 
 **Entry Criteria:**
 - [x] Phase 3 is complete for kickoff on `main`; `SEC-007` remains deferred per canon and does not block Phase 4 kickoff → **See:** `docs/specs/chronosrefine_implementation_plan.md#phase-3-core-processing-pipeline--ai-integration`
@@ -182,7 +182,7 @@ This implementation plan is organized into a logical execution sequence designed
 - [x] Output delivery surfaces expose encoded artifacts, manifest retrieval, deletion-proof availability, and link-expiry handling on `main` → **Req:** **FR-005**, **ENG-015**, **Test:** `tests/api/test_output_delivery.py`, `tests/api/test_transformation_manifest.py`, `tests/api/test_deletion_proof.py`, `tests/integration/test_export_workflow.py`, `tests/processing/test_output_encoding.py`, `tests/processing/test_av1_encoding.py`, `tests/processing/test_metadata_preservation.py`, `tests/processing/test_encoding_performance.py`, `tests/ui/test_output_delivery.spec.ts`, `tests/accessibility/test_focus_management.spec.ts`, `tests/accessibility/test_keyboard_navigation.spec.ts`, `tests/accessibility/test_screen_reader_support.spec.ts`, `tests/accessibility/test_color_contrast.spec.ts`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-005-output-delivery`, `docs/specs/chronosrefine_engineering_requirements.md#eng-015-output-encoding`
 - [ ] Preview artifact generation backend meets `ENG-014` latency and storage expectations for downstream Phase 5 `FR-006` UI work → **Req:** **ENG-014**, **Test:** `tests/processing/test_preview_generation.py`, `tests/processing/test_scene_detection.py`, `tests/load/test_preview_performance.py`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-014-preview-generation`
 - [ ] Accessibility audit passes WCAG 2.1 AA for `DS-002` through `DS-006` → **Req:** **DS-002**, **DS-003**, **DS-004**, **DS-005**, **DS-006**, **Test:** `tests/accessibility/test_keyboard_navigation.spec.ts`, `tests/accessibility/test_screen_reader_support.spec.ts`, `tests/accessibility/test_color_contrast.spec.ts`, `tests/accessibility/test_focus_management.spec.ts`, `tests/accessibility/test_error_messages.spec.ts`, **See:** `docs/specs/chronosrefine_design_requirements.md#ds-002-keyboard-navigation`, `docs/specs/chronosrefine_design_requirements.md#ds-003-screen-reader-support`, `docs/specs/chronosrefine_design_requirements.md#ds-004-color-contrast`, `docs/specs/chronosrefine_design_requirements.md#ds-005-focus-indicators`, `docs/specs/chronosrefine_design_requirements.md#ds-006-error-messages-accessibility`
-- [x] Cost-estimate accuracy and Phase 4 cost-optimization guardrails align with `ENG-013` + `NFR-003` with no hardcoded pricing or entitlements on the Packet 4E candidate branch. Packet 4E closes `ENG-013` on the candidate branch and ships the launch-time slice of `NFR-003`, while the remaining `NFR-003` dashboard/anomaly-review work stays deferred. → **Req:** **ENG-013**, **NFR-003**, **Test:** `tests/api/test_cost_estimation.py`, `tests/api/test_cost_breakdown.py`, `tests/integration/test_cost_reconciliation.py`, `tests/ops/test_cost_optimization.py`, `tests/ui/test_cost_estimate_modal.spec.ts`, `tests/accessibility/test_cost_estimate_modal_a11y.spec.ts`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-013-cost-estimation`, `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-003-cost-optimization`
+- [x] Cost-estimate accuracy and Phase 4 cost-optimization guardrails align with `ENG-013` + `NFR-003` with no hardcoded pricing or entitlements on `main`. Packet 4E closes `ENG-013` on `main` and ships the launch-time slice of `NFR-003`, while the remaining `NFR-003` dashboard/anomaly-review work stays deferred. → **Req:** **ENG-013**, **NFR-003**, **Test:** `tests/api/test_cost_estimation.py`, `tests/api/test_cost_breakdown.py`, `tests/integration/test_cost_reconciliation.py`, `tests/ops/test_cost_optimization.py`, `tests/ui/test_cost_estimate_modal.spec.ts`, `tests/accessibility/test_cost_estimate_modal_a11y.spec.ts`, **See:** `docs/specs/chronosrefine_engineering_requirements.md#eng-013-cost-estimation`, `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-003-cost-optimization`
 - [ ] Cross-browser coverage is complete for upload, configuration, launch, and export flows → **Req:** **DS-001**, **DS-002**, **DS-003**, **DS-004**, **DS-005**, **DS-006**, **See:** `docs/specs/chronosrefine_design_requirements.md#ds-001-fidelity-configuration-ux`
 
 **Approved Kickoff Packet: Packet 4A (2026-03-07; closed 2026-03-08)**
@@ -347,6 +347,45 @@ This implementation plan is organized into a logical execution sequence designed
 - [x] Completed and partial jobs materialize deterministic AV1 + H.264 export packages with manifest, uncertainty-callout, quality-report, and deletion-proof artifacts at finalization time → **Req:** **FR-005**, **ENG-015**, **See:** `tests/api/test_output_delivery.py`, `tests/integration/test_export_workflow.py`
 - [x] Owner-scoped export and deletion-proof routes return signed delivery URLs with retention enforcement, expiry handling, and deterministic proof linkage on `main` → **Req:** **FR-005**, **See:** `tests/api/test_output_delivery.py`, `tests/api/test_deletion_proof.py`, `tests/api/test_endpoints.py`
 - [x] Packet 4D terminal delivery actions and export-path accessibility coverage pass on `main` for manifest viewing, package download, proof retrieval, focus management, keyboard navigation, screen reader support, and contrast expectations → **Req:** **ENG-015**, **DS-002**, **DS-003**, **DS-004**, **DS-005**, **See:** `tests/ui/test_output_delivery.spec.ts`, `tests/accessibility/test_focus_management.spec.ts`, `tests/accessibility/test_keyboard_navigation.spec.ts`, `tests/accessibility/test_screen_reader_support.spec.ts`, `tests/accessibility/test_color_contrast.spec.ts`
+
+**Latest Completed Packet on `main`: Packet 4E (merged on `main` 2026-03-14 via `3303c65`)**
+
+**Requirement Focus:** `ENG-013`, `NFR-003` (launch-time slice only)
+
+**Reason for packet choice:** Packet 4E closes the launch-decision cost surface needed after Packet 4D by adding deterministic pricing estimates, in-modal overage approval, and post-run reconciliation without expanding Phase 4 into preview-generation or broader billing-account management.
+
+**In Scope:**
+- `POST /v1/jobs/estimate` using the same launch payload contract as `POST /v1/jobs`
+- Per-job `cost_estimate_summary` persistence at launch and `cost_reconciliation_summary` persistence at terminal state
+- Launch-cost modal with single-job overage approval and accessible blocking/retry behavior
+- Packet 4E launch-time slice of `NFR-003` only
+
+**Out of Scope:**
+- `ENG-014` preview-generation substrate
+- Remaining `NFR-003` dashboard, anomaly-review, and longer-horizon optimization work
+- New billing-account management surfaces beyond single-job overage approval
+- Phase 5 `FR-006` preview-review UX
+
+**Dependencies Confirmed:**
+- Packet 4A upload/session substrate is merged on `main`
+- Packet 4B launch-ready configuration and `job_payload_preview` handoff are merged on `main`
+- Packet 4C processing launch, polling, cancellation, and uncertainty-callout surfaces are merged on `main`
+- Packet 4D owner-scoped output delivery surfaces are merged on `main`
+
+**Mapped Tests:**
+- `tests/api/test_cost_estimation.py`
+- `tests/api/test_cost_breakdown.py`
+- `tests/integration/test_cost_reconciliation.py`
+- `tests/ops/test_cost_optimization.py`
+- `tests/billing/test_usage_alerts.py`
+- `tests/billing/test_overage_approval.py`
+- `tests/ui/test_cost_estimate_modal.spec.ts`
+- `tests/accessibility/test_cost_estimate_modal_a11y.spec.ts`
+
+**Packet 4E Merge Evidence:**
+- [x] `POST /v1/jobs/estimate` returns deterministic cost estimates, billing breakdowns, usage posture, and stable `503` dependency errors when Stripe pricing metadata is unavailable → **Req:** **ENG-013**, **See:** `tests/api/test_cost_estimation.py`, `tests/api/test_cost_breakdown.py`, `tests/api/test_endpoints.py`
+- [x] `POST /v1/jobs` recomputes launch-time estimates server-side, persists `cost_estimate_summary`, and records terminal `cost_reconciliation_summary` against post-consumption billing state without hardcoded pricing values → **Req:** **ENG-013**, **NFR-003**, **See:** `tests/integration/test_cost_reconciliation.py`, `tests/ops/test_cost_optimization.py`
+- [x] Packet 4E launch review runs through an accessible cost modal with retryable pricing failures, single-job overage approval, and estimate invalidation on configuration re-save → **Req:** **ENG-013**, **NFR-003**, **DS-006**, **See:** `tests/ui/test_cost_estimate_modal.spec.ts`, `tests/accessibility/test_cost_estimate_modal_a11y.spec.ts`
 
 **Guardrails to Preserve:**
 - End-user JWT / RLS-safe request path by default
