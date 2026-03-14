@@ -8,7 +8,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import quote
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid5
 
 from app.api.problem_details import ProblemException
 from app.config import settings
@@ -39,6 +39,9 @@ def _sha256_hex(payload: dict[str, Any]) -> str:
 
 
 def _sign_value(value: str) -> str:
+    insecure_defaults = {"", "chronos-output-delivery-test-secret", "chronos-output-delivery-dev-secret"}
+    if settings.environment not in {"test", "dev", "development"} and settings.output_delivery_signing_secret in insecure_defaults:
+        raise RuntimeError("OUTPUT_DELIVERY_SIGNING_SECRET must be set to a non-default value.")
     digest = hmac.new(
         settings.output_delivery_signing_secret.encode("utf-8"),
         value.encode("utf-8"),
@@ -226,6 +229,19 @@ class OutputDeliveryService:
         }
 
     def _validate_retention_days(self, *, plan_tier: str, retention_days: int) -> None:
+        if retention_days < 1:
+            raise ProblemException(
+                title="Invalid Retention Window",
+                detail="Retention days must be at least 1.",
+                status_code=400,
+                errors=[
+                    {
+                        "field": "retention_days",
+                        "message": "Retention days must be at least 1.",
+                        "rule_id": "FR-005",
+                    }
+                ],
+            )
         normalized_plan = str(plan_tier).lower()
         if normalized_plan != "museum" and retention_days > _DEFAULT_RETENTION_DAYS:
             raise ProblemException(
@@ -274,7 +290,7 @@ class OutputDeliveryService:
         callouts: list[dict[str, Any]],
         generated_at: datetime,
     ) -> dict[str, Any]:
-        deletion_proof_id = str(uuid4())
+        deletion_proof_id = str(uuid5(NAMESPACE_URL, f"deletion-proof:{job['job_id']}:{manifest_payload['manifest_sha256']}"))
         proof_payload = {
             "job_id": job["job_id"],
             "user_id": job["owner_user_id"],

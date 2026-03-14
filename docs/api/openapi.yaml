@@ -20,6 +20,7 @@ tags:
   - name: era-detection
   - name: jobs
   - name: manifests
+  - name: deletion-proofs
   - name: ops
   - name: users
   - name: security

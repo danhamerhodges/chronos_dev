@@ -393,4 +393,18 @@ describe("Packet 4D delivery flow", () => {
     expect(fetchDeletionProof).not.toHaveBeenCalled();
     expect(fetchJobExport).not.toHaveBeenCalled();
   });
+
+  it("shows a non-blocking retry state when the manifest is not ready yet", async () => {
+    const user = userEvent.setup();
+    fetchTransformationManifest.mockRejectedValue(
+      Object.assign(new Error("The transformation manifest is not ready yet."), { status: 409 }),
+    );
+
+    await renderCompletedDelivery(user);
+    await user.click(screen.getByRole("button", { name: "View Manifest JSON" }));
+
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent("The transformation manifest is not ready yet.");
+    expect(screen.getByRole("button", { name: "Retry Manifest" })).toBeInTheDocument();
+  });
 });

@@ -631,11 +631,21 @@ export function App() {
         return;
       }
       const deliveryErrorPayload = caught as DeliveryRequestError;
+      if (deliveryErrorPayload.status === 409) {
+        setDeliveryNotice(deliveryErrorPayload.message || "The transformation manifest is not ready yet.");
+        setDeliveryRetryAction({ type: "manifest" });
+        return;
+      }
+      if (deliveryErrorPayload.status === 410 || deliveryErrorPayload.status === 403) {
+        setDeliveryError(deliveryErrorPayload.message || "Unable to fetch the transformation manifest.");
+        setDeliveryRetryAction(null);
+        return;
+      }
       setDeliveryError(deliveryErrorPayload.message || "Unable to fetch the transformation manifest.");
       setDeliveryRetryAction({ type: "manifest" });
     } finally {
-      if (isCurrentDeliveryJob(requestJobId)) {
-        setDeliveryBusyFor("manifest", false);
+        if (isCurrentDeliveryJob(requestJobId)) {
+          setDeliveryBusyFor("manifest", false);
       }
     }
   }
