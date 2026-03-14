@@ -15,6 +15,8 @@ const {
   detectUploadEra,
   saveUploadConfiguration,
   executeUploadFlow,
+  fetchJobEstimate,
+  approveSingleJobOverage,
   startProcessing,
   fetchJobDetail,
   fetchUncertaintyCallouts,
@@ -28,6 +30,8 @@ const {
   detectUploadEra: vi.fn(),
   saveUploadConfiguration: vi.fn(),
   executeUploadFlow: vi.fn(),
+  fetchJobEstimate: vi.fn(),
+  approveSingleJobOverage: vi.fn(),
   startProcessing: vi.fn(),
   fetchJobDetail: vi.fn(),
   fetchUncertaintyCallouts: vi.fn(),
@@ -37,6 +41,17 @@ const {
   fetchDeletionProof: vi.fn(),
   fetchTransformationManifest: vi.fn(),
 }));
+
+vi.mock("../../web/src/lib/costEstimateHelpers", async () => {
+  const actual = await vi.importActual<typeof import("../../web/src/lib/costEstimateHelpers")>(
+    "../../web/src/lib/costEstimateHelpers",
+  );
+  return {
+    ...actual,
+    fetchJobEstimate,
+    approveSingleJobOverage,
+  };
+});
 
 vi.mock("../../web/src/lib/configurationHelpers", async () => {
   const actual = await vi.importActual<typeof import("../../web/src/lib/configurationHelpers")>(
@@ -221,6 +236,40 @@ function buildCallouts() {
   };
 }
 
+function buildEstimate() {
+  return {
+    estimated_usage_minutes: 5,
+    operational_cost_breakdown_usd: { gpu_time: 2.16, storage: 0.04, api_calls: 0.0, total: 2.2 },
+    billing_breakdown_usd: {
+      included_usage: 5,
+      overage_minutes: 0,
+      overage_rate_usd_per_minute: 0.75,
+      estimated_charge_total_usd: 0.0,
+    },
+    confidence_interval_usd: { low: 1.94, high: 2.46 },
+    usage_snapshot: {
+      user_id: "error-user",
+      plan_tier: "pro",
+      used_minutes: 120,
+      monthly_limit_minutes: 600,
+      remaining_minutes: 480,
+      estimated_next_job_minutes: 5,
+      approved_overage_minutes: 0,
+      remaining_approved_overage_minutes: 0,
+      threshold_alerts: [],
+      overage_approval_scope: null,
+      hard_stop: false,
+      price_reference: "price_subscription",
+      overage_price_reference: "price_overage",
+      reconciliation_source: "user_usage_monthly",
+      reconciliation_status: "estimate_pending",
+    },
+    launch_blocker: "none" as const,
+    estimator_version: "packet4e-v1",
+    generated_at: "2026-03-14T00:05:00+00:00",
+  };
+}
+
 async function completeConfiguration(user: ReturnType<typeof userEvent.setup>) {
   render(React.createElement(App));
   const file = new File(["12345"], "archive.mov", { type: "video/quicktime" });
@@ -233,12 +282,20 @@ async function completeConfiguration(user: ReturnType<typeof userEvent.setup>) {
   await waitFor(() => expect(saveUploadConfiguration).toHaveBeenCalled());
 }
 
+async function openLaunchModalAndStart(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: "Review Cost & Start" }));
+  await waitFor(() => expect(fetchJobEstimate).toHaveBeenCalled());
+  await user.click(screen.getByRole("button", { name: "Start Processing" }));
+}
+
 describe("Packet 4C status announcements", () => {
   beforeEach(() => {
     fetchFidelityCatalog.mockReset();
     detectUploadEra.mockReset();
     saveUploadConfiguration.mockReset();
     executeUploadFlow.mockReset();
+    fetchJobEstimate.mockReset();
+    approveSingleJobOverage.mockReset();
     startProcessing.mockReset();
     fetchJobDetail.mockReset();
     fetchUncertaintyCallouts.mockReset();
@@ -247,6 +304,16 @@ describe("Packet 4C status announcements", () => {
     fetchJobExport.mockReset();
     fetchDeletionProof.mockReset();
     fetchTransformationManifest.mockReset();
+    fetchJobEstimate.mockResolvedValue(buildEstimate());
+    approveSingleJobOverage.mockResolvedValue({
+      user_id: "error-user",
+      approval_scope: "single_job",
+      approved_for_minutes: 5,
+      remaining_approved_overage_minutes: 5,
+      remaining_minutes: 0,
+      threshold_alerts: [],
+      overage_price_reference: "price_overage",
+    });
 
     fetchFidelityCatalog.mockResolvedValue(buildCatalog());
     detectUploadEra.mockResolvedValue(buildDetection());
@@ -287,7 +354,7 @@ describe("Packet 4C status announcements", () => {
     fetchUncertaintyCallouts.mockRejectedValueOnce(new Error("Unable to refresh uncertainty callouts.")).mockResolvedValueOnce(buildCallouts());
 
     await completeConfiguration(user);
-    await user.click(screen.getByRole("button", { name: "Start Processing" }));
+    await openLaunchModalAndStart(user);
 
     const statusRegion = await screen.findByRole("status");
     expect(statusRegion).toHaveAttribute("aria-live", "polite");
@@ -315,7 +382,7 @@ describe("Packet 4C status announcements", () => {
     });
 
     await completeConfiguration(user);
-    await user.click(screen.getByRole("button", { name: "Start Processing" }));
+    await openLaunchModalAndStart(user);
     await waitFor(() => expect(screen.getByRole("button", { name: "Cancel Processing" })).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "Cancel Processing" }));
 

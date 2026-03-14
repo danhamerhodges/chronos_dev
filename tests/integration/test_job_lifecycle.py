@@ -262,7 +262,10 @@ def test_process_job_reports_output_delivery_failures_without_overwriting_manife
     monkeypatch.setattr(
         job_runtime,
         "BillingService",
-        lambda: SimpleNamespace(consume_minutes=lambda **kwargs: billed.append(kwargs)),
+        lambda: SimpleNamespace(
+            snapshot=lambda **kwargs: SimpleNamespace(used_minutes=0, monthly_limit_minutes=500),
+            consume_minutes=lambda **kwargs: billed.append(kwargs) or SimpleNamespace(used_minutes=0, monthly_limit_minutes=500),
+        ),
     )
 
     finalized, billed_minutes = job_runtime._finalize_job(repo, "job-delivery-fail", trusted_token="trusted")

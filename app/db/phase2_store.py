@@ -48,6 +48,8 @@ _SUPABASE_JOB_JSON_FIELDS = {
     "cache_summary",
     "gpu_summary",
     "cost_summary",
+    "cost_estimate_summary",
+    "cost_reconciliation_summary",
     "slo_summary",
 }
 
@@ -57,6 +59,7 @@ _SUPABASE_JOB_UPDATE_FIELDS = {
     "completed_at",
     "completed_segment_count",
     "cost_summary",
+    "cost_reconciliation_summary",
     "current_operation",
     "effective_fidelity_profile",
     "era_profile",
@@ -484,6 +487,7 @@ class _MemoryJobRepository:
         config: dict[str, Any],
         estimated_duration_seconds: int,
         segments: list[dict[str, Any]],
+        cost_estimate_summary: dict[str, Any] | None = None,
         effective_fidelity_tier: str | None = None,
         effective_fidelity_profile: dict[str, Any] | None = None,
         reproducibility_mode: str = "perceptual_equivalence",
@@ -559,6 +563,8 @@ class _MemoryJobRepository:
                 "api_calls": 0,
                 "total_cost_usd": 0.0,
             },
+            "cost_estimate_summary": cost_estimate_summary,
+            "cost_reconciliation_summary": None,
             "slo_summary": {
                 "target_total_ms": estimated_duration_seconds * 2000,
                 "actual_total_ms": None,
@@ -1792,6 +1798,8 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
             },
             "cost_summary": row.get("cost_summary")
             or {"gpu_seconds": 0, "storage_operations": 0, "api_calls": 0, "total_cost_usd": 0.0},
+            "cost_estimate_summary": row.get("cost_estimate_summary"),
+            "cost_reconciliation_summary": row.get("cost_reconciliation_summary"),
             "slo_summary": row.get("slo_summary")
             or {
                 "target_total_ms": int(row.get("estimated_duration_seconds", 60) or 60) * 2000,
@@ -1855,6 +1863,7 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
         config: dict[str, Any],
         estimated_duration_seconds: int,
         segments: list[dict[str, Any]],
+        cost_estimate_summary: dict[str, Any] | None = None,
         effective_fidelity_tier: str | None = None,
         effective_fidelity_profile: dict[str, Any] | None = None,
         reproducibility_mode: str = "perceptual_equivalence",
@@ -1935,6 +1944,8 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
                         "api_calls": 0,
                         "total_cost_usd": 0.0,
                     },
+                    "cost_estimate_summary": cost_estimate_summary or {},
+                    "cost_reconciliation_summary": None,
                     "slo_summary": {
                         "target_total_ms": estimated_duration_seconds * 2000,
                         "actual_total_ms": None,
@@ -1998,11 +2009,12 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
                     completed_segment_count, failed_segment_count, progress_percent,
                     eta_seconds, current_operation, progress_topic, failed_segments,
                     warnings, manifest_available, quality_summary, stage_timings,
-                    cache_summary, gpu_summary, cost_summary, slo_summary, queued_at, updated_at
+                    cache_summary, gpu_summary, cost_summary, cost_estimate_summary,
+                    cost_reconciliation_summary, slo_summary, queued_at, updated_at
                 )
                 values (
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    0, 0, 0, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    0, 0, 0, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                 )
                 on conflict (external_job_id) do update
                 set org_id = excluded.org_id,
@@ -2032,6 +2044,8 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
                     cache_summary = excluded.cache_summary,
                     gpu_summary = excluded.gpu_summary,
                     cost_summary = excluded.cost_summary,
+                    cost_estimate_summary = excluded.cost_estimate_summary,
+                    cost_reconciliation_summary = excluded.cost_reconciliation_summary,
                     slo_summary = excluded.slo_summary,
                     queued_at = excluded.queued_at,
                     updated_at = excluded.updated_at
@@ -2092,6 +2106,8 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
                         }
                     ),
                     Jsonb({"gpu_seconds": 0, "storage_operations": 0, "api_calls": 0, "total_cost_usd": 0.0}),
+                    Jsonb(cost_estimate_summary or {}),
+                    Jsonb(None),
                     Jsonb(
                         {
                             "target_total_ms": estimated_duration_seconds * 2000,
@@ -3070,6 +3086,7 @@ class JobRepository:
         config: dict[str, Any],
         estimated_duration_seconds: int,
         segments: list[dict[str, Any]],
+        cost_estimate_summary: dict[str, Any] | None = None,
         effective_fidelity_tier: str | None = None,
         effective_fidelity_profile: dict[str, Any] | None = None,
         reproducibility_mode: str = "perceptual_equivalence",
@@ -3093,6 +3110,7 @@ class JobRepository:
             config=config,
             estimated_duration_seconds=estimated_duration_seconds,
             segments=segments,
+            cost_estimate_summary=cost_estimate_summary,
             access_token=access_token,
         )
 

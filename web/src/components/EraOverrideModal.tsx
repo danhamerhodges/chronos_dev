@@ -31,7 +31,7 @@ export function EraOverrideModal({
   const uniqueOptions = Array.from(new Set(candidateOptions.filter(Boolean)));
   const canApplyOverride = Boolean(selectedEra.trim() && overrideReason.trim());
   return (
-    <Modal open={open} onClose={onClose}>
+    <Modal open={open} onClose={onClose} labelledBy="era-override-title">
       <div style={{ display: "grid", gap: "var(--spacing-md)" }}>
         <div>
           <h4 id="era-override-title" style={{ margin: 0 }}>

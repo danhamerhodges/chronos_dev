@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
+from functools import lru_cache
+import time
 from typing import Any
 
 import stripe
@@ -16,6 +19,13 @@ class StripeConfig:
     price_id: str
     overage_product_id: str
     overage_price_id: str
+
+
+@dataclass(frozen=True)
+class BillingPricingMetadata:
+    subscription_price_id: str
+    overage_price_id: str
+    overage_rate_usd_per_minute: float
 
 
 def load_stripe_config() -> StripeConfig:
@@ -62,6 +72,23 @@ def _apply_api_key(config: StripeConfig) -> None:
     stripe.api_key = config.secret_key
 
 
+def _cache_bucket(ttl_seconds: int) -> int:
+    return int(time.time() // max(ttl_seconds, 1))
+
+
+@lru_cache(maxsize=16)
+def _cached_overage_rate(secret_key: str, overage_price_id: str, cache_bucket: int) -> float:
+    del cache_bucket
+    stripe.api_key = secret_key
+    price = stripe.Price.retrieve(overage_price_id)
+    raw_amount = price.get("unit_amount_decimal")
+    if raw_amount is None:
+        raw_amount = price.get("unit_amount")
+    if raw_amount is None:
+        raise ValueError("Stripe overage price is missing unit_amount metadata.")
+    return float((Decimal(str(raw_amount)) / Decimal("100")).quantize(Decimal("0.0001")))
+
+
 def retrieve_catalog_entities(config: StripeConfig | None = None) -> tuple[Any, Any]:
     """Retrieve Stripe Product and Price via the Stripe SDK."""
     cfg = config or load_stripe_config()
@@ -69,6 +96,25 @@ def retrieve_catalog_entities(config: StripeConfig | None = None) -> tuple[Any, 
     product = stripe.Product.retrieve(cfg.product_id)
     price = stripe.Price.retrieve(cfg.price_id)
     return product, price
+
+
+def resolve_billing_pricing_metadata(
+    config: StripeConfig | None = None,
+    *,
+    cache_ttl_seconds: int = 300,
+) -> BillingPricingMetadata:
+    cfg = config or load_stripe_config()
+    if not cfg.secret_key:
+        raise ValueError("STRIPE_SECRET_KEY is required for billing price resolution.")
+    return BillingPricingMetadata(
+        subscription_price_id=cfg.price_id,
+        overage_price_id=cfg.overage_price_id,
+        overage_rate_usd_per_minute=_cached_overage_rate(
+            cfg.secret_key,
+            cfg.overage_price_id,
+            _cache_bucket(cache_ttl_seconds),
+        ),
+    )
 
 
 def create_billing_portal_session(customer_id: str, return_url: str | None = None) -> Any:

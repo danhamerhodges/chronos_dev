@@ -15,6 +15,8 @@ const {
   detectUploadEra,
   saveUploadConfiguration,
   executeUploadFlow,
+  fetchJobEstimate,
+  approveSingleJobOverage,
   startProcessing,
   fetchJobDetail,
   fetchUncertaintyCallouts,
@@ -28,6 +30,8 @@ const {
   detectUploadEra: vi.fn(),
   saveUploadConfiguration: vi.fn(),
   executeUploadFlow: vi.fn(),
+  fetchJobEstimate: vi.fn(),
+  approveSingleJobOverage: vi.fn(),
   startProcessing: vi.fn(),
   fetchJobDetail: vi.fn(),
   fetchUncertaintyCallouts: vi.fn(),
@@ -47,6 +51,17 @@ vi.mock("../../web/src/lib/configurationHelpers", async () => {
     fetchFidelityCatalog,
     detectUploadEra,
     saveUploadConfiguration,
+  };
+});
+
+vi.mock("../../web/src/lib/costEstimateHelpers", async () => {
+  const actual = await vi.importActual<typeof import("../../web/src/lib/costEstimateHelpers")>(
+    "../../web/src/lib/costEstimateHelpers",
+  );
+  return {
+    ...actual,
+    fetchJobEstimate,
+    approveSingleJobOverage,
   };
 });
 
@@ -301,6 +316,40 @@ function buildCallouts(status: "processing" | "completed") {
   };
 }
 
+function buildEstimate(blocker: "none" | "overage_approval_required" = "none") {
+  return {
+    estimated_usage_minutes: 5,
+    operational_cost_breakdown_usd: { gpu_time: 2.16, storage: 0.04, api_calls: 0.0, total: 2.2 },
+    billing_breakdown_usd: {
+      included_usage: blocker === "none" ? 5 : 0,
+      overage_minutes: blocker === "none" ? 0 : 5,
+      overage_rate_usd_per_minute: 0.75,
+      estimated_charge_total_usd: blocker === "none" ? 0.0 : 3.75,
+    },
+    confidence_interval_usd: { low: 1.94, high: 2.46 },
+    usage_snapshot: {
+      user_id: "flow-user",
+      plan_tier: "pro",
+      used_minutes: blocker === "none" ? 120 : 600,
+      monthly_limit_minutes: 600,
+      remaining_minutes: blocker === "none" ? 480 : 0,
+      estimated_next_job_minutes: 5,
+      approved_overage_minutes: 0,
+      remaining_approved_overage_minutes: 0,
+      threshold_alerts: blocker === "none" ? [] : [80, 90, 100],
+      overage_approval_scope: null,
+      hard_stop: blocker !== "none",
+      price_reference: "price_subscription",
+      overage_price_reference: "price_overage",
+      reconciliation_source: "user_usage_monthly",
+      reconciliation_status: "estimate_pending",
+    },
+    launch_blocker: blocker,
+    estimator_version: "packet4e-v1",
+    generated_at: "2026-03-14T00:05:00+00:00",
+  };
+}
+
 async function completePacket4BConfiguration(user: ReturnType<typeof userEvent.setup>) {
   fetchFidelityCatalog.mockResolvedValue(buildCatalog());
   detectUploadEra.mockResolvedValue(buildDetection());
@@ -341,12 +390,20 @@ async function completePacket4BConfiguration(user: ReturnType<typeof userEvent.s
   await waitFor(() => expect(saveUploadConfiguration).toHaveBeenCalled());
 }
 
+async function openLaunchModalAndStart(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: "Review Cost & Start" }));
+  await waitFor(() => expect(fetchJobEstimate).toHaveBeenCalled());
+  await user.click(screen.getByRole("button", { name: "Start Processing" }));
+}
+
 describe("Packet 4C processing flow", () => {
   beforeEach(() => {
     fetchFidelityCatalog.mockReset();
     detectUploadEra.mockReset();
     saveUploadConfiguration.mockReset();
     executeUploadFlow.mockReset();
+    fetchJobEstimate.mockReset();
+    approveSingleJobOverage.mockReset();
     startProcessing.mockReset();
     fetchJobDetail.mockReset();
     fetchUncertaintyCallouts.mockReset();
@@ -355,6 +412,16 @@ describe("Packet 4C processing flow", () => {
     fetchJobExport.mockReset();
     fetchDeletionProof.mockReset();
     fetchTransformationManifest.mockReset();
+    fetchJobEstimate.mockResolvedValue(buildEstimate());
+    approveSingleJobOverage.mockResolvedValue({
+      user_id: "flow-user",
+      approval_scope: "single_job",
+      approved_for_minutes: 5,
+      remaining_approved_overage_minutes: 5,
+      remaining_minutes: 0,
+      threshold_alerts: [80, 90, 100],
+      overage_price_reference: "price_overage",
+    });
     fetchCurrentUserProfile.mockResolvedValue({ user_id: "flow-user", plan_tier: "pro" });
   });
 
@@ -373,7 +440,7 @@ describe("Packet 4C processing flow", () => {
       .mockResolvedValueOnce(buildCallouts("completed"));
 
     await completePacket4BConfiguration(user);
-    await user.click(screen.getByRole("button", { name: "Start Processing" }));
+    await openLaunchModalAndStart(user);
 
     await waitFor(() => expect(startProcessing).toHaveBeenCalled());
     await waitFor(() => expect(fetchJobDetail).toHaveBeenCalledTimes(1));
@@ -389,12 +456,12 @@ describe("Packet 4C processing flow", () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/Result URI:/)).toBeInTheDocument();
     expect(screen.getByText("Low-confidence era classification")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Start Processing Again" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Review Cost & Start Again" })).toBeDisabled();
 
     saveUploadConfiguration.mockResolvedValueOnce(buildSavedConfiguration("2026-03-13T00:08:00+00:00"));
     await user.click(screen.getByRole("button", { name: "Save Configuration" }));
     await waitFor(() => expect(saveUploadConfiguration).toHaveBeenCalledTimes(2));
-    expect(screen.getByRole("button", { name: "Start Processing Again" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Review Cost & Start Again" })).toBeEnabled();
   });
 
   it("locks Packet 4B controls while processing launch is pending", async () => {
@@ -405,6 +472,8 @@ describe("Packet 4C processing flow", () => {
     fetchUncertaintyCallouts.mockResolvedValue(buildCallouts("processing"));
 
     await completePacket4BConfiguration(user);
+    await user.click(screen.getByRole("button", { name: "Review Cost & Start" }));
+    await waitFor(() => expect(fetchJobEstimate).toHaveBeenCalled());
     await user.click(screen.getByRole("button", { name: "Start Processing" }));
 
     expect(screen.getByLabelText("Media file")).toBeDisabled();
@@ -415,7 +484,9 @@ describe("Packet 4C processing flow", () => {
     expect(screen.getByRole("button", { name: "Refresh Detection" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Override Era" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Save Configuration" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Starting..." })).toBeDisabled();
+    expect(
+      within(screen.getByRole("dialog", { name: "Review Cost & Start" })).getByRole("button", { name: "Starting..." }),
+    ).toBeDisabled();
 
     pendingLaunch.resolve(buildJob("processing"));
 
@@ -444,7 +515,7 @@ describe("Packet 4C processing flow", () => {
     });
 
     await completePacket4BConfiguration(user);
-    await user.click(screen.getByRole("button", { name: "Start Processing" }));
+    await openLaunchModalAndStart(user);
 
     await waitFor(() => expect(fetchJobDetail).toHaveBeenCalledTimes(1));
     await user.click(screen.getByRole("button", { name: "Cancel Processing" }));

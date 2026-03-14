@@ -15,6 +15,8 @@ const {
   detectUploadEra,
   saveUploadConfiguration,
   executeUploadFlow,
+  fetchJobEstimate,
+  approveSingleJobOverage,
   startProcessing,
   fetchJobDetail,
   fetchUncertaintyCallouts,
@@ -28,6 +30,8 @@ const {
   detectUploadEra: vi.fn(),
   saveUploadConfiguration: vi.fn(),
   executeUploadFlow: vi.fn(),
+  fetchJobEstimate: vi.fn(),
+  approveSingleJobOverage: vi.fn(),
   startProcessing: vi.fn(),
   fetchJobDetail: vi.fn(),
   fetchUncertaintyCallouts: vi.fn(),
@@ -37,6 +41,17 @@ const {
   fetchDeletionProof: vi.fn(),
   fetchTransformationManifest: vi.fn(),
 }));
+
+vi.mock("../../web/src/lib/costEstimateHelpers", async () => {
+  const actual = await vi.importActual<typeof import("../../web/src/lib/costEstimateHelpers")>(
+    "../../web/src/lib/costEstimateHelpers",
+  );
+  return {
+    ...actual,
+    fetchJobEstimate,
+    approveSingleJobOverage,
+  };
+});
 
 vi.mock("../../web/src/lib/configurationHelpers", async () => {
   const actual = await vi.importActual<typeof import("../../web/src/lib/configurationHelpers")>(
@@ -191,6 +206,40 @@ function setupPacket4BMocks() {
   });
 }
 
+function buildEstimate(blocker: "none" | "overage_approval_required" = "none") {
+  return {
+    estimated_usage_minutes: 5,
+    operational_cost_breakdown_usd: { gpu_time: 2.16, storage: 0.04, api_calls: 0.0, total: 2.2 },
+    billing_breakdown_usd: {
+      included_usage: blocker === "none" ? 5 : 0,
+      overage_minutes: blocker === "none" ? 0 : 5,
+      overage_rate_usd_per_minute: 0.75,
+      estimated_charge_total_usd: blocker === "none" ? 0.0 : 3.75,
+    },
+    confidence_interval_usd: { low: 1.94, high: 2.46 },
+    usage_snapshot: {
+      user_id: "error-user",
+      plan_tier: "pro",
+      used_minutes: blocker === "none" ? 120 : 600,
+      monthly_limit_minutes: 600,
+      remaining_minutes: blocker === "none" ? 480 : 0,
+      estimated_next_job_minutes: 5,
+      approved_overage_minutes: 0,
+      remaining_approved_overage_minutes: 0,
+      threshold_alerts: blocker === "none" ? [] : [80, 90, 100],
+      overage_approval_scope: null,
+      hard_stop: blocker !== "none",
+      price_reference: "price_subscription",
+      overage_price_reference: "price_overage",
+      reconciliation_source: "user_usage_monthly",
+      reconciliation_status: "estimate_pending",
+    },
+    launch_blocker: blocker,
+    estimator_version: "packet4e-v1",
+    generated_at: "2026-03-14T00:05:00+00:00",
+  };
+}
+
 async function completeConfiguration(user: ReturnType<typeof userEvent.setup>) {
   render(React.createElement(App));
   const file = new File(["12345"], "archive.mov", { type: "video/quicktime" });
@@ -203,12 +252,19 @@ async function completeConfiguration(user: ReturnType<typeof userEvent.setup>) {
   await waitFor(() => expect(saveUploadConfiguration).toHaveBeenCalled());
 }
 
+async function openLaunchModal(user: ReturnType<typeof userEvent.setup>) {
+  await user.click(screen.getByRole("button", { name: "Review Cost & Start" }));
+  await waitFor(() => expect(fetchJobEstimate).toHaveBeenCalled());
+}
+
 describe("Packet 4C error messages", () => {
   beforeEach(() => {
     fetchFidelityCatalog.mockReset();
     detectUploadEra.mockReset();
     saveUploadConfiguration.mockReset();
     executeUploadFlow.mockReset();
+    fetchJobEstimate.mockReset();
+    approveSingleJobOverage.mockReset();
     startProcessing.mockReset();
     fetchJobDetail.mockReset();
     fetchUncertaintyCallouts.mockReset();
@@ -218,6 +274,16 @@ describe("Packet 4C error messages", () => {
     fetchDeletionProof.mockReset();
     fetchTransformationManifest.mockReset();
     setupPacket4BMocks();
+    fetchJobEstimate.mockResolvedValue(buildEstimate());
+    approveSingleJobOverage.mockResolvedValue({
+      user_id: "error-user",
+      approval_scope: "single_job",
+      approved_for_minutes: 5,
+      remaining_approved_overage_minutes: 5,
+      remaining_minutes: 0,
+      threshold_alerts: [80, 90, 100],
+      overage_price_reference: "price_overage",
+    });
     fetchCurrentUserProfile.mockResolvedValue({ user_id: "error-user", plan_tier: "pro" });
   });
 
@@ -230,6 +296,7 @@ describe("Packet 4C error messages", () => {
     startProcessing.mockRejectedValue(new Error("Launch failed for Packet 4C."));
 
     await completeConfiguration(user);
+    await openLaunchModal(user);
     await user.click(screen.getByRole("button", { name: "Start Processing" }));
 
     const alert = await screen.findByRole("alert");
@@ -298,6 +365,7 @@ describe("Packet 4C error messages", () => {
     cancelProcessing.mockRejectedValue(new Error("Unable to cancel the active job."));
 
     await completeConfiguration(user);
+    await openLaunchModal(user);
     await user.click(screen.getByRole("button", { name: "Start Processing" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Cancel Processing" })).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "Cancel Processing" }));
@@ -345,6 +413,7 @@ describe("Packet 4C error messages", () => {
     });
 
     await completeConfiguration(user);
+    await openLaunchModal(user);
     await user.click(screen.getByRole("button", { name: "Start Processing" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "Cancel Processing" })).toBeInTheDocument());
     await user.click(screen.getByRole("button", { name: "Cancel Processing" }));

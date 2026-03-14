@@ -500,6 +500,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/JobCreateResponse"
+        "503":
+          description: Billing pricing metadata is temporarily unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
     get:
       tags: [jobs]
       summary: List async jobs for the current user
@@ -512,6 +518,31 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/JobListResponse"
+  /v1/jobs/estimate:
+    post:
+      tags: [jobs]
+      summary: Estimate launch-time usage and cost for an async restoration job
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JobCreateRequest"
+      responses:
+        "200":
+          description: Launch-time usage and cost estimate
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobEstimateResponse"
+        "503":
+          description: Billing pricing metadata is temporarily unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
   /v1/jobs/{job_id}:
     get:
       tags: [jobs]
@@ -1240,7 +1271,7 @@ components:
     UsageResponse:
       type: object
       required:
-        [user_id, plan_tier, used_minutes, monthly_limit_minutes, remaining_minutes, estimated_next_job_minutes, threshold_alerts, hard_stop, price_reference, reconciliation_source]
+        [user_id, plan_tier, used_minutes, monthly_limit_minutes, remaining_minutes, estimated_next_job_minutes, approved_overage_minutes, remaining_approved_overage_minutes, threshold_alerts, hard_stop, price_reference, overage_price_reference, reconciliation_source, reconciliation_status]
       properties:
         user_id:
           type: string
@@ -1254,17 +1285,26 @@ components:
           type: integer
         estimated_next_job_minutes:
           type: integer
+        approved_overage_minutes:
+          type: integer
+        remaining_approved_overage_minutes:
+          type: integer
         threshold_alerts:
           type: array
           items:
             type: integer
         overage_approval_scope:
           type: string
+          nullable: true
         hard_stop:
           type: boolean
         price_reference:
           type: string
+        overage_price_reference:
+          type: string
         reconciliation_source:
+          type: string
+        reconciliation_status:
           type: string
     OverageApprovalRequest:
       type: object
@@ -1278,7 +1318,7 @@ components:
           type: string
     OverageApprovalResponse:
       type: object
-      required: [user_id, approval_scope, approved_for_minutes, remaining_minutes, threshold_alerts]
+      required: [user_id, approval_scope, approved_for_minutes, remaining_approved_overage_minutes, remaining_minutes, threshold_alerts, overage_price_reference]
       properties:
         user_id:
           type: string
@@ -1286,12 +1326,93 @@ components:
           type: string
         approved_for_minutes:
           type: integer
+        remaining_approved_overage_minutes:
+          type: integer
         remaining_minutes:
           type: integer
         threshold_alerts:
           type: array
           items:
             type: integer
+        overage_price_reference:
+          type: string
+    OperationalCostBreakdownResponse:
+      type: object
+      properties:
+        gpu_time:
+          type: number
+        storage:
+          type: number
+        api_calls:
+          type: number
+        total:
+          type: number
+    BillingBreakdownResponse:
+      type: object
+      properties:
+        included_usage:
+          type: integer
+        overage_minutes:
+          type: integer
+        overage_rate_usd_per_minute:
+          type: number
+        estimated_charge_total_usd:
+          type: number
+    ConfidenceIntervalResponse:
+      type: object
+      properties:
+        low:
+          type: number
+        high:
+          type: number
+    CostEstimateSummaryResponse:
+      type: object
+      required:
+        [estimated_usage_minutes, operational_cost_breakdown_usd, billing_breakdown_usd, confidence_interval_usd, usage_snapshot, launch_blocker, estimator_version, generated_at]
+      properties:
+        estimated_usage_minutes:
+          type: integer
+        operational_cost_breakdown_usd:
+          $ref: "#/components/schemas/OperationalCostBreakdownResponse"
+        billing_breakdown_usd:
+          $ref: "#/components/schemas/BillingBreakdownResponse"
+        confidence_interval_usd:
+          $ref: "#/components/schemas/ConfidenceIntervalResponse"
+        usage_snapshot:
+          $ref: "#/components/schemas/UsageResponse"
+        launch_blocker:
+          type: string
+          enum: [none, overage_approval_required]
+        estimator_version:
+          type: string
+        generated_at:
+          type: string
+    CostReconciliationSummaryResponse:
+      type: object
+      properties:
+        estimated_total_cost_usd:
+          type: number
+        actual_total_cost_usd:
+          type: number
+        delta_usd:
+          type: number
+        delta_percent:
+          type: number
+        estimated_charge_total_usd:
+          type: number
+        actual_charge_total_usd:
+          type: number
+        actual_usage_minutes:
+          type: integer
+        outlier_threshold_percent:
+          type: number
+        outlier_flagged:
+          type: boolean
+        estimator_version:
+          type: string
+        reconciled_at:
+          type: string
+          nullable: true
     LogSettingsUpdateRequest:
       type: object
       required: [retention_days, redaction_mode]
@@ -1515,6 +1636,14 @@ components:
           $ref: "#/components/schemas/ReproducibilitySummaryResponse"
         stage_timings:
           $ref: "#/components/schemas/StageTimingResponse"
+        cost_estimate_summary:
+          allOf:
+            - $ref: "#/components/schemas/CostEstimateSummaryResponse"
+          nullable: true
+        cost_reconciliation_summary:
+          allOf:
+            - $ref: "#/components/schemas/CostReconciliationSummaryResponse"
+          nullable: true
         failed_segments:
           type: array
           items:
@@ -1537,6 +1666,9 @@ components:
           properties:
             queued_at:
               type: string
+    JobEstimateResponse:
+      allOf:
+        - $ref: "#/components/schemas/CostEstimateSummaryResponse"
     JobDetailResponse:
       allOf:
         - $ref: "#/components/schemas/JobSummaryResponse"

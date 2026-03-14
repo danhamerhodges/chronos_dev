@@ -28,6 +28,7 @@ def test_expected_migrations_present() -> None:
         "0017_phase4_upload_configuration.sql",
         "0018_phase4_output_delivery.sql",
         "0019_phase4_output_delivery_rls.sql",
+        "0020_phase4_cost_estimation.sql",
     ]
 
 

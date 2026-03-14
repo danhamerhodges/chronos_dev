@@ -252,6 +252,52 @@ class OverageApprovalResponse(StrictModel):
     overage_price_reference: str
 
 
+class OperationalCostBreakdownResponse(StrictModel):
+    gpu_time: float = 0.0
+    storage: float = 0.0
+    api_calls: float = 0.0
+    total: float = 0.0
+
+
+class BillingBreakdownResponse(StrictModel):
+    included_usage: int = 0
+    overage_minutes: int = 0
+    overage_rate_usd_per_minute: float = 0.0
+    estimated_charge_total_usd: float = 0.0
+
+
+class ConfidenceIntervalResponse(StrictModel):
+    low: float = 0.0
+    high: float = 0.0
+
+
+class CostEstimateSummaryResponse(StrictModel):
+    estimated_usage_minutes: int = 0
+    operational_cost_breakdown_usd: OperationalCostBreakdownResponse = Field(
+        default_factory=OperationalCostBreakdownResponse
+    )
+    billing_breakdown_usd: BillingBreakdownResponse = Field(default_factory=BillingBreakdownResponse)
+    confidence_interval_usd: ConfidenceIntervalResponse = Field(default_factory=ConfidenceIntervalResponse)
+    usage_snapshot: UsageResponse
+    launch_blocker: Literal["none", "overage_approval_required"] = "none"
+    estimator_version: str
+    generated_at: str
+
+
+class CostReconciliationSummaryResponse(StrictModel):
+    estimated_total_cost_usd: float = 0.0
+    actual_total_cost_usd: float = 0.0
+    delta_usd: float = 0.0
+    delta_percent: float = 0.0
+    estimated_charge_total_usd: float = 0.0
+    actual_charge_total_usd: float = 0.0
+    actual_usage_minutes: int = 0
+    outlier_threshold_percent: float = 20.0
+    outlier_flagged: bool = False
+    estimator_version: str = ""
+    reconciled_at: str | None = None
+
+
 class LogSettingsUpdateRequest(StrictModel):
     retention_days: int
     redaction_mode: str
@@ -472,6 +518,8 @@ class JobSummaryResponse(StrictModel):
     cache_summary: CacheSummaryResponse = Field(default_factory=CacheSummaryResponse)
     gpu_summary: GpuSummaryResponse = Field(default_factory=GpuSummaryResponse)
     cost_summary: CostSummaryResponse = Field(default_factory=CostSummaryResponse)
+    cost_estimate_summary: CostEstimateSummaryResponse | None = None
+    cost_reconciliation_summary: CostReconciliationSummaryResponse | None = None
     slo_summary: SloSummaryResponse
     failed_segments: list[int] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
@@ -482,6 +530,10 @@ class JobSummaryResponse(StrictModel):
 
 class JobCreateResponse(JobSummaryResponse):
     queued_at: str
+
+
+class JobEstimateResponse(CostEstimateSummaryResponse):
+    pass
 
 
 class JobDetailResponse(JobSummaryResponse):

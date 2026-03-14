@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import ipaddress
 import socket
 import time
@@ -26,6 +27,7 @@ from app.observability.monitoring import (
 )
 from app.services.fidelity_profiles import fidelity_profile_for
 from app.services.billing_service import BillingService, billable_minutes_for_duration
+from app.services.cost_estimation import CostEstimationService, calculate_operational_cost_summary
 from app.services.job_dispatcher import (
     pop_next_dispatch_message,
     publish_job,
@@ -63,10 +65,53 @@ _SEGMENT_FAILURE_PLANS: dict[tuple[str, int], list[str]] = defaultdict(list)
 _REPRODUCIBILITY_FAILURE_PLANS: dict[tuple[str, int], int] = defaultdict(int)
 _DEAD_LETTER_QUEUE: list[str] = []
 _VALID_PLAN_TIERS = frozenset({"hobbyist", "pro", "museum"})
+_LOGGER = logging.getLogger(__name__)
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _consume_usage_and_reconcile(
+    repo: JobRepository,
+    *,
+    job: dict[str, Any],
+    actual_cost_summary: dict[str, Any],
+    actual_usage_minutes: int,
+) -> dict[str, Any] | None:
+    billing = BillingService()
+    before_snapshot = billing.snapshot(
+        user_id=str(job["owner_user_id"]),
+        plan_tier=str(job["plan_tier"]),
+    )
+    after_snapshot = billing.consume_minutes(
+        user_id=str(job["owner_user_id"]),
+        plan_tier=str(job["plan_tier"]),
+        minutes=actual_usage_minutes,
+    )
+    reconciliation_summary = CostEstimationService().reconcile_estimate(
+        estimate_summary=job.get("cost_estimate_summary"),
+        actual_cost_summary=actual_cost_summary,
+        actual_usage_minutes=actual_usage_minutes,
+        reconciled_at=_utc_now(),
+        usage_before_job_minutes=before_snapshot.used_minutes,
+        post_billing_snapshot=after_snapshot,
+    )
+    if reconciliation_summary is None:
+        return None
+    try:
+        repo.update_job_for_worker(
+            str(job["job_id"]),
+            patch={"cost_reconciliation_summary": reconciliation_summary},
+        )
+    except Exception:
+        record_job_runtime_event("cost_reconciliation_persist_failed")
+        _LOGGER.warning(
+            "Failed to persist cost reconciliation summary for terminal job %s.",
+            job["job_id"],
+            exc_info=True,
+        )
+    return reconciliation_summary
 
 
 def reset_job_runtime_state() -> None:
@@ -614,12 +659,11 @@ def _finalize_job(repo: JobRepository, job_id: str, *, trusted_token: str | None
         **(job.get("gpu_summary") or {}),
         "gpu_runtime_seconds": gpu_runtime_seconds,
     }
-    cost_summary = {
-        "gpu_seconds": gpu_runtime_seconds,
-        "storage_operations": len(completed_segments) + int(bool(result_uri)),
-        "api_calls": len(completed_quality),
-        "total_cost_usd": round((gpu_runtime_seconds * 0.012) + ((len(completed_segments) + int(bool(result_uri))) * 0.001), 4),
-    }
+    cost_summary = calculate_operational_cost_summary(
+        gpu_seconds=gpu_runtime_seconds,
+        storage_operations=len(completed_segments) + int(bool(result_uri)),
+        api_calls=len(completed_quality),
+    )
     slo_summary = evaluate_job_slo({**job, "stage_timings": stage_timings})
     released_pool = release_gpu(job_id, gpu_runtime_seconds=gpu_runtime_seconds)
     gpu_summary.update(
@@ -704,21 +748,20 @@ def _finalize_job(repo: JobRepository, job_id: str, *, trusted_token: str | None
                     )
                     status = JobStatus.FAILED
         record_job_runtime_event(status.value)
+        actual_usage_minutes = 0
         if status in {JobStatus.COMPLETED, JobStatus.PARTIAL}:
-            BillingService().consume_minutes(
-                user_id=finalized["owner_user_id"],
-                plan_tier=finalized["plan_tier"],
-                minutes=billable_minutes_for_duration(
-                    finalized["estimated_duration_seconds"],
-                    finalized["fidelity_tier"],
-                ),
+            actual_usage_minutes = billable_minutes_for_duration(
+                finalized["estimated_duration_seconds"],
+                finalized["fidelity_tier"],
             )
-        elif status == JobStatus.FAILED:
-            BillingService().consume_minutes(
-                user_id=finalized["owner_user_id"],
-                plan_tier=finalized["plan_tier"],
-                minutes=0,
-            )
+        reconciliation_summary = _consume_usage_and_reconcile(
+            repo,
+            job=finalized,
+            actual_cost_summary=cost_summary,
+            actual_usage_minutes=actual_usage_minutes,
+        )
+        if reconciliation_summary is not None:
+            finalized = {**finalized, "cost_reconciliation_summary": reconciliation_summary}
         return finalized, True
     except Exception as exc:
         completed_at = _utc_now()
@@ -742,11 +785,14 @@ def _finalize_job(repo: JobRepository, job_id: str, *, trusted_token: str | None
             },
         )
         record_job_runtime_event(JobStatus.FAILED.value)
-        BillingService().consume_minutes(
-            user_id=failed["owner_user_id"],
-            plan_tier=failed["plan_tier"],
-            minutes=0,
+        reconciliation_summary = _consume_usage_and_reconcile(
+            repo,
+            job=failed,
+            actual_cost_summary=cost_summary,
+            actual_usage_minutes=0,
         )
+        if reconciliation_summary is not None:
+            failed = {**failed, "cost_reconciliation_summary": reconciliation_summary}
         return failed, True
 
 
