@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -494,7 +494,34 @@ class JobListResponse(StrictModel):
 class JobCancelResponse(StrictModel):
     job_id: str
     status: JobStatus
-    cancel_requested_at: str
+    cancel_requested_at: str | None = None
+
+
+class UncertaintyCalloutTimeRangeResponse(StrictModel):
+    start: float
+    end: float
+
+
+class UncertaintyCalloutSourceResponse(StrictModel):
+    segment_index: int | None = None
+    metric_key: str | None = None
+
+
+class UncertaintyCalloutResponse(StrictModel):
+    callout_id: str
+    code: str
+    severity: Literal["warning", "critical"]
+    title: str
+    message: str
+    scope: Literal["segment", "global"]
+    time_range_seconds: UncertaintyCalloutTimeRangeResponse
+    source: UncertaintyCalloutSourceResponse = Field(default_factory=UncertaintyCalloutSourceResponse)
+
+
+class JobUncertaintyCalloutsResponse(StrictModel):
+    job_id: str
+    status: JobStatus
+    callouts: list[UncertaintyCalloutResponse] = Field(default_factory=list)
 
 
 class TransformationManifestSamplingProtocol(StrictModel):

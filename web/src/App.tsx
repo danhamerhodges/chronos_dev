@@ -6,6 +6,7 @@ import { EraOverrideModal } from "./components/EraOverrideModal";
 import { FidelityTierSelector } from "./components/FidelityTierSelector";
 import { InputField } from "./components/InputField";
 import { ProgressBar } from "./components/ProgressBar";
+import { UncertaintyCalloutsList } from "./components/UncertaintyCalloutsList";
 import {
   allowedGrainPresetsForTier,
   canOverrideEra,
@@ -23,6 +24,15 @@ import {
   type UserPersona,
 } from "./lib/configurationHelpers";
 import {
+  cancelProcessing,
+  fetchJobDetail,
+  fetchUncertaintyCallouts,
+  isActiveJobStatus,
+  startProcessing,
+  type JobDetailResponse,
+  type JobUncertaintyCalloutsResponse,
+} from "./lib/processingHelpers";
+import {
   UploadResponse,
   executeUploadFlow,
   isSupportedUploadFormat,
@@ -39,6 +49,13 @@ async function currentAccessToken(): Promise<string> {
     throw new Error("Sign in before starting an upload.");
   }
   return token;
+}
+
+function processingLaunchKey(configuration: UploadConfigurationResponse | null): string | null {
+  if (!configuration) {
+    return null;
+  }
+  return `${configuration.upload_id}:${configuration.configured_at}`;
 }
 
 export function App() {
@@ -61,17 +78,34 @@ export function App() {
   const [showOverrideModal, setShowOverrideModal] = useState(false);
   const [manualOverrideEra, setManualOverrideEra] = useState("");
   const [overrideReason, setOverrideReason] = useState("");
+  const [processingJob, setProcessingJob] = useState<JobDetailResponse | null>(null);
+  const [jobCallouts, setJobCallouts] = useState<JobUncertaintyCalloutsResponse | null>(null);
+  const [jobBusy, setJobBusy] = useState(false);
+  const [statusNotice, setStatusNotice] = useState("");
+  const [lastStartedConfigurationKey, setLastStartedConfigurationKey] = useState<string | null>(null);
   const activeUploadIdRef = useRef<string | null>(null);
+  const activeJobIdRef = useRef<string | null>(null);
+  const processingStatusRef = useRef<JobDetailResponse["status"] | null>(null);
+  const latestRefreshTokenRef = useRef(0);
 
   useEffect(() => {
     activeUploadIdRef.current = uploadSession?.upload_id ?? null;
   }, [uploadSession]);
+
+  useEffect(() => {
+    activeJobIdRef.current = processingJob?.job_id ?? null;
+  }, [processingJob]);
+
+  useEffect(() => {
+    processingStatusRef.current = processingJob?.status ?? null;
+  }, [processingJob?.status]);
 
   function resetConfigurationState(): void {
     setEstimatedDurationSeconds(180);
     setCatalog(null);
     setDetection(null);
     setSavedConfiguration(null);
+    setLastStartedConfigurationKey(null);
     setSelectedPersona("");
     setSelectedTier(null);
     setSelectedGrainPreset(null);
@@ -79,6 +113,21 @@ export function App() {
     setManualOverrideEra("");
     setOverrideReason("");
   }
+
+  function resetProcessingState(): void {
+    latestRefreshTokenRef.current += 1;
+    activeJobIdRef.current = null;
+    processingStatusRef.current = null;
+    setProcessingJob(null);
+    setJobCallouts(null);
+    setJobBusy(false);
+    setStatusNotice("");
+  }
+
+  const jobActive = isActiveJobStatus(processingJob?.status);
+  const jobLocked = jobBusy || jobActive;
+  const currentLaunchKey = processingLaunchKey(savedConfiguration);
+  const canStartSavedConfiguration = Boolean(savedConfiguration) && (!processingJob || currentLaunchKey !== lastStartedConfigurationKey);
 
   useEffect(() => {
     if (!uploadSession || uploadSession.status !== "completed" || catalog) {
@@ -237,12 +286,175 @@ export function App() {
       setSelectedTier(nextConfiguration.fidelity_tier);
       setSelectedGrainPreset(nextConfiguration.grain_preset);
       setError("");
+      setStatusNotice("");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to save the launch-ready configuration.");
     } finally {
       setConfigBusy(false);
     }
   }
+
+  async function refreshProcessingState(jobId: string, uploadId: string): Promise<void> {
+    const refreshToken = latestRefreshTokenRef.current + 1;
+    latestRefreshTokenRef.current = refreshToken;
+    const isCurrentRefresh = (): boolean =>
+      latestRefreshTokenRef.current === refreshToken && activeUploadIdRef.current === uploadId && activeJobIdRef.current === jobId;
+    let accessToken: string;
+    try {
+      accessToken = await currentAccessToken();
+    } catch (caught) {
+      if (!isCurrentRefresh()) {
+        return;
+      }
+      throw caught;
+    }
+    if (!isCurrentRefresh()) {
+      return;
+    }
+    let nextJob: JobDetailResponse;
+    try {
+      nextJob = await fetchJobDetail(API_BASE_URL, accessToken, jobId);
+    } catch (caught) {
+      if (!isCurrentRefresh()) {
+        return;
+      }
+      throw caught;
+    }
+    if (!isCurrentRefresh()) {
+      return;
+    }
+    setProcessingJob(nextJob);
+    setStatusNotice("");
+    try {
+      const nextCallouts = await fetchUncertaintyCallouts(API_BASE_URL, accessToken, jobId);
+      if (!isCurrentRefresh()) {
+        return;
+      }
+      setJobCallouts(nextCallouts);
+    } catch (caught) {
+      if (!isCurrentRefresh()) {
+        return;
+      }
+      setStatusNotice(caught instanceof Error ? caught.message : "Unable to refresh uncertainty callouts.");
+    }
+  }
+
+  async function handleStartProcessing(): Promise<void> {
+    if (!savedConfiguration || !uploadSession) {
+      setError("Save a launch-ready configuration before starting processing.");
+      return;
+    }
+    const launchKey = processingLaunchKey(savedConfiguration);
+    if (processingJob && !jobActive && launchKey && launchKey === lastStartedConfigurationKey) {
+      setStatusNotice("Save the configuration again before starting another processing run.");
+      return;
+    }
+    const requestUploadId = uploadSession.upload_id;
+    setJobBusy(true);
+    try {
+      const accessToken = await currentAccessToken();
+      const createdJob = await startProcessing(API_BASE_URL, accessToken, savedConfiguration.job_payload_preview);
+      if (activeUploadIdRef.current !== requestUploadId) {
+        return;
+      }
+      activeJobIdRef.current = createdJob.job_id;
+      setProcessingJob(createdJob);
+      setJobCallouts(null);
+      setError("");
+      setStatusNotice("");
+      setLastStartedConfigurationKey(launchKey);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to start processing.");
+    } finally {
+      if (activeUploadIdRef.current === requestUploadId) {
+        setJobBusy(false);
+      }
+    }
+  }
+
+  async function handleCancelProcessing(): Promise<void> {
+    if (!processingJob || !uploadSession) {
+      return;
+    }
+    const requestUploadId = uploadSession.upload_id;
+    const requestJobId = processingJob.job_id;
+    setJobBusy(true);
+    try {
+      const accessToken = await currentAccessToken();
+      await cancelProcessing(API_BASE_URL, accessToken, requestJobId);
+      if (activeUploadIdRef.current !== requestUploadId || activeJobIdRef.current !== requestJobId) {
+        return;
+      }
+      setError("");
+      try {
+        await refreshProcessingState(requestJobId, requestUploadId);
+      } catch (caught) {
+        if (activeUploadIdRef.current !== requestUploadId || activeJobIdRef.current !== requestJobId) {
+          return;
+        }
+        setStatusNotice(
+          caught instanceof Error ? caught.message : "Cancellation was requested, but the latest processing status could not be refreshed.",
+        );
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to cancel processing.");
+    } finally {
+      if (activeUploadIdRef.current === requestUploadId && activeJobIdRef.current === requestJobId) {
+        setJobBusy(false);
+      }
+    }
+  }
+
+  async function handleRetryProcessingRefresh(): Promise<void> {
+    if (!processingJob || !uploadSession) {
+      return;
+    }
+    try {
+      await refreshProcessingState(processingJob.job_id, uploadSession.upload_id);
+    } catch (caught) {
+      setStatusNotice(caught instanceof Error ? caught.message : "Unable to refresh processing status.");
+    }
+  }
+
+  useEffect(() => {
+    if (!processingJob?.job_id || !uploadSession?.upload_id) {
+      return;
+    }
+    let cancelled = false;
+    let intervalId: number | null = null;
+    const currentJobId = processingJob.job_id;
+    const currentUploadId = uploadSession.upload_id;
+
+    const poll = async () => {
+      try {
+        await refreshProcessingState(currentJobId, currentUploadId);
+      } catch (caught) {
+        if (!cancelled) {
+          setStatusNotice(caught instanceof Error ? caught.message : "Unable to refresh processing status.");
+        }
+      }
+    };
+
+    void poll();
+
+    intervalId = window.setInterval(() => {
+      if (!isActiveJobStatus(processingStatusRef.current)) {
+        if (intervalId !== null) {
+          window.clearInterval(intervalId);
+          intervalId = null;
+        }
+        return;
+      }
+      void poll();
+    }, 1000);
+
+    return () => {
+      cancelled = true;
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+      }
+    };
+  }, [processingJob?.job_id, uploadSession?.upload_id]);
 
   const grainOptions = catalog ? allowedGrainPresetsForTier(catalog, selectedTier) : [];
 
@@ -279,14 +491,16 @@ export function App() {
                   setError("");
                   setCanResume(false);
                   resetConfigurationState();
+                  resetProcessingState();
                 }}
+                disabled={busy || jobLocked}
               />
             </label>
             <div style={{ display: "flex", gap: "var(--spacing-sm)", flexWrap: "wrap" }}>
-              <Button onClick={() => void runUpload(false)} disabled={busy || !selectedFile}>
+              <Button onClick={() => void runUpload(false)} disabled={busy || jobLocked || !selectedFile}>
                 {busy ? "Uploading..." : "Start Upload"}
               </Button>
-              <Button variant="secondary" onClick={() => void runUpload(true)} disabled={busy || !selectedFile || !canResume}>
+              <Button variant="secondary" onClick={() => void runUpload(true)} disabled={busy || jobLocked || !selectedFile || !canResume}>
                 Resume Upload
               </Button>
             </div>
@@ -336,6 +550,7 @@ export function App() {
                   onChange={(event) => setEstimatedDurationSeconds(Math.max(Number(event.target.value || 0), 1))}
                   type="number"
                   value={estimatedDurationSeconds}
+                  disabled={configBusy || jobLocked}
                 />
               </label>
               {catalog ? (
@@ -353,6 +568,7 @@ export function App() {
                         handlePersonaChange(nextPersona as UserPersona);
                       }}
                       value={selectedPersona}
+                      disabled={configBusy || jobLocked}
                     >
                       <option value="">Select a persona</option>
                       {catalog.personas.map((persona) => (
@@ -368,6 +584,7 @@ export function App() {
                       onSelect={handleTierChange}
                       selectedTier={selectedTier}
                       tiers={catalog.tiers}
+                      disabled={configBusy || jobLocked}
                     />
                   </div>
                   <label>
@@ -376,6 +593,7 @@ export function App() {
                       aria-label="Select grain preset"
                       onChange={(event) => setSelectedGrainPreset(event.target.value as GrainPreset)}
                       value={selectedGrainPreset ?? ""}
+                      disabled={configBusy || jobLocked}
                     >
                       <option value="">Select a grain preset</option>
                       {grainOptions.map((preset) => (
@@ -390,11 +608,11 @@ export function App() {
                 <div>Loading configuration options...</div>
               )}
               <div style={{ display: "flex", gap: "var(--spacing-sm)", flexWrap: "wrap" }}>
-                <Button disabled={configBusy} onClick={() => void handleDetectEra()}>
+                <Button disabled={configBusy || jobLocked} onClick={() => void handleDetectEra()}>
                   {configBusy ? "Working..." : detection ? "Refresh Detection" : "Detect Era"}
                 </Button>
                 <Button
-                  disabled={configBusy || !canOverrideEra(detection)}
+                  disabled={configBusy || jobLocked || !canOverrideEra(detection)}
                   onClick={() => setShowOverrideModal(true)}
                   type="button"
                   variant="secondary"
@@ -402,7 +620,7 @@ export function App() {
                   Override Era
                 </Button>
                 <Button
-                  disabled={configBusy || !detection || !selectedTier || !selectedGrainPreset}
+                  disabled={configBusy || jobLocked || !detection || !selectedTier || !selectedGrainPreset}
                   onClick={() => void handleSaveConfiguration()}
                   type="button"
                 >
@@ -426,9 +644,9 @@ export function App() {
                   <div>
                     <strong>Processing estimate:</strong> {detection.estimated_usage_minutes} billable minutes
                   </div>
-                  {detection.warnings.length ? (
+                  {(detection.warnings ?? []).length ? (
                     <ul style={{ marginBottom: 0 }}>
-                      {detection.warnings.map((warning) => (
+                      {(detection.warnings ?? []).map((warning) => (
                         <li key={warning}>{warning}</li>
                       ))}
                     </ul>
@@ -463,6 +681,127 @@ export function App() {
                   </div>
                 </div>
               ) : null}
+            </div>
+          </Card>
+        ) : null}
+
+        {savedConfiguration || processingJob ? (
+          <Card title="Packet 4C Processing Flow">
+            <div style={{ display: "grid", gap: "var(--spacing-md)" }}>
+              <p style={{ color: "var(--color-text-muted)", marginTop: 0 }}>
+                Launch processing from the saved Packet 4B configuration, monitor progress, and review uncertainty
+                callouts without leaving this flow.
+              </p>
+              {savedConfiguration ? (
+                <div
+                  style={{
+                    borderRadius: "var(--radius-md)",
+                    background: "#f7fafc",
+                    padding: "var(--spacing-md)",
+                  }}
+                >
+                  <div>
+                    <strong>Saved upload:</strong> {savedConfiguration.upload_id}
+                  </div>
+                  <div>
+                    <strong>Launch tier:</strong> {savedConfiguration.fidelity_tier}
+                  </div>
+                  <div>
+                    <strong>Launch grain preset:</strong> {savedConfiguration.grain_preset}
+                  </div>
+                </div>
+              ) : null}
+
+              {!processingJob ? (
+                <div style={{ display: "flex", gap: "var(--spacing-sm)", flexWrap: "wrap" }}>
+                  <Button disabled={jobBusy || !canStartSavedConfiguration} onClick={() => void handleStartProcessing()}>
+                    {jobBusy ? "Starting..." : "Start Processing"}
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <div
+                    style={{
+                      borderRadius: "var(--radius-md)",
+                      background: "#edf5fb",
+                      padding: "var(--spacing-md)",
+                    }}
+                  >
+                    <div>
+                      <strong>Job ID:</strong> {processingJob.job_id}
+                    </div>
+                    <div>
+                      <strong>Status:</strong> {processingJob.status}
+                    </div>
+                    <div>
+                      <strong>Operation:</strong> {processingJob.progress.current_operation}
+                    </div>
+                    <div style={{ marginTop: "var(--spacing-sm)" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "var(--spacing-xs)" }}>
+                        <span>Progress</span>
+                        <span>{Math.round(processingJob.progress.percent_complete)}%</span>
+                      </div>
+                      <ProgressBar value={Math.round(processingJob.progress.percent_complete)} />
+                      <div style={{ marginTop: "var(--spacing-xs)", color: "var(--color-text-muted)" }}>
+                        ETA: {processingJob.progress.eta_seconds}s
+                      </div>
+                    </div>
+                  </div>
+
+                  {statusNotice ? (
+                    <div
+                      aria-live="polite"
+                      role="status"
+                      style={{
+                        borderRadius: "var(--radius-md)",
+                        background: "#eef5ff",
+                        padding: "var(--spacing-sm) var(--spacing-md)",
+                      }}
+                    >
+                      <div>{statusNotice}</div>
+                      <div style={{ marginTop: "var(--spacing-sm)" }}>
+                        <Button variant="secondary" onClick={() => void handleRetryProcessingRefresh()}>
+                          Retry Status Refresh
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div style={{ display: "flex", gap: "var(--spacing-sm)", flexWrap: "wrap" }}>
+                    {jobActive ? (
+                      <Button variant="secondary" disabled={jobBusy} onClick={() => void handleCancelProcessing()}>
+                        {jobBusy ? "Cancelling..." : "Cancel Processing"}
+                      </Button>
+                    ) : (
+                      <Button disabled={jobBusy || !canStartSavedConfiguration} onClick={() => void handleStartProcessing()}>
+                        {jobBusy ? "Starting..." : "Start Processing Again"}
+                      </Button>
+                    )}
+                  </div>
+
+                  {processingJob.result_uri ? (
+                    <div>
+                      <strong>Result URI:</strong> {processingJob.result_uri}
+                    </div>
+                  ) : null}
+                  {processingJob.last_error ? (
+                    <div>
+                      <strong>Last error:</strong> {processingJob.last_error}
+                    </div>
+                  ) : null}
+                  {processingJob.warnings.length ? (
+                    <div>
+                      <strong>Warnings</strong>
+                      <ul>
+                        {processingJob.warnings.map((warning) => (
+                          <li key={warning}>{warning}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
+                  <UncertaintyCalloutsList callouts={jobCallouts?.callouts ?? []} />
+                </>
+              )}
             </div>
           </Card>
         ) : null}

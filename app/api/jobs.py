@@ -10,6 +10,7 @@ from app.api.contracts import (
     JobCreateResponse,
     JobDetailResponse,
     JobListResponse,
+    JobUncertaintyCalloutsResponse,
 )
 from app.api.dependencies import AuthenticatedUser, apply_rate_limit, require_permission
 from app.services.job_service import JobService
@@ -48,6 +49,18 @@ def get_job(
     response.headers["Cache-Control"] = "private, max-age=1"
     job = _job_service.get_job(job_id, owner_user_id=user.user_id, access_token=user.access_token)
     return JobDetailResponse.model_validate(job)
+
+
+@router.get("/v1/jobs/{job_id}/uncertainty-callouts", response_model=JobUncertaintyCalloutsResponse)
+def get_uncertainty_callouts(
+    job_id: str,
+    response: Response,
+    user: AuthenticatedUser = Depends(require_permission("jobs:read")),
+) -> JobUncertaintyCalloutsResponse:
+    apply_rate_limit(user, "/v1/jobs/{job_id}/uncertainty-callouts")
+    response.headers["Cache-Control"] = "private, max-age=1"
+    payload = _job_service.get_uncertainty_callouts(job_id, owner_user_id=user.user_id, access_token=user.access_token)
+    return JobUncertaintyCalloutsResponse.model_validate(payload)
 
 
 @router.get("/v1/jobs", response_model=JobListResponse)
