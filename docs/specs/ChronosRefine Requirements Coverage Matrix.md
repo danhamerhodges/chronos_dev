@@ -295,7 +295,7 @@ Source evidence:
 | Phase 1: Foundation & Core Infrastructure | 6/6 | ✅ Complete (baseline scope) | Baseline scaffolding and validation confirmed in `docs/phase1_readiness_report.md` |
 | Phase 2: API Foundation & Data Layer | 6/6 | ✅ Complete (merged via PR #1) | `main` includes merge commit `709687a`; this is the canonical baseline for later phases |
 | Phase 3: Core Processing Pipeline & AI Integration | 11/12 | ✅ Complete for Phase 4 kickoff | PR #2 merged to `main`; `SEC-007` remains deferred to its canonical `GA+3 months` milestone |
-| Phase 4: User-Facing Features & Application Logic | 5/14 on `main`; 7/14 on candidate branch `codex/packet4d-output-delivery` | 🚧 In Progress (Packets 4A, 4B, and 4C merged on `main`; Packet 4D complete on candidate branch) | `FR-001` upload/validation, `FR-003` + `DS-001`, and `FR-004` + the Packet 4C portion of `DS-006` are merged on `main`; candidate branch `codex/packet4d-output-delivery` adds `FR-005` + `ENG-015`, and Packet 4E is next |
+| Phase 4: User-Facing Features & Application Logic | 7/14 on `main` | 🚧 In Progress (Packets 4A, 4B, 4C, and 4D merged on `main`) | `FR-001` upload/validation, `FR-003` + `DS-001`, `FR-004` + the Packet 4C portion of `DS-006`, and `FR-005` + `ENG-015` are merged on `main`; Packet 4E is next |
 | Phase 5: Advanced Features & UX Refinement | 0/11 | ⏸️ Not Started | Dependent on Phase 4 completion |
 | Phase 6: Production Readiness & Launch | 0/10 | ⏸️ Not Started | Dependent on Phase 5 completion |
 
@@ -352,16 +352,16 @@ Source evidence:
 
 ### Phase 4 Current Status: User-Facing Features & Application Logic
 
-**Requirements:** 5 of 14 complete on `main`; 7 of 14 complete on candidate branch `codex/packet4d-output-delivery`  
-**Status:** Packets 4A and 4B are merged to `main` as of 2026-03-13 (`fc81b2a`); `Packet 4C = FR-004 + DS-006 (processing launch, progress, uncertainty callouts, and accessible runtime errors)` merged to `main` on 2026-03-14 in `8e8798c`; `Packet 4D = FR-005 + ENG-015 (output delivery, deterministic export packaging, and export-flow accessibility slices)` is complete on candidate branch `codex/packet4d-output-delivery`  
-**Completed Packets:** `Packet 4A = FR-001 (Video Upload and Validation)` on `main`; `Packet 4B = FR-003 + DS-001 (Fidelity Tier Selection + Configuration UX)` on `main`; `Packet 4C = FR-004 + DS-006 (Processing Launch, Progress, and Accessible Runtime Errors)` on `main`; `Packet 4D = FR-005 + ENG-015 (Output Delivery + Output Encoding)` on candidate branch `codex/packet4d-output-delivery`
+**Requirements:** 7 of 14 complete on `main`  
+**Status:** Packets 4A and 4B are merged to `main` as of 2026-03-13 (`fc81b2a`); `Packet 4C = FR-004 + DS-006 (processing launch, progress, uncertainty callouts, and accessible runtime errors)` merged to `main` on 2026-03-14 in `8e8798c`; `Packet 4D = FR-005 + ENG-015 (output delivery, deterministic export packaging, and export-flow accessibility slices)` merged to `main` on 2026-03-14 in `f0667c8`  
+**Completed Packets:** `Packet 4A = FR-001 (Video Upload and Validation)` on `main`; `Packet 4B = FR-003 + DS-001 (Fidelity Tier Selection + Configuration UX)` on `main`; `Packet 4C = FR-004 + DS-006 (Processing Launch, Progress, and Accessible Runtime Errors)` on `main`; `Packet 4D = FR-005 + ENG-015 (Output Delivery + Output Encoding)` on `main`
 
 | Area | Current Phase 4 note |
 |---|---|
 | Packet 4A scope on `main` | Signed GCS upload URL generation, resumable upload handling, format/size validation, authenticated metadata persistence, and a thin upload UI shell |
 | Packet 4B scope on `main` | Upload-scoped era detection, persona/tier/grain configuration, launch-ready `job_payload_preview`, explicit hobbyist early-photo entitlement gating, and rendered `DS-001` verification |
 | Packet 4C scope on `main` | Launch processing from saved Packet 4B configuration, poll job progress, cancel processing, expose uncertainty callouts via `GET /v1/jobs/{job_id}/uncertainty-callouts`, and surface DS-006-compliant launch/cancel/refresh error states |
-| Packet 4D scope on candidate branch | Materialize deterministic AV1 + H.264 export packages at job finalization, expose owner-scoped `GET /v1/jobs/{job_id}/export` and `GET /v1/deletion-proofs/{proof_id}`, and extend the Packet 4C terminal UI with delivery/download actions plus export-path accessibility slices |
+| Packet 4D scope on `main` | Materialize deterministic AV1 + H.264 export packages at job finalization, expose owner-scoped `GET /v1/jobs/{job_id}/export` and `GET /v1/deletion-proofs/{proof_id}`, and extend the Packet 4C terminal UI with delivery/download actions plus export-path accessibility slices |
 | Explicit Exclusions after Packet 4D | `ENG-013`, `ENG-014`, and all `FR-006` preview-review UX remain follow-on Phase 4/5 work |
 | Dependencies Satisfied | `SEC-013`, `ENG-002`, `ENG-016`; Phase 3 kickoff dependency is satisfied with `SEC-007` deferred per canon |
 | Packet 4A test mapping | `tests/api/test_upload.py`, `tests/integration/test_resumable_upload.py`, `tests/load/test_upload_performance.py` |
@@ -371,8 +371,8 @@ Source evidence:
 | Packet 4A closure evidence | Live memory + GCS smoke passed, live Supabase + GCS smoke passed, staging latency probe passed on revision `chronos-phase1-app-00036-blf` (`build_sha=9a5791c4023794af8d6cc96d7dd2561aafdb93bc`) |
 | Packet 4B merge evidence | Shared fidelity resolver accepts all grain presets across all tiers, hobbyist early-photo saves return `403 Plan Upgrade Required` with no persistence, rendered `DS-001` jsdom tests pass, and `job_payload_preview` is accepted by `/v1/jobs` in integration coverage; merged to `main` in `fc81b2a568fb7059989963bedeb7a22df8e63008` |
 | Packet 4C merge evidence | `GET /v1/jobs/{job_id}/uncertainty-callouts` derives global low-confidence/manual-confirmation warnings plus deterministic segment callouts, Packet 4B `job_payload_preview` launches unchanged through `/v1/jobs`, and rendered DS-006 tests cover launch failures, cancel failures, non-blocking refresh failures, and terminal callout summaries; merged to `main` in `8e8798c394c36faf3e34e65b1c373f851e486f52` |
-| Packet 4D candidate evidence | Completed and partial jobs materialize deterministic AV1 + H.264 export packages with manifest, uncertainty-callout, quality-report, and deletion-proof artifacts; owner-scoped export/proof APIs are covered by automated tests, and Packet 4D terminal delivery actions plus export-path accessibility tests pass on candidate branch `codex/packet4d-output-delivery` |
-| Context Note | `docs/specs/chronosrefine_phase4_closeout_note.md` for Packet 4A; Packet 4E is the next packet after candidate Packet 4D |
+| Packet 4D merge evidence | Completed and partial jobs materialize deterministic AV1 + H.264 export packages with manifest, uncertainty-callout, quality-report, and deletion-proof artifacts; owner-scoped export/proof APIs are covered by automated tests, Packet 4D terminal delivery actions plus export-path accessibility tests pass, and the packet merged to `main` in `f0667c8ab052324fdecd25292e6912933cf871a2` |
+| Context Note | `docs/specs/chronosrefine_phase4_closeout_note.md` for Packet 4A; Packet 4E is the next packet after merged Packet 4D |
 
 ## Progress Tracking Template
 
