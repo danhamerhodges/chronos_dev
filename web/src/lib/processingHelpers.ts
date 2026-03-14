@@ -1,5 +1,61 @@
 export type JobStatus = "queued" | "processing" | "completed" | "failed" | "partial" | "cancel_requested" | "cancelled";
 
+export type UsageSnapshotResponse = {
+  user_id: string;
+  plan_tier: string;
+  used_minutes: number;
+  monthly_limit_minutes: number;
+  remaining_minutes: number;
+  estimated_next_job_minutes: number;
+  approved_overage_minutes: number;
+  remaining_approved_overage_minutes: number;
+  threshold_alerts: number[];
+  overage_approval_scope?: string | null;
+  hard_stop: boolean;
+  price_reference: string;
+  overage_price_reference: string;
+  reconciliation_source: string;
+  reconciliation_status: string;
+};
+
+export type CostEstimateSummaryResponse = {
+  estimated_usage_minutes: number;
+  operational_cost_breakdown_usd: {
+    gpu_time: number;
+    storage: number;
+    api_calls: number;
+    total: number;
+  };
+  billing_breakdown_usd: {
+    included_usage: number;
+    overage_minutes: number;
+    overage_rate_usd_per_minute: number;
+    estimated_charge_total_usd: number;
+  };
+  confidence_interval_usd: {
+    low: number;
+    high: number;
+  };
+  usage_snapshot: UsageSnapshotResponse;
+  launch_blocker: "none" | "overage_approval_required";
+  estimator_version: string;
+  generated_at: string;
+};
+
+export type CostReconciliationSummaryResponse = {
+  estimated_total_cost_usd: number;
+  actual_total_cost_usd: number;
+  delta_usd: number;
+  delta_percent: number;
+  estimated_charge_total_usd: number;
+  actual_charge_total_usd: number;
+  actual_usage_minutes: number;
+  outlier_threshold_percent: number;
+  outlier_flagged: boolean;
+  estimator_version: string;
+  reconciled_at?: string | null;
+};
+
 export type JobProgressResponse = {
   job_id: string;
   segment_index: number;
@@ -25,6 +81,8 @@ export type JobDetailResponse = {
   progress_topic: string;
   result_uri?: string | null;
   manifest_available: boolean;
+  cost_estimate_summary?: CostEstimateSummaryResponse | null;
+  cost_reconciliation_summary?: CostReconciliationSummaryResponse | null;
   failed_segments: number[];
   warnings: string[];
   created_at: string;

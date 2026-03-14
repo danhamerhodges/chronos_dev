@@ -5,8 +5,14 @@ import { Card } from "./components/Card";
 import { EraOverrideModal } from "./components/EraOverrideModal";
 import { FidelityTierSelector } from "./components/FidelityTierSelector";
 import { InputField } from "./components/InputField";
+import { LaunchCostEstimateModal } from "./components/LaunchCostEstimateModal";
 import { ProgressBar } from "./components/ProgressBar";
 import { UncertaintyCalloutsList } from "./components/UncertaintyCalloutsList";
+import {
+  approveSingleJobOverage,
+  fetchJobEstimate,
+  type JobCostEstimateResponse,
+} from "./lib/costEstimateHelpers";
 import {
   allowedGrainPresetsForTier,
   canOverrideEra,
@@ -113,6 +119,12 @@ export function App() {
   const [jobCallouts, setJobCallouts] = useState<JobUncertaintyCalloutsResponse | null>(null);
   const [jobBusy, setJobBusy] = useState(false);
   const [statusNotice, setStatusNotice] = useState("");
+  const [showLaunchCostModal, setShowLaunchCostModal] = useState(false);
+  const [costEstimate, setCostEstimate] = useState<JobCostEstimateResponse | null>(null);
+  const [costEstimateBusy, setCostEstimateBusy] = useState(false);
+  const [overageApprovalBusy, setOverageApprovalBusy] = useState(false);
+  const [launchModalError, setLaunchModalError] = useState("");
+  const [launchModalNotice, setLaunchModalNotice] = useState("");
   const [deliveryPlanTier, setDeliveryPlanTier] = useState<string | null>(null);
   const [deliveryRetentionDays, setDeliveryRetentionDays] = useState(7);
   const [deliveryBusy, setDeliveryBusy] = useState<Record<DeliveryActionKey, boolean>>({
@@ -129,6 +141,7 @@ export function App() {
   const activeJobIdRef = useRef<string | null>(null);
   const processingStatusRef = useRef<JobDetailResponse["status"] | null>(null);
   const latestRefreshTokenRef = useRef(0);
+  const latestEstimateTokenRef = useRef(0);
   const lastTerminalStatusRef = useRef<JobDetailResponse["status"] | null>(null);
   const terminalHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const deliveryAlertRef = useRef<HTMLDivElement | null>(null);
@@ -173,6 +186,13 @@ export function App() {
     setShowOverrideModal(false);
     setManualOverrideEra("");
     setOverrideReason("");
+    latestEstimateTokenRef.current += 1;
+    setShowLaunchCostModal(false);
+    setCostEstimate(null);
+    setCostEstimateBusy(false);
+    setOverageApprovalBusy(false);
+    setLaunchModalError("");
+    setLaunchModalNotice("");
   }
 
   function resetProcessingState(): void {
@@ -190,6 +210,18 @@ export function App() {
     setDeliveryNotice("");
     setDeliveryError("");
     setDeliveryRetryAction(null);
+  }
+
+  function resetLaunchEstimateState(options: { closeModal?: boolean } = {}): void {
+    latestEstimateTokenRef.current += 1;
+    if (options.closeModal ?? true) {
+      setShowLaunchCostModal(false);
+    }
+    setCostEstimate(null);
+    setCostEstimateBusy(false);
+    setOverageApprovalBusy(false);
+    setLaunchModalError("");
+    setLaunchModalNotice("");
   }
 
   const jobActive = isActiveJobStatus(processingJob?.status);
@@ -326,11 +358,13 @@ export function App() {
     setSelectedTier(nextTier);
     setSelectedGrainPreset(defaultGrainPresetForTier(catalog, nextTier));
     setSavedConfiguration(null);
+    resetLaunchEstimateState();
   }
 
   function clearPersonaSelection(): void {
     setSelectedPersona("");
     setSavedConfiguration(null);
+    resetLaunchEstimateState();
   }
 
   function handleTierChange(nextTier: FidelityTier): void {
@@ -341,6 +375,7 @@ export function App() {
     const allowedPresets = allowedGrainPresetsForTier(catalog, nextTier);
     setSelectedGrainPreset(defaultGrainPresetForTier(catalog, nextTier) ?? allowedPresets[0] ?? null);
     setSavedConfiguration(null);
+    resetLaunchEstimateState();
   }
 
   async function handleDetectEra(
@@ -363,6 +398,7 @@ export function App() {
       }
       setDetection(nextDetection);
       setSavedConfiguration(null);
+      resetLaunchEstimateState();
       setError("");
       setManualOverrideEra(overrides.manual_override_era ?? "");
       setOverrideReason(overrides.override_reason ?? "");
@@ -403,6 +439,7 @@ export function App() {
       setSelectedPersona(nextConfiguration.persona);
       setSelectedTier(nextConfiguration.fidelity_tier);
       setSelectedGrainPreset(nextConfiguration.grain_preset);
+      resetLaunchEstimateState();
       setError("");
       setStatusNotice("");
     } catch (caught) {
@@ -457,9 +494,77 @@ export function App() {
     }
   }
 
+  async function loadLaunchEstimate(configuration: UploadConfigurationResponse): Promise<void> {
+    const requestToken = latestEstimateTokenRef.current + 1;
+    latestEstimateTokenRef.current = requestToken;
+    const launchKey = processingLaunchKey(configuration);
+    const isCurrentEstimate = (): boolean =>
+      latestEstimateTokenRef.current === requestToken && processingLaunchKey(savedConfiguration) === launchKey;
+
+    setCostEstimateBusy(true);
+    setLaunchModalError("");
+    setLaunchModalNotice("");
+    try {
+      const accessToken = await currentAccessToken();
+      if (!isCurrentEstimate()) {
+        return;
+      }
+      const nextEstimate = await fetchJobEstimate(API_BASE_URL, accessToken, configuration.job_payload_preview);
+      if (!isCurrentEstimate()) {
+        return;
+      }
+      setCostEstimate(nextEstimate);
+    } catch (caught) {
+      if (!isCurrentEstimate()) {
+        return;
+      }
+      setCostEstimate(null);
+      setLaunchModalError(caught instanceof Error ? caught.message : "Unable to load the cost estimate.");
+    } finally {
+      if (isCurrentEstimate()) {
+        setCostEstimateBusy(false);
+      }
+    }
+  }
+
+  async function handleOpenLaunchCostModal(): Promise<void> {
+    if (!savedConfiguration) {
+      setError("Save a launch-ready configuration before reviewing launch costs.");
+      return;
+    }
+    resetLaunchEstimateState({ closeModal: false });
+    setShowLaunchCostModal(true);
+    await loadLaunchEstimate(savedConfiguration);
+  }
+
+  async function handleApproveLaunchOverage(): Promise<void> {
+    if (!costEstimate) {
+      return;
+    }
+    setOverageApprovalBusy(true);
+    setLaunchModalError("");
+    try {
+      const accessToken = await currentAccessToken();
+      await approveSingleJobOverage(
+        API_BASE_URL,
+        accessToken,
+        Math.max(costEstimate.billing_breakdown_usd.overage_minutes, 0),
+      );
+      setLaunchModalNotice("Single-job overage approval recorded. Refreshing the estimate now.");
+      if (savedConfiguration) {
+        await loadLaunchEstimate(savedConfiguration);
+      }
+      setLaunchModalNotice("Launch approval recorded. Start processing when you’re ready.");
+    } catch (caught) {
+      setLaunchModalError(caught instanceof Error ? caught.message : "Unable to approve the projected overage.");
+    } finally {
+      setOverageApprovalBusy(false);
+    }
+  }
+
   async function handleStartProcessing(): Promise<void> {
     if (!savedConfiguration || !uploadSession) {
-      setError("Save a launch-ready configuration before starting processing.");
+      setLaunchModalError("Save a launch-ready configuration before starting processing.");
       return;
     }
     const launchKey = processingLaunchKey(savedConfiguration);
@@ -469,6 +574,7 @@ export function App() {
     }
     const requestUploadId = uploadSession.upload_id;
     setJobBusy(true);
+    setLaunchModalError("");
     try {
       const accessToken = await currentAccessToken();
       const createdJob = await startProcessing(API_BASE_URL, accessToken, savedConfiguration.job_payload_preview);
@@ -488,8 +594,9 @@ export function App() {
       setDeliveryError("");
       setDeliveryRetryAction(null);
       setLastStartedConfigurationKey(launchKey);
+      resetLaunchEstimateState();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to start processing.");
+      setLaunchModalError(caught instanceof Error ? caught.message : "Unable to start processing.");
     } finally {
       if (activeUploadIdRef.current === requestUploadId) {
         setJobBusy(false);
@@ -987,8 +1094,8 @@ export function App() {
           <Card title="Packet 4C Processing Flow">
             <div style={{ display: "grid", gap: "var(--spacing-md)" }}>
               <p style={{ color: "var(--color-text-muted)", marginTop: 0 }}>
-                Launch processing from the saved Packet 4B configuration, monitor progress, and review uncertainty
-                callouts without leaving this flow.
+                Review launch cost from the saved Packet 4B configuration, start processing, monitor progress, and
+                review uncertainty callouts without leaving this flow.
               </p>
               {savedConfiguration ? (
                 <div
@@ -1012,8 +1119,8 @@ export function App() {
 
               {!processingJob ? (
                 <div style={{ display: "flex", gap: "var(--spacing-sm)", flexWrap: "wrap" }}>
-                  <Button disabled={jobBusy || !canStartSavedConfiguration} onClick={() => void handleStartProcessing()}>
-                    {jobBusy ? "Starting..." : "Start Processing"}
+                  <Button disabled={jobBusy || !canStartSavedConfiguration} onClick={() => void handleOpenLaunchCostModal()}>
+                    {jobBusy ? "Starting..." : "Review Cost & Start"}
                   </Button>
                 </div>
               ) : (
@@ -1071,8 +1178,11 @@ export function App() {
                         {jobBusy ? "Cancelling..." : "Cancel Processing"}
                       </Button>
                     ) : (
-                      <Button disabled={jobBusy || !canStartSavedConfiguration} onClick={() => void handleStartProcessing()}>
-                        {jobBusy ? "Starting..." : "Start Processing Again"}
+                      <Button
+                        disabled={jobBusy || !canStartSavedConfiguration}
+                        onClick={() => void handleOpenLaunchCostModal()}
+                      >
+                        {jobBusy ? "Starting..." : "Review Cost & Start Again"}
                       </Button>
                     )}
                   </div>
@@ -1230,6 +1340,23 @@ export function App() {
         ) : null}
       </div>
 
+      <LaunchCostEstimateModal
+        approving={overageApprovalBusy}
+        error={launchModalError}
+        estimate={costEstimate}
+        loading={costEstimateBusy}
+        notice={launchModalNotice}
+        onApproveOverage={() => void handleApproveLaunchOverage()}
+        onClose={() => resetLaunchEstimateState()}
+        onRetryEstimate={() => {
+          if (savedConfiguration) {
+            void loadLaunchEstimate(savedConfiguration);
+          }
+        }}
+        onStartProcessing={() => void handleStartProcessing()}
+        open={showLaunchCostModal}
+        starting={jobBusy}
+      />
       <EraOverrideModal
         detection={detection}
         learnMoreUrl={learnMoreUrl()}
