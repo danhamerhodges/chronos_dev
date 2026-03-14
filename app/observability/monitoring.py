@@ -22,6 +22,8 @@ _CACHE_EVENT_COUNTS: dict[str, int] = defaultdict(int)
 _CACHE_LATENCY_SUMS_MS: dict[str, int] = defaultdict(int)
 _GPU_EVENT_COUNTS: dict[str, int] = defaultdict(int)
 _GPU_ALLOCATION_LATENCY_SUMS_MS: dict[str, int] = defaultdict(int)
+_COST_RECONCILIATION_COUNTS: dict[str, int] = defaultdict(int)
+_COST_RECONCILIATION_OUTLIER_COUNTS: dict[str, int] = defaultdict(int)
 _ALERT_DELIVERY_COUNTS: dict[str, int] = defaultdict(int)
 _INCIDENT_COUNTS: dict[str, int] = defaultdict(int)
 _RUNTIME_GAUGES: dict[str, float] = defaultdict(float)
@@ -86,6 +88,13 @@ def record_gpu_allocation(*, gpu_type: str, warm: bool, latency_ms: int) -> None
     mode = "warm" if warm else "cold"
     _GPU_EVENT_COUNTS[f"allocation:{gpu_type}:{mode}"] += 1
     _GPU_ALLOCATION_LATENCY_SUMS_MS[f"{gpu_type}:{mode}"] += int(latency_ms)
+
+
+def record_cost_reconciliation(*, estimator_version: str, delta_percent: float, outlier: bool) -> None:
+    _COST_RECONCILIATION_COUNTS[estimator_version] += 1
+    if outlier:
+        _COST_RECONCILIATION_OUTLIER_COUNTS[estimator_version] += 1
+    _RUNTIME_GAUGES[f"cost_reconciliation_delta_percent:{estimator_version}"] = float(delta_percent)
 
 
 def record_runtime_snapshot(snapshot: dict[str, float | int]) -> None:
@@ -235,6 +244,26 @@ def metrics_payload(namespace: str) -> str:
         lines.append(f"{namespace}_gpu_allocation_latency_ms_sum{{mode=\"{mode_key}\"}} {latency_ms}")
     lines.extend(
         [
+            f"# HELP {namespace}_cost_reconciliations_total Total cost reconciliations by estimator version.",
+            f"# TYPE {namespace}_cost_reconciliations_total counter",
+        ]
+    )
+    for estimator_version, count in sorted(_COST_RECONCILIATION_COUNTS.items()):
+        lines.append(
+            f"{namespace}_cost_reconciliations_total{{estimator_version=\"{estimator_version}\"}} {count}"
+        )
+    lines.extend(
+        [
+            f"# HELP {namespace}_cost_reconciliation_outliers_total Total cost reconciliation outliers by estimator version.",
+            f"# TYPE {namespace}_cost_reconciliation_outliers_total counter",
+        ]
+    )
+    for estimator_version, count in sorted(_COST_RECONCILIATION_OUTLIER_COUNTS.items()):
+        lines.append(
+            f"{namespace}_cost_reconciliation_outliers_total{{estimator_version=\"{estimator_version}\"}} {count}"
+        )
+    lines.extend(
+        [
             f"# HELP {namespace}_alert_delivery_total Total alert deliveries by route, severity, and outcome.",
             f"# TYPE {namespace}_alert_delivery_total counter",
         ]
@@ -269,3 +298,30 @@ def alert_routes() -> dict[str, str]:
         "pagerduty": "configured" if settings.pagerduty_integration_key else "memory",
         "slack": "configured" if settings.slack_alert_webhook_url else "memory",
     }
+
+
+def reset_monitoring_state() -> None:
+    _HTTP_REQUEST_COUNTS.clear()
+    _ERA_DETECTION_COUNTS["requests"] = 0
+    _ERA_DETECTION_COUNTS["manual_overrides"] = 0
+    global _ERA_CONFIDENCE_SUM, _ERA_LATENCY_SUM_MS
+    _ERA_CONFIDENCE_SUM = 0.0
+    _ERA_LATENCY_SUM_MS = 0.0
+    _GEMINI_USAGE["api_calls"] = 0
+    _GEMINI_USAGE["total_tokens"] = 0
+    _GEMINI_USAGE["provider_fallbacks"] = 0
+    _JOB_RUNTIME_COUNTS.clear()
+    _SEGMENT_RETRY_COUNTS.clear()
+    _SEGMENT_FAILURE_COUNTS.clear()
+    _WEBHOOK_ATTEMPT_COUNTS.clear()
+    _JOB_STAGE_TIMING_SUMS_MS.clear()
+    _JOB_STAGE_TIMING_COUNTS.clear()
+    _CACHE_EVENT_COUNTS.clear()
+    _CACHE_LATENCY_SUMS_MS.clear()
+    _GPU_EVENT_COUNTS.clear()
+    _GPU_ALLOCATION_LATENCY_SUMS_MS.clear()
+    _COST_RECONCILIATION_COUNTS.clear()
+    _COST_RECONCILIATION_OUTLIER_COUNTS.clear()
+    _ALERT_DELIVERY_COUNTS.clear()
+    _INCIDENT_COUNTS.clear()
+    _RUNTIME_GAUGES.clear()
