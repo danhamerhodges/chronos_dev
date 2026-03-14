@@ -10,6 +10,7 @@ from app.api.contracts import (
     JobCreateRequest,
     JobCreateResponse,
     JobDetailResponse,
+    JobEstimateResponse,
     JobExportResponse,
     JobListResponse,
     JobUncertaintyCalloutsResponse,
@@ -19,6 +20,21 @@ from app.services.job_service import JobService
 
 router = APIRouter()
 _job_service = JobService()
+
+
+@router.post("/v1/jobs/estimate", response_model=JobEstimateResponse)
+def estimate_job(
+    payload: JobCreateRequest,
+    user: AuthenticatedUser = Depends(require_permission("jobs:write")),
+) -> JobEstimateResponse:
+    apply_rate_limit(user, "/v1/jobs/estimate")
+    estimate = _job_service.estimate_job(
+        user_id=user.user_id,
+        plan_tier=user.plan_tier,
+        payload=payload.model_dump(),
+        access_token=user.access_token,
+    )
+    return JobEstimateResponse.model_validate(estimate)
 
 
 @router.post(

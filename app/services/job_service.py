@@ -8,7 +8,7 @@ from app.api.problem_details import ProblemException
 from app.db.phase2_store import JobDeletionProofRepository, JobRepository, ManifestRepository
 from app.models.processing import ReproducibilityMode
 from app.models.status import JobStatus
-from app.services.billing_service import BillingService, billable_minutes_for_duration
+from app.services.cost_estimation import BillingPricingUnavailableError, CostEstimationService
 from app.services.fidelity_profiles import resolve_fidelity_profile
 from app.services.job_dispatcher import publish_job
 from app.services.job_pipeline import build_segments
@@ -23,9 +23,40 @@ class JobService:
         self._repo = JobRepository()
         self._manifests = ManifestRepository()
         self._deletion_proofs = JobDeletionProofRepository()
-        self._billing = BillingService()
+        self._estimator = CostEstimationService()
         self._callouts = UncertaintyCalloutService()
         self._output_delivery = OutputDeliveryService()
+
+    def estimate_job(
+        self,
+        *,
+        user_id: str,
+        plan_tier: str,
+        payload: dict[str, object],
+        access_token: str | None = None,
+    ) -> dict[str, object]:
+        validation = validate_era_profile(payload["era_profile"])
+        if not validation.is_valid:
+            raise ProblemException(
+                title="Schema Validation Failed",
+                detail="Era profile validation failed. Fix the highlighted fields and retry.",
+                status_code=400,
+                errors=validation.as_problem_errors(),
+            )
+        reproducibility_mode = ReproducibilityMode(
+            str(payload.get("reproducibility_mode") or ReproducibilityMode.PERCEPTUAL_EQUIVALENCE.value)
+        )
+        validate_reproducibility_mode(reproducibility_mode, plan_tier=plan_tier)
+        try:
+            estimate = self._estimator.estimate_launch(
+                user_id=user_id,
+                plan_tier=plan_tier,
+                payload=payload,
+                access_token=access_token,
+            )
+        except BillingPricingUnavailableError as exc:
+            raise self._pricing_unavailable_problem() from exc
+        return estimate.summary
 
     def create_job(
         self,
@@ -45,10 +76,6 @@ class JobService:
                 errors=validation.as_problem_errors(),
             )
 
-        estimated_minutes = billable_minutes_for_duration(
-            duration_seconds=int(payload["estimated_duration_seconds"]),
-            mode=str(payload["fidelity_tier"]),
-        )
         reproducibility_mode = ReproducibilityMode(str(payload.get("reproducibility_mode") or ReproducibilityMode.PERCEPTUAL_EQUIVALENCE.value))
         validate_reproducibility_mode(reproducibility_mode, plan_tier=plan_tier)
         effective_fidelity_profile = resolve_fidelity_profile(
@@ -56,13 +83,16 @@ class JobService:
             era_profile=payload["era_profile"],
             config=payload.get("config") or {},
         )
-        billing_snapshot = self._billing.record_estimate(
-            user_id=user_id,
-            plan_tier=plan_tier,
-            estimated_minutes=estimated_minutes,
-            access_token=access_token,
-        )
-        if billing_snapshot.hard_stop:
+        try:
+            estimate = self._estimator.estimate_launch(
+                user_id=user_id,
+                plan_tier=plan_tier,
+                payload=payload,
+                access_token=access_token,
+            )
+        except BillingPricingUnavailableError as exc:
+            raise self._pricing_unavailable_problem() from exc
+        if estimate.usage_snapshot.hard_stop:
             raise ProblemException(
                 title="Overage Approval Required",
                 detail="This request exceeds the available monthly processing budget. Approve overage or upgrade before retrying.",
@@ -106,6 +136,7 @@ class JobService:
             config=payload.get("config") or {},
             estimated_duration_seconds=int(payload["estimated_duration_seconds"]),
             segments=segments,
+            cost_estimate_summary=estimate.summary,
             access_token=access_token,
         )
         publish_job(job_id, plan_tier=plan_tier)
@@ -217,6 +248,13 @@ class JobService:
             "updated_at": job["updated_at"],
         }
 
+    def _pricing_unavailable_problem(self) -> ProblemException:
+        return ProblemException(
+            title="Billing Pricing Unavailable",
+            detail="Pricing data is temporarily unavailable. Retry the request once billing metadata is available.",
+            status_code=503,
+        )
+
     def _job_response_payload(
         self,
         job: dict[str, object],
@@ -293,6 +331,8 @@ class JobService:
             },
             "cost_summary": job.get("cost_summary")
             or {"gpu_seconds": 0, "storage_operations": 0, "api_calls": 0, "total_cost_usd": 0.0},
+            "cost_estimate_summary": job.get("cost_estimate_summary"),
+            "cost_reconciliation_summary": job.get("cost_reconciliation_summary"),
             "slo_summary": job.get("slo_summary")
             or {
                 "target_total_ms": int(job["estimated_duration_seconds"]) * 2000,
