@@ -19,7 +19,7 @@ def get_deletion_proof(
     user: AuthenticatedUser = Depends(require_permission("jobs:read")),
 ) -> DeletionProofResponse:
     apply_rate_limit(user, "/v1/deletion-proofs/{proof_id}")
-    response.headers["Cache-Control"] = "private, max-age=0"
+    response.headers["Cache-Control"] = "private, no-store"
     payload = _job_service.get_deletion_proof(
         proof_id,
         owner_user_id=user.user_id,

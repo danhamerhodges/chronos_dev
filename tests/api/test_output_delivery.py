@@ -42,6 +42,7 @@ def test_owner_can_fetch_default_av1_export_for_completed_job() -> None:
     response = client.get(f"/v1/jobs/{job_id}/export", headers=fake_auth_header("export-owner", tier="pro"))
 
     assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "private, no-store"
     payload = response.json()
     assert payload["job_id"] == job_id
     assert payload["status"] == "completed"

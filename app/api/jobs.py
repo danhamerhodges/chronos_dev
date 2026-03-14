@@ -74,7 +74,7 @@ def get_export(
     user: AuthenticatedUser = Depends(require_permission("jobs:read")),
 ) -> JobExportResponse:
     apply_rate_limit(user, "/v1/jobs/{job_id}/export")
-    response.headers["Cache-Control"] = "private, max-age=0"
+    response.headers["Cache-Control"] = "private, no-store"
     payload = _job_service.get_export(
         job_id,
         owner_user_id=user.user_id,

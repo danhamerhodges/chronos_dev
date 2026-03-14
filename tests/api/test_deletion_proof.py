@@ -37,6 +37,7 @@ def test_deletion_proof_route_returns_job_linked_metadata_and_signed_pdf_url() -
     )
 
     assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "private, no-store"
     payload = response.json()
     assert payload["deletion_proof_id"] == proof_id
     assert payload["job_id"] == created["job_id"]
