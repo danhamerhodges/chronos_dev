@@ -381,7 +381,9 @@ describe("Packet 4B App flow", () => {
 
     await user.click(screen.getByRole("button", { name: "Override Era" }));
     await user.selectOptions(await screen.findByLabelText("Manual era override"), "1980s VHS Tape");
-    await user.type(await screen.findByLabelText("Override reason"), "Tape noise pattern matches VHS");
+    const overrideReason = await screen.findByLabelText("Override reason");
+    await user.type(overrideReason, "Tape noise pattern matches VHS");
+    await waitFor(() => expect(overrideReason).toHaveValue("Tape noise pattern matches VHS"));
     await user.click(screen.getByRole("button", { name: "Apply Override" }));
     await waitFor(() =>
       expect(detectUploadEra).toHaveBeenNthCalledWith(2, "", "token-123", "upload-1", {
