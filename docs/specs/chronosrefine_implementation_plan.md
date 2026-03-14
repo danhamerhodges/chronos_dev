@@ -158,7 +158,7 @@ This implementation plan is organized into a logical execution sequence designed
 **Requirements Implemented:** **FR-001**, **FR-003**, **FR-004**, **FR-005**, **ENG-013**, **ENG-014**, **ENG-015**, **DS-001**, **DS-002**, **DS-003**, **DS-004**, **DS-005**, **DS-006**, **NFR-003** (14 requirements)  
 **Coverage Matrix:** See `docs/specs/ChronosRefine Requirements Coverage Matrix.md`
 
-**Current Status Note:** Packets 4A (`FR-001`) and 4B (`FR-003` + `DS-001`) are merged on `main`, with Packet 4B landing in merge commit `fc81b2a568fb7059989963bedeb7a22df8e63008`. Packet 4C (`FR-004` + the Packet 4C portion of `DS-006`) is complete on candidate branch `codex/packet4c-processing-flow` / PR #8. Packet 4D is the next feature packet once Packet 4C merges. Follow-on packets must still follow the canonical Phase 4 requirement IDs above and the higher-priority requirement specs, not older PRD-style Phase 4 prose. `FR-006` remains a Phase 5 functional requirement; Phase 4 includes only `ENG-014` as the technical preview-generation substrate.
+**Current Status Note:** Packets 4A (`FR-001`), 4B (`FR-003` + `DS-001`), and 4C (`FR-004` + the Packet 4C portion of `DS-006`) are now merged on `main`, with Packet 4C landing in merge commit `8e8798c394c36faf3e34e65b1c373f851e486f52`. Packet 4D is the next feature packet. Follow-on packets must still follow the canonical Phase 4 requirement IDs above and the higher-priority requirement specs, not older PRD-style Phase 4 prose. `FR-006` remains a Phase 5 functional requirement; Phase 4 includes only `ENG-014` as the technical preview-generation substrate.
 
 **Entry Criteria:**
 - [x] Phase 3 is complete for kickoff on `main`; `SEC-007` remains deferred per canon and does not block Phase 4 kickoff → **See:** `docs/specs/chronosrefine_implementation_plan.md#phase-3-core-processing-pipeline--ai-integration`
@@ -267,7 +267,7 @@ This implementation plan is organized into a logical execution sequence designed
 - [x] Returned `job_payload_preview` is accepted by the existing `/v1/jobs` path in integration coverage → **Req:** **FR-003** (Packet 4C `/v1/jobs` handoff), **See:** `tests/integration/test_configuration_job_handoff.py`
 - [x] Rendered `DS-001` jsdom tests pass for tier selection, era override, confirmation flow, and the upgrade-required error path → **Req:** **DS-001**, **See:** `tests/ui/test_tier_selection.spec.ts`, `tests/ui/test_fidelity_tier_selector.spec.ts`, `tests/ui/test_era_override_modal.spec.ts`, `tests/accessibility/test_fidelity_config_a11y.spec.ts`
 
-**Current Candidate Packet: Packet 4C (`FR-004` + `DS-006`) on `codex/packet4c-processing-flow` / PR #8**
+**Latest Completed Packet on `main`: Packet 4C (merged on `main` 2026-03-14 via `8e8798c`)**
 
 **Reason for packet choice:** `FR-004` is the next dependency-unlocking Phase 4 packet after Packet 4B. It extends the existing Phase 3 `/v1/jobs` substrate without changing job semantics, while `DS-006` adds the accessible runtime error and warning states required for launch, polling, cancel, and uncertainty-callout surfaces.
 
@@ -300,7 +300,7 @@ This implementation plan is organized into a logical execution sequence designed
 - `tests/accessibility/test_error_announcements.spec.ts`
 - `tests/accessibility/test_uncertainty_callouts_a11y.spec.ts`
 
-**Packet 4C Candidate-Branch Evidence:**
+**Packet 4C Merge Evidence:**
 - [x] `GET /v1/jobs/{job_id}/uncertainty-callouts` emits owner-scoped global low-confidence/manual-confirmation warnings plus deterministic, deduplicated segment callouts with `time_range_seconds` → **Req:** **FR-004**, **See:** `tests/api/test_uncertainty_callouts.py`
 - [x] Saved Packet 4B `job_payload_preview` launches through the unchanged `/v1/jobs` path and reaches terminal state in integration coverage → **Req:** **FR-004**, **See:** `tests/integration/test_processing_launch_flow.py`, `tests/integration/test_job_lifecycle.py`
 - [x] Rendered Packet 4C tests cover launch, polling, terminal summaries, blocking cancel failures, non-blocking refresh failures, retry affordances, and accessible uncertainty-callout rendering → **Req:** **DS-006**, **See:** `tests/ui/test_processing_flow.spec.ts`, `tests/accessibility/test_error_messages.spec.ts`, `tests/accessibility/test_error_announcements.spec.ts`, `tests/accessibility/test_uncertainty_callouts_a11y.spec.ts`
