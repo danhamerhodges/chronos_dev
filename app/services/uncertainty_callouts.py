@@ -65,7 +65,17 @@ class UncertaintyCalloutService:
                 status_code=404,
             )
 
-        segments = self._repo.list_segments(job_id, owner_user_id=owner_user_id, access_token=access_token)
+        return {
+            "job_id": job_id,
+            "status": job["status"],
+            "callouts": self.build_callouts(job, self._repo.list_segments(job_id, owner_user_id=owner_user_id, access_token=access_token)),
+        }
+
+    def build_callouts(
+        self,
+        job: dict[str, Any],
+        segments: list[dict[str, Any]],
+    ) -> list[dict[str, object]]:
         callouts: list[dict[str, object]] = []
 
         global_callout = self._global_detection_callout(job)
@@ -73,13 +83,8 @@ class UncertaintyCalloutService:
             callouts.append(global_callout)
 
         for segment in sorted(segments, key=lambda item: int(item.get("segment_index", 0) or 0)):
-            callouts.extend(self._segment_callouts(job_id=job_id, segment=segment))
-
-        return {
-            "job_id": job_id,
-            "status": job["status"],
-            "callouts": callouts,
-        }
+            callouts.extend(self._segment_callouts(job_id=str(job["job_id"]), segment=segment))
+        return callouts
 
     def _global_detection_callout(self, job: dict[str, Any]) -> dict[str, object] | None:
         era_profile = job.get("era_profile") or {}
