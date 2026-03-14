@@ -489,6 +489,7 @@ class JobDetailResponse(JobSummaryResponse):
     completed_at: str | None = None
     cancel_requested_at: str | None = None
     last_error: str | None = None
+    deletion_proof_id: str | None = None
     segments: list[JobSegmentResponse] = Field(default_factory=list)
 
 

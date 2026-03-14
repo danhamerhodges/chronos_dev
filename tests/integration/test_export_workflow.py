@@ -123,6 +123,10 @@ def test_packet_4d_export_flow_surfaces_delivery_artifacts_for_completed_jobs() 
     manifest = client.get(f"/v1/manifests/{job_id}", headers=headers)
     assert manifest.status_code == 200
 
+    detail = client.get(f"/v1/jobs/{job_id}", headers=headers)
+    assert detail.status_code == 200
+    assert detail.json()["deletion_proof_id"] == export_payload["deletion_proof_id"]
+
     proof = client.get(f"/v1/deletion-proofs/{export_payload['deletion_proof_id']}", headers=headers)
     assert proof.status_code == 200
     assert proof.json()["job_id"] == job_id
@@ -145,5 +149,6 @@ def test_packet_4d_export_flow_supports_partial_jobs() -> None:
 
     assert detail.status_code == 200
     assert detail.json()["status"] == "partial"
+    assert detail.json()["deletion_proof_id"] == export.json()["deletion_proof_id"]
     assert export.status_code == 200
     assert export.json()["status"] == "partial"

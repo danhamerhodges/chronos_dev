@@ -18,7 +18,6 @@ from app.services.uncertainty_callouts import UncertaintyCalloutService
 
 _EXPORT_VARIANTS = ("av1", "h264")
 _SUCCESSFUL_EXPORTABLE_STATUSES = {JobStatus.COMPLETED.value, JobStatus.PARTIAL.value}
-_MUSEUM_ONLY_RETENTION_DAYS = {30, 90}
 _DEFAULT_RETENTION_DAYS = 7
 _PDF_URL_TTL_HOURS = 1
 
@@ -241,15 +240,15 @@ class OutputDeliveryService:
                     }
                 ],
             )
-        if normalized_plan == "museum" and retention_days > _DEFAULT_RETENTION_DAYS and retention_days not in _MUSEUM_ONLY_RETENTION_DAYS:
+        if normalized_plan == "museum" and retention_days > 90:
             raise ProblemException(
                 title="Invalid Retention Window",
-                detail="Museum retention requests must use 7, 30, or 90 days.",
+                detail="Museum retention requests must stay within 1 to 90 days.",
                 status_code=400,
                 errors=[
                     {
                         "field": "retention_days",
-                        "message": "Museum retention requests must use 7, 30, or 90 days.",
+                        "message": "Museum retention requests must stay within 1 to 90 days.",
                         "rule_id": "FR-005",
                     }
                 ],

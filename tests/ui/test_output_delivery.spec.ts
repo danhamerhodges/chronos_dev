@@ -191,6 +191,7 @@ function buildCompletedJob() {
     progress_topic: "job_progress:job-export-1",
     result_uri: "gs://chronos-test-bucket/results/job-export-1/result.mp4",
     manifest_available: true,
+    deletion_proof_id: "proof-1",
     failed_segments: [],
     warnings: ["One segment was retried before completion."],
     created_at: "2026-03-13T00:06:00+00:00",
@@ -356,5 +357,40 @@ describe("Packet 4D delivery flow", () => {
 
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("AV1 package download ready."));
     await waitFor(() => expect(windowOpenSpy).toHaveBeenCalledWith("https://storage.googleapis.com/downloads/job-export-1-av1.zip", "_self", undefined));
+  });
+
+  it("downloads the deletion proof directly from terminal job detail metadata", async () => {
+    const user = userEvent.setup();
+    await renderCompletedDelivery(user);
+
+    await user.click(screen.getByRole("button", { name: "Download Deletion Proof PDF" }));
+
+    await waitFor(() => expect(fetchDeletionProof).toHaveBeenCalledWith(expect.any(String), "token-123", "proof-1"));
+    expect(fetchJobExport).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(windowOpenSpy).toHaveBeenCalledWith("https://storage.googleapis.com/downloads/proof-1.pdf", "_self", undefined),
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("Deletion proof download ready.");
+  });
+
+  it("shows a retryable delivery error when terminal proof metadata is missing", async () => {
+    const user = userEvent.setup();
+    startProcessing.mockResolvedValue({
+      ...buildCompletedJob(),
+      deletion_proof_id: null,
+    });
+    fetchJobDetail.mockResolvedValue({
+      ...buildCompletedJob(),
+      deletion_proof_id: null,
+    });
+
+    await renderCompletedDelivery(user);
+    await user.click(screen.getByRole("button", { name: "Download Deletion Proof PDF" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Deletion proof metadata is not available yet.");
+    expect(screen.getByRole("button", { name: "Retry Deletion Proof" })).toBeInTheDocument();
+    expect(fetchDeletionProof).not.toHaveBeenCalled();
+    expect(fetchJobExport).not.toHaveBeenCalled();
   });
 });

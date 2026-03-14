@@ -601,6 +601,7 @@ paths:
         - name: retention_days
           in: query
           required: false
+          description: Default is 7 days. Non-Museum plans may request 1 to 7 days; Museum may request 1 to 90 days.
           schema:
             type: integer
             minimum: 1
@@ -1548,6 +1549,9 @@ components:
               type: string
             last_error:
               type: string
+            deletion_proof_id:
+              type: string
+              nullable: true
             segments:
               type: array
               items:

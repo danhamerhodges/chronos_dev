@@ -794,6 +794,22 @@ class _MemoryJobDeletionProofRepository:
             return None
         return dict(proof)
 
+    def get_proof_for_job(
+        self,
+        job_id: str,
+        *,
+        owner_user_id: str | None = None,
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        del access_token
+        for proof in _STORE.job_output_deletion_proofs.values():
+            if proof["job_id"] != job_id:
+                continue
+            if owner_user_id and proof["owner_user_id"] != owner_user_id:
+                continue
+            return dict(proof)
+        return None
+
 
 class _MemoryRuntimeOpsRepository:
     def list_gpu_leases(self) -> list[dict[str, Any]]:
@@ -2641,6 +2657,38 @@ class _SupabaseJobDeletionProofRepository(_SupabaseRepositoryBase):
             return None
         return self._proof_from_row(row)
 
+    def get_proof_for_job(
+        self,
+        job_id: str,
+        *,
+        owner_user_id: str | None = None,
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        if access_token:
+            headers = self._client.user_scoped_headers(access_token)
+            rows = self._client.rest_select(
+                "job_deletion_proofs",
+                params={"select": "*", "external_job_id": f"eq.{job_id}", "limit": "1"},
+                headers=headers,
+            )
+            return self._proof_from_row(rows[0]) if rows else None
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                select *
+                from public.job_deletion_proofs
+                where external_job_id = %s
+                limit 1
+                """,
+                (job_id,),
+            )
+            row = cur.fetchone()
+        if row is None:
+            return None
+        if owner_user_id and row["external_user_id"] != owner_user_id:
+            return None
+        return self._proof_from_row(row)
+
 
 class _SupabaseRuntimeOpsRepository(_SupabaseRepositoryBase):
     def list_gpu_leases(self) -> list[dict[str, Any]]:
@@ -3140,6 +3188,15 @@ class JobDeletionProofRepository:
         access_token: str | None = None,
     ) -> dict[str, Any] | None:
         return self._backend.get_proof(proof_id, owner_user_id=owner_user_id, access_token=access_token)
+
+    def get_proof_for_job(
+        self,
+        job_id: str,
+        *,
+        owner_user_id: str | None = None,
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        return self._backend.get_proof_for_job(job_id, owner_user_id=owner_user_id, access_token=access_token)
 
 
 class WebhookSubscriptionRepository:

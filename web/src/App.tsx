@@ -609,12 +609,14 @@ export function App() {
     clearDeliveryFeedback();
     setDeliveryBusyFor("proof", true);
     try {
+      const deletionProofId = processingJob.deletion_proof_id;
+      if (!deletionProofId) {
+        setDeliveryError("Deletion proof metadata is not available yet.");
+        setDeliveryRetryAction({ type: "proof" });
+        return;
+      }
       const accessToken = await currentAccessToken();
-      const exportPayload = await fetchJobExport(API_BASE_URL, accessToken, processingJob.job_id, {
-        variant: "av1",
-        retentionDays: isMuseumPlan ? deliveryRetentionDays : 7,
-      });
-      const proofPayload = await fetchDeletionProof(API_BASE_URL, accessToken, exportPayload.deletion_proof_id);
+      const proofPayload = await fetchDeletionProof(API_BASE_URL, accessToken, deletionProofId);
       setDeliveryNotice("Deletion proof download ready.");
       setDeliveryRetryAction(null);
       openBrowserTarget(proofPayload.pdf_download_url, "_self");

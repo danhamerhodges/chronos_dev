@@ -83,3 +83,21 @@ def test_deletion_proof_route_remains_available_after_export_package_expiry() ->
     )
 
     assert response.status_code == 200
+
+
+def test_terminal_job_detail_exposes_deletion_proof_id() -> None:
+    created = client.post("/v1/jobs", headers=fake_auth_header("proof-detail-owner", tier="museum"), json=valid_job_request()).json()
+    run_all_jobs()
+
+    detail = client.get(
+        f"/v1/jobs/{created['job_id']}",
+        headers=fake_auth_header("proof-detail-owner", tier="museum"),
+    )
+    export = client.get(
+        f"/v1/jobs/{created['job_id']}/export",
+        headers=fake_auth_header("proof-detail-owner", tier="museum"),
+    )
+
+    assert detail.status_code == 200
+    assert export.status_code == 200
+    assert detail.json()["deletion_proof_id"] == export.json()["deletion_proof_id"]

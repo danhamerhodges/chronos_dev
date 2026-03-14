@@ -145,12 +145,13 @@ def test_non_owner_gets_404_for_export_package() -> None:
     assert response.status_code == 404
 
 
-def test_museum_can_request_extended_retention_windows() -> None:
+@pytest.mark.parametrize("retention_days", [8, 14, 60, 90])
+def test_museum_can_request_extended_retention_windows(retention_days: int) -> None:
     job_id = _complete_job(user_id="museum-export-owner", tier="museum")
 
     response = client.get(
         f"/v1/jobs/{job_id}/export",
-        params={"retention_days": 30},
+        params={"retention_days": retention_days},
         headers=fake_auth_header("museum-export-owner", tier="museum"),
     )
 
@@ -158,6 +159,18 @@ def test_museum_can_request_extended_retention_windows() -> None:
     payload = response.json()
     assert payload["variant"] == "av1"
     assert payload["expires_at"].startswith("20")
+
+
+def test_museum_retention_above_ninety_days_returns_400() -> None:
+    job_id = _complete_job(user_id="museum-retention-invalid", tier="museum")
+
+    response = client.get(
+        f"/v1/jobs/{job_id}/export",
+        params={"retention_days": 91},
+        headers=fake_auth_header("museum-retention-invalid", tier="museum"),
+    )
+
+    assert response.status_code == 400
 
 
 def test_non_museum_retention_above_seven_days_returns_403() -> None:

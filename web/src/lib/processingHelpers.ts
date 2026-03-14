@@ -33,6 +33,7 @@ export type JobDetailResponse = {
   completed_at?: string | null;
   cancel_requested_at?: string | null;
   last_error?: string | null;
+  deletion_proof_id?: string | null;
   progress: JobProgressResponse;
 };
 
