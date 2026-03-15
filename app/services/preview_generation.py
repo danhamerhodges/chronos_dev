@@ -10,11 +10,10 @@ from datetime import datetime, timedelta, timezone
 from time import perf_counter
 from typing import Any
 from urllib.parse import quote
-from uuid import uuid4
 
 from app.api.problem_details import ProblemException
 from app.config import settings
-from app.db.phase2_store import PreviewSessionRepository, UploadRepository
+from app.db.phase2_store import PreviewSessionRepository, UploadRepository, _stable_uuid
 from app.models.status import UploadStatus
 from app.observability.monitoring import record_preview_generation
 from app.services.cost_estimation import BillingPricingUnavailableError, CostEstimationService
@@ -29,6 +28,30 @@ def _utc_now() -> datetime:
 def _isoformat(value: datetime) -> str: return value.isoformat()
 def _canonical_json(payload: dict[str, Any]) -> str: return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
 def _sha256(value: str) -> str: return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _preview_configuration_cache_payload(job_payload_preview: dict[str, Any]) -> dict[str, Any]:
+    config = dict(job_payload_preview.get("config") or {})
+    detection_snapshot = config.get("detection_snapshot")
+    if isinstance(detection_snapshot, dict):
+        config["detection_snapshot"] = {
+            key: value
+            for key, value in detection_snapshot.items()
+            if key != "detection_id"
+        }
+    return {
+        "mime_type": job_payload_preview.get("mime_type"),
+        "estimated_duration_seconds": job_payload_preview.get("estimated_duration_seconds"),
+        "fidelity_tier": job_payload_preview.get("fidelity_tier"),
+        "reproducibility_mode": job_payload_preview.get("reproducibility_mode"),
+        "processing_mode": job_payload_preview.get("processing_mode"),
+        "era_profile": job_payload_preview.get("era_profile") or {},
+        "config": config,
+    }
+
+
+def _preview_id_for_snapshot(*, upload_id: str, configured_at_snapshot: str) -> str:
+    return _stable_uuid(f"preview-session:{upload_id}:{configured_at_snapshot}")
 
 
 class PreviewStorageUnavailableError(RuntimeError):
@@ -64,23 +87,21 @@ class PreviewGenerationService:
             self._uploads.get_session(upload_id, owner_user_id=owner_user_id, access_token=access_token)
         )
         snapshot = self._saved_launch_snapshot(session)
-        cached = self._previews.get_cached_preview(
-            upload_id=upload_id,
-            source_asset_checksum=str(snapshot["source_asset_checksum"]),
-            configuration_fingerprint=snapshot["configuration_fingerprint"],
+        exact = self._previews.get_preview(
+            str(snapshot["preview_id"]),
             owner_user_id=owner_user_id,
             access_token=access_token,
         )
-        if cached is not None:
-            cached = self._expire_if_needed(cached, owner_user_id=owner_user_id, access_token=access_token)
-            if cached.get("deleted_at") is None and cached.get("status") == "ready":
+        if exact is not None:
+            exact = self._expire_if_needed(exact, owner_user_id=owner_user_id, access_token=access_token)
+            if exact.get("deleted_at") is None and exact.get("status") == "ready":
                 record_preview_generation(
                     outcome="cache_hit",
                     latency_ms=0.0,
-                    selection_mode=str(cached.get("selection_mode") or "scene_aware"),
-                    fallback_used=str(cached.get("selection_mode")) == "uniform_fallback",
+                    selection_mode=str(exact.get("selection_mode") or "scene_aware"),
+                    fallback_used=str(exact.get("selection_mode")) == "uniform_fallback",
                 )
-                return self._response_payload(cached, current_session=session)
+                return self._response_payload(exact, current_session=session)
 
         started = perf_counter()
         try:
@@ -97,12 +118,24 @@ class PreviewGenerationService:
                 status_code=503,
             ) from exc
 
+        reusable = self._previews.get_reusable_preview(
+            source_asset_checksum=str(snapshot["source_asset_checksum"]),
+            configuration_cache_fingerprint=str(snapshot["configuration_cache_fingerprint"]),
+            owner_user_id=owner_user_id,
+            access_token=access_token,
+        )
+        if reusable is not None:
+            reusable = self._expire_if_needed(reusable, owner_user_id=owner_user_id, access_token=access_token)
+            if reusable.get("deleted_at") is not None or reusable.get("status") != "ready":
+                reusable = None
+
         try:
             preview = self._build_preview_record(
                 session=session,
                 snapshot=snapshot,
                 owner_user_id=owner_user_id,
                 estimate_summary=estimate.summary,
+                reusable_preview=reusable,
             )
             persisted = self._previews.create_preview(payload=preview, access_token=access_token)
         except PreviewStorageUnavailableError as exc:
@@ -122,7 +155,7 @@ class PreviewGenerationService:
 
         response = self._response_payload(persisted, current_session=session)
         record_preview_generation(
-            outcome="cache_miss",
+            outcome="cache_hit" if reusable is not None else "cache_miss",
             latency_ms=(perf_counter() - started) * 1000,
             selection_mode=str(persisted["selection_mode"]),
             fallback_used=str(persisted["selection_mode"]) == "uniform_fallback",
@@ -189,23 +222,32 @@ class PreviewGenerationService:
                 detail="Preview generation requires a saved source checksum from the upload session.",
                 status_code=409,
             )
+        configured_at_snapshot = str(configured_at)
         configuration_fingerprint = _sha256(
-            _canonical_json({"configured_at": configured_at, "job_payload_preview": job_payload_preview})
+            _canonical_json({"configured_at": configured_at_snapshot, "job_payload_preview": job_payload_preview})
+        )
+        configuration_cache_fingerprint = _sha256(
+            _canonical_json(_preview_configuration_cache_payload(job_payload_preview))
         )
         cache_key = _sha256(
             _canonical_json(
                 {
                     "upload_id": session["upload_id"],
-                    "source_asset_checksum": checksum,
-                    "configuration_fingerprint": configuration_fingerprint,
+                    "configured_at_snapshot": configured_at_snapshot,
                 }
             )
         )
         return {
             "job_payload_preview": job_payload_preview,
-            "configured_at": configured_at,
+            "configured_at": configured_at_snapshot,
+            "configured_at_snapshot": configured_at_snapshot,
             "source_asset_checksum": checksum,
+            "preview_id": _preview_id_for_snapshot(
+                upload_id=str(session["upload_id"]),
+                configured_at_snapshot=configured_at_snapshot,
+            ),
             "configuration_fingerprint": configuration_fingerprint,
+            "configuration_cache_fingerprint": configuration_cache_fingerprint,
             "cache_key": cache_key,
         }
 
@@ -216,14 +258,25 @@ class PreviewGenerationService:
         snapshot: dict[str, Any],
         owner_user_id: str,
         estimate_summary: dict[str, Any],
+        reusable_preview: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        preview_id = str(uuid4())
+        preview_id = str(snapshot["preview_id"])
         duration_seconds = int(snapshot["job_payload_preview"]["estimated_duration_seconds"])
-        selection = self._select_keyframes(
-            source_asset_checksum=str(snapshot["source_asset_checksum"]),
-            duration_seconds=duration_seconds,
-            preview_id=preview_id,
-        )
+        if reusable_preview is None:
+            selection = self._select_keyframes(
+                source_asset_checksum=str(snapshot["source_asset_checksum"]),
+                duration_seconds=duration_seconds,
+                preview_id=preview_id,
+            )
+            keyframes = selection.keyframes
+            selection_mode = selection.selection_mode
+            scene_diversity = selection.scene_diversity
+            preview_root_uri = self._bucket_uri(f"previews/{preview_id}/")
+        else:
+            keyframes = list(reusable_preview.get("keyframes") or [])
+            selection_mode = str(reusable_preview["selection_mode"])
+            scene_diversity = float(reusable_preview.get("scene_diversity", 0.0) or 0.0)
+            preview_root_uri = str(reusable_preview["preview_root_uri"])
         expires_at = _utc_now() + timedelta(hours=_PREVIEW_RETENTION_HOURS)
         return {
             "preview_id": preview_id,
@@ -231,17 +284,19 @@ class PreviewGenerationService:
             "owner_user_id": owner_user_id,
             "org_id": session["org_id"],
             "status": "ready",
+            "configured_at_snapshot": snapshot["configured_at_snapshot"],
             "configuration_fingerprint": snapshot["configuration_fingerprint"],
+            "configuration_cache_fingerprint": snapshot["configuration_cache_fingerprint"],
             "source_asset_checksum": snapshot["source_asset_checksum"],
             "cache_key": snapshot["cache_key"],
             "job_payload_preview": snapshot["job_payload_preview"],
-            "selection_mode": selection.selection_mode,
-            "scene_diversity": selection.scene_diversity,
-            "keyframe_count": len(selection.keyframes),
+            "selection_mode": selection_mode,
+            "scene_diversity": scene_diversity,
+            "keyframe_count": len(keyframes),
             "estimated_cost_summary": estimate_summary,
             "estimated_processing_time_seconds": self._estimated_processing_time_seconds(duration_seconds),
-            "keyframes": selection.keyframes,
-            "preview_root_uri": self._bucket_uri(f"previews/{preview_id}/"),
+            "keyframes": keyframes,
+            "preview_root_uri": preview_root_uri,
             "expires_at": _isoformat(expires_at),
             "deleted_at": None,
         }
