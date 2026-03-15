@@ -5,6 +5,10 @@ Maps to:
 
 from __future__ import annotations
 
+import asyncio
+from copy import deepcopy
+
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -109,6 +113,73 @@ def test_preview_create_reuses_cached_session_for_same_upload_and_configuration(
     assert second.json()["configuration_fingerprint"] == first.json()["configuration_fingerprint"]
 
 
+def test_preview_create_is_idempotent_under_concurrent_identical_requests() -> None:
+    seed_completed_upload(upload_id="preview-concurrent-upload", owner_user_id="preview-concurrent-user")
+    seed_detection(upload_id="preview-concurrent-upload", owner_user_id="preview-concurrent-user")
+    save_configuration(client, upload_id="preview-concurrent-upload", owner_user_id="preview-concurrent-user")
+    headers = fake_auth_header("preview-concurrent-user", tier="pro")
+
+    async def run_requests() -> list[httpx.Response]:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as async_client:
+            return list(
+                await asyncio.gather(
+                    *(
+                        async_client.post(
+                            "/v1/previews",
+                            headers=headers,
+                            json={"upload_id": "preview-concurrent-upload"},
+                        )
+                        for _ in range(6)
+                    )
+                )
+            )
+
+    responses = asyncio.run(run_requests())
+
+    assert all(response.status_code == 200 for response in responses)
+    preview_ids = {response.json()["preview_id"] for response in responses}
+    assert len(preview_ids) == 1
+
+
+def test_preview_create_ignores_exact_hit_when_fingerprint_changes_with_same_snapshot_identity() -> None:
+    upload_id = "preview-fingerprint-collision-upload"
+    owner_user_id = "preview-fingerprint-collision-user"
+    seed_completed_upload(upload_id=upload_id, owner_user_id=owner_user_id)
+    seed_detection(upload_id=upload_id, owner_user_id=owner_user_id)
+    save_configuration(client, upload_id=upload_id, owner_user_id=owner_user_id)
+    headers = fake_auth_header(owner_user_id, tier="pro")
+
+    first = client.post("/v1/previews", headers=headers, json={"upload_id": upload_id})
+    assert first.status_code == 200
+
+    repo = UploadRepository()
+    session = repo.get_session(
+        upload_id,
+        owner_user_id=owner_user_id,
+        access_token=f"test-token-for-{owner_user_id}",
+    )
+    assert session is not None
+    updated_launch_config = deepcopy(session["launch_config"])
+    updated_launch_config["job_payload_preview"]["config"]["persona"] = "archivist"
+    persisted = repo.update_session(
+        upload_id,
+        owner_user_id=owner_user_id,
+        patch={
+            "launch_config": updated_launch_config,
+            "configured_at": session["configured_at"],
+        },
+        access_token=f"test-token-for-{owner_user_id}",
+    )
+    assert persisted is not None
+
+    second = client.post("/v1/previews", headers=headers, json={"upload_id": upload_id})
+
+    assert second.status_code == 200
+    assert second.json()["preview_id"] == first.json()["preview_id"]
+    assert second.json()["configuration_fingerprint"] != first.json()["configuration_fingerprint"]
+
+
 def test_expired_preview_session_returns_410() -> None:
     seed_completed_upload(upload_id="preview-expired-upload", owner_user_id="preview-expired-user")
     seed_detection(upload_id="preview-expired-upload", owner_user_id="preview-expired-user")
@@ -131,6 +202,38 @@ def test_expired_preview_session_returns_410() -> None:
 
     assert expired.status_code == 410
     assert expired.json()["title"] == "Preview Expired"
+
+
+def test_preview_create_does_not_return_expired_exact_hit_when_delete_patch_misses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    upload_id = "preview-expired-create-upload"
+    owner_user_id = "preview-expired-create-user"
+    seed_completed_upload(upload_id=upload_id, owner_user_id=owner_user_id)
+    seed_detection(upload_id=upload_id, owner_user_id=owner_user_id)
+    save_configuration(client, upload_id=upload_id, owner_user_id=owner_user_id)
+    headers = fake_auth_header(owner_user_id, tier="pro")
+
+    created = client.post("/v1/previews", headers=headers, json={"upload_id": upload_id})
+    assert created.status_code == 200
+    preview_id = created.json()["preview_id"]
+    expired_timestamp = "2020-01-01T00:00:00+00:00"
+
+    updated = PreviewSessionRepository().update_preview(
+        preview_id,
+        owner_user_id=owner_user_id,
+        patch={"expires_at": expired_timestamp},
+        access_token=f"test-token-for-{owner_user_id}",
+    )
+    assert updated is not None
+
+    monkeypatch.setattr(previews_api._preview_service._previews, "update_preview", lambda *args, **kwargs: None)
+
+    recreated = client.post("/v1/previews", headers=headers, json={"upload_id": upload_id})
+
+    assert recreated.status_code == 200
+    assert recreated.json()["preview_id"] == preview_id
+    assert recreated.json()["expires_at"] != expired_timestamp
 
 
 def test_preview_create_returns_503_when_preview_signing_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:

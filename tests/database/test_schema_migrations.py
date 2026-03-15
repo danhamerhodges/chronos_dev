@@ -31,6 +31,7 @@ def test_expected_migrations_present() -> None:
         "0020_phase4_cost_estimation.sql",
         "0021_phase4_preview_sessions.sql",
         "0022_phase4_preview_sessions_rls.sql",
+        "0023_phase4_preview_session_stabilization.sql",
     ]
 
 
@@ -116,3 +117,13 @@ def test_preview_session_migrations_add_owner_scoped_preview_storage() -> None:
     assert "CREATE INDEX IF NOT EXISTS idx_preview_sessions_owner_cache_key" in sql
     assert "ALTER TABLE public.preview_sessions ENABLE ROW LEVEL SECURITY" in rls_sql
     assert "CREATE POLICY preview_sessions_owner_access" in rls_sql
+
+
+def test_preview_session_stabilization_migration_adds_snapshot_identity_fields() -> None:
+    root = Path(__file__).resolve().parents[2]
+    sql = (root / "supabase" / "migrations" / "0023_phase4_preview_session_stabilization.sql").read_text(encoding="utf-8")
+
+    assert "ADD COLUMN IF NOT EXISTS configured_at_snapshot TEXT" in sql
+    assert "ADD COLUMN IF NOT EXISTS configuration_cache_fingerprint TEXT" in sql
+    assert "CREATE UNIQUE INDEX IF NOT EXISTS idx_preview_sessions_owner_upload_snapshot" in sql
+    assert "CREATE INDEX IF NOT EXISTS idx_preview_sessions_owner_reuse" in sql

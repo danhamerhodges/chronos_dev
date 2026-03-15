@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import os
+import hashlib
+import json
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from threading import Lock
@@ -34,6 +36,34 @@ def _request_patch(payload: dict[str, Any], *, nullable_keys: set[str] | None = 
         for key, value in payload.items()
         if value is not None or key in allowed_nulls
     }
+
+
+def _preview_configuration_cache_payload(job_payload_preview: dict[str, Any]) -> dict[str, Any]:
+    config = dict(job_payload_preview.get("config") or {})
+    detection_snapshot = config.get("detection_snapshot")
+    if isinstance(detection_snapshot, dict):
+        config["detection_snapshot"] = {
+            key: value
+            for key, value in detection_snapshot.items()
+            if key != "detection_id"
+        }
+    return {
+        "mime_type": job_payload_preview.get("mime_type"),
+        "estimated_duration_seconds": job_payload_preview.get("estimated_duration_seconds"),
+        "fidelity_tier": job_payload_preview.get("fidelity_tier"),
+        "reproducibility_mode": job_payload_preview.get("reproducibility_mode"),
+        "processing_mode": job_payload_preview.get("processing_mode"),
+        "era_profile": job_payload_preview.get("era_profile") or {},
+        "config": config,
+    }
+
+
+def _preview_configuration_cache_fingerprint(job_payload_preview: dict[str, Any]) -> str | None:
+    if not isinstance(job_payload_preview, dict) or not job_payload_preview:
+        return None
+    payload = _preview_configuration_cache_payload(job_payload_preview)
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 _SUPABASE_JOB_JSON_FIELDS = {
@@ -413,12 +443,11 @@ class _MemoryPreviewSessionRepository:
             return None
         return dict(record)
 
-    def get_cached_preview(
+    def get_reusable_preview(
         self,
         *,
-        upload_id: str,
         source_asset_checksum: str,
-        configuration_fingerprint: str,
+        configuration_cache_fingerprint: str,
         owner_user_id: str,
         access_token: str | None = None,
     ) -> dict[str, Any] | None:
@@ -427,14 +456,21 @@ class _MemoryPreviewSessionRepository:
             dict(record)
             for record in _STORE.preview_sessions.values()
             if record["owner_user_id"] == owner_user_id
-            and record["upload_id"] == upload_id
             and record["source_asset_checksum"] == source_asset_checksum
-            and record["configuration_fingerprint"] == configuration_fingerprint
+            and record.get("deleted_at") is None
+            and record.get("status") == "ready"
         ]
         if not candidates:
             return None
         candidates.sort(key=lambda item: item["created_at"], reverse=True)
-        return candidates[0]
+        for candidate in candidates:
+            effective_cache_fingerprint = (
+                candidate.get("configuration_cache_fingerprint")
+                or _preview_configuration_cache_fingerprint(candidate.get("job_payload_preview") or {})
+            )
+            if effective_cache_fingerprint == configuration_cache_fingerprint:
+                return candidate
+        return None
 
     def update_preview(
         self,
@@ -1387,16 +1423,22 @@ class _SupabasePreviewSessionRepository(_SupabaseRepositoryBase):
         return access_token
 
     def _preview_from_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        job_payload_preview = row.get("job_payload_preview") or {}
         return {
             "preview_id": row["external_preview_id"],
             "upload_id": row["external_upload_id"],
             "owner_user_id": row["external_user_id"],
             "org_id": row["org_id"],
             "status": row["status"],
+            "configured_at_snapshot": row.get("configured_at_snapshot"),
             "configuration_fingerprint": row["configuration_fingerprint"],
+            "configuration_cache_fingerprint": (
+                row.get("configuration_cache_fingerprint")
+                or _preview_configuration_cache_fingerprint(job_payload_preview)
+            ),
             "source_asset_checksum": row["source_asset_checksum"],
             "cache_key": row["cache_key"],
-            "job_payload_preview": row.get("job_payload_preview") or {},
+            "job_payload_preview": job_payload_preview,
             "selection_mode": row["selection_mode"],
             "scene_diversity": float(row.get("scene_diversity", 0.0) or 0.0),
             "keyframe_count": int(row.get("keyframe_count", 0) or 0),
@@ -1428,7 +1470,9 @@ class _SupabasePreviewSessionRepository(_SupabaseRepositoryBase):
                 "external_preview_id": payload["preview_id"],
                 "org_id": payload["org_id"],
                 "status": payload["status"],
+                "configured_at_snapshot": payload.get("configured_at_snapshot"),
                 "configuration_fingerprint": payload["configuration_fingerprint"],
+                "configuration_cache_fingerprint": payload.get("configuration_cache_fingerprint"),
                 "source_asset_checksum": payload["source_asset_checksum"],
                 "cache_key": payload["cache_key"],
                 "job_payload_preview": payload.get("job_payload_preview") or {},
@@ -1471,12 +1515,11 @@ class _SupabasePreviewSessionRepository(_SupabaseRepositoryBase):
             return None
         return self._preview_from_row(rows[0])
 
-    def get_cached_preview(
+    def get_reusable_preview(
         self,
         *,
-        upload_id: str,
         source_asset_checksum: str,
-        configuration_fingerprint: str,
+        configuration_cache_fingerprint: str,
         owner_user_id: str,
         access_token: str | None = None,
     ) -> dict[str, Any] | None:
@@ -1484,18 +1527,21 @@ class _SupabasePreviewSessionRepository(_SupabaseRepositoryBase):
             "preview_sessions",
             params={
                 "select": "*",
-                "external_upload_id": f"eq.{upload_id}",
                 "external_user_id": f"eq.{owner_user_id}",
                 "source_asset_checksum": f"eq.{source_asset_checksum}",
-                "configuration_fingerprint": f"eq.{configuration_fingerprint}",
+                "status": "eq.ready",
+                "deleted_at": "is.null",
                 "order": "created_at.desc",
-                "limit": "1",
             },
             headers=self._client.user_scoped_headers(self._require_access_token(access_token)),
         )
         if not rows:
             return None
-        return self._preview_from_row(rows[0])
+        for row in rows:
+            preview = self._preview_from_row(row)
+            if preview.get("configuration_cache_fingerprint") == configuration_cache_fingerprint:
+                return preview
+        return None
 
     def update_preview(
         self,
@@ -3259,19 +3305,17 @@ class PreviewSessionRepository:
     ) -> dict[str, Any] | None:
         return self._backend.get_preview(preview_id, owner_user_id=owner_user_id, access_token=access_token)
 
-    def get_cached_preview(
+    def get_reusable_preview(
         self,
         *,
-        upload_id: str,
         source_asset_checksum: str,
-        configuration_fingerprint: str,
+        configuration_cache_fingerprint: str,
         owner_user_id: str,
         access_token: str | None = None,
     ) -> dict[str, Any] | None:
-        return self._backend.get_cached_preview(
-            upload_id=upload_id,
+        return self._backend.get_reusable_preview(
             source_asset_checksum=source_asset_checksum,
-            configuration_fingerprint=configuration_fingerprint,
+            configuration_cache_fingerprint=configuration_cache_fingerprint,
             owner_user_id=owner_user_id,
             access_token=access_token,
         )
