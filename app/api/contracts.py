@@ -358,7 +358,6 @@ class ExportVariant(StrEnum):
 
 class PreviewStatus(StrEnum):
     READY = "ready"
-    FAILED = "failed"
 
 
 class PreviewSelectionMode(StrEnum):

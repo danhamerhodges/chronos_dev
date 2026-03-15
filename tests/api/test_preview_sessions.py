@@ -5,6 +5,9 @@ Maps to:
 
 from __future__ import annotations
 
+import asyncio
+
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -107,6 +110,35 @@ def test_preview_create_reuses_cached_session_for_same_upload_and_configuration(
     assert second.status_code == 200
     assert second.json()["preview_id"] == first.json()["preview_id"]
     assert second.json()["configuration_fingerprint"] == first.json()["configuration_fingerprint"]
+
+
+def test_preview_create_is_idempotent_under_concurrent_identical_requests() -> None:
+    seed_completed_upload(upload_id="preview-concurrent-upload", owner_user_id="preview-concurrent-user")
+    seed_detection(upload_id="preview-concurrent-upload", owner_user_id="preview-concurrent-user")
+    save_configuration(client, upload_id="preview-concurrent-upload", owner_user_id="preview-concurrent-user")
+    headers = fake_auth_header("preview-concurrent-user", tier="pro")
+
+    async def run_requests() -> list[httpx.Response]:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as async_client:
+            return list(
+                await asyncio.gather(
+                    *(
+                        async_client.post(
+                            "/v1/previews",
+                            headers=headers,
+                            json={"upload_id": "preview-concurrent-upload"},
+                        )
+                        for _ in range(6)
+                    )
+                )
+            )
+
+    responses = asyncio.run(run_requests())
+
+    assert all(response.status_code == 200 for response in responses)
+    preview_ids = {response.json()["preview_id"] for response in responses}
+    assert len(preview_ids) == 1
 
 
 def test_expired_preview_session_returns_410() -> None:
