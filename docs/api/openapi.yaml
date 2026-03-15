@@ -19,6 +19,7 @@ tags:
   - name: uploads
   - name: era-detection
   - name: jobs
+  - name: previews
   - name: manifests
   - name: deletion-proofs
   - name: ops
@@ -539,6 +540,80 @@ paths:
                 $ref: "#/components/schemas/JobEstimateResponse"
         "503":
           description: Billing pricing metadata is temporarily unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+  /v1/previews:
+    post:
+      tags: [previews]
+      summary: Create or reuse a draft preview session from the latest saved upload configuration
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PreviewCreateRequest"
+      responses:
+        "200":
+          description: Preview session ready
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PreviewSessionResponse"
+        "404":
+          description: Upload session not found for the current user
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "409":
+          description: Upload is incomplete or the latest saved Packet 4B configuration is missing
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "503":
+          description: Preview storage/signing or billing pricing metadata is temporarily unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+  /v1/previews/{preview_id}:
+    get:
+      tags: [previews]
+      summary: Reread an existing owner-scoped preview session
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: preview_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Preview session detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PreviewSessionResponse"
+        "404":
+          description: Preview session not found for the current user
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "410":
+          description: Preview session expired and its artifacts were deleted
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "503":
+          description: Preview storage/signing is temporarily unavailable
           content:
             application/problem+json:
               schema:
@@ -1669,6 +1744,65 @@ components:
     JobEstimateResponse:
       allOf:
         - $ref: "#/components/schemas/CostEstimateSummaryResponse"
+    PreviewCreateRequest:
+      type: object
+      required: [upload_id]
+      properties:
+        upload_id:
+          type: string
+    PreviewStatus:
+      type: string
+      enum: [ready, failed]
+    PreviewSelectionMode:
+      type: string
+      enum: [scene_aware, uniform_fallback]
+    PreviewKeyframeResponse:
+      type: object
+      required: [index, timestamp_seconds, scene_number, confidence_score, thumbnail_url, frame_url]
+      properties:
+        index:
+          type: integer
+        timestamp_seconds:
+          type: number
+        scene_number:
+          type: integer
+        confidence_score:
+          type: number
+        thumbnail_url:
+          type: string
+        frame_url:
+          type: string
+    PreviewSessionResponse:
+      type: object
+      required:
+        [preview_id, upload_id, status, configuration_fingerprint, stale, expires_at, selection_mode, scene_diversity, keyframe_count, estimated_cost_summary, estimated_processing_time_seconds, keyframes]
+      properties:
+        preview_id:
+          type: string
+        upload_id:
+          type: string
+        status:
+          $ref: "#/components/schemas/PreviewStatus"
+        configuration_fingerprint:
+          type: string
+        stale:
+          type: boolean
+        expires_at:
+          type: string
+        selection_mode:
+          $ref: "#/components/schemas/PreviewSelectionMode"
+        scene_diversity:
+          type: number
+        keyframe_count:
+          type: integer
+        estimated_cost_summary:
+          $ref: "#/components/schemas/CostEstimateSummaryResponse"
+        estimated_processing_time_seconds:
+          type: integer
+        keyframes:
+          type: array
+          items:
+            $ref: "#/components/schemas/PreviewKeyframeResponse"
     JobDetailResponse:
       allOf:
         - $ref: "#/components/schemas/JobSummaryResponse"

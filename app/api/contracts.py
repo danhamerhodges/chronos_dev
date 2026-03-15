@@ -356,6 +356,16 @@ class ExportVariant(StrEnum):
     H264 = "h264"
 
 
+class PreviewStatus(StrEnum):
+    READY = "ready"
+    FAILED = "failed"
+
+
+class PreviewSelectionMode(StrEnum):
+    SCENE_AWARE = "scene_aware"
+    UNIFORM_FALLBACK = "uniform_fallback"
+
+
 class QualitySummaryResponse(StrictModel):
     e_hf: float = 0.0
     s_ls_db: float = 0.0
@@ -534,6 +544,34 @@ class JobCreateResponse(JobSummaryResponse):
 
 class JobEstimateResponse(CostEstimateSummaryResponse):
     pass
+
+
+class PreviewCreateRequest(StrictModel):
+    upload_id: str = Field(min_length=1)
+
+
+class PreviewKeyframeResponse(StrictModel):
+    index: int = Field(ge=0)
+    timestamp_seconds: float = Field(ge=0)
+    scene_number: int = Field(ge=1)
+    confidence_score: float = Field(ge=0.0, le=1.0)
+    thumbnail_url: str
+    frame_url: str
+
+
+class PreviewSessionResponse(StrictModel):
+    preview_id: str
+    upload_id: str
+    status: PreviewStatus
+    configuration_fingerprint: str
+    stale: bool = False
+    expires_at: str
+    selection_mode: PreviewSelectionMode
+    scene_diversity: float = 0.0
+    keyframe_count: int = 0
+    estimated_cost_summary: CostEstimateSummaryResponse
+    estimated_processing_time_seconds: int = 0
+    keyframes: list[PreviewKeyframeResponse] = Field(default_factory=list)
 
 
 class JobDetailResponse(JobSummaryResponse):
