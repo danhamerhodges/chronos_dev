@@ -8,8 +8,9 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api import previews as previews_api
 from app.db.phase2_store import PreviewSessionRepository
-from app.db.phase2_store import reset_phase2_store
+from app.db.phase2_store import _STORE, reset_phase2_store
 from app.main import app
 from tests.helpers.auth import fake_auth_header
 from tests.helpers.previews import save_configuration, seed_completed_upload, seed_detection
@@ -94,3 +95,86 @@ def test_identical_reupload_reuses_preview_artifacts_but_gets_a_new_preview_sess
     assert second_preview is not None
     assert second_preview["preview_root_uri"] == first_preview["preview_root_uri"]
     assert second_preview["keyframes"] == first_preview["keyframes"]
+
+
+def test_legacy_preview_row_without_cache_fingerprint_still_reuses_preview_artifacts() -> None:
+    seed_completed_upload(upload_id="preview-legacy-upload-a", owner_user_id="preview-legacy-user")
+    seed_detection(upload_id="preview-legacy-upload-a", owner_user_id="preview-legacy-user")
+    save_configuration(client, upload_id="preview-legacy-upload-a", owner_user_id="preview-legacy-user")
+    headers = fake_auth_header("preview-legacy-user", tier="pro")
+
+    first = client.post("/v1/previews", headers=headers, json={"upload_id": "preview-legacy-upload-a"})
+    assert first.status_code == 200
+    first_preview_id = first.json()["preview_id"]
+    _STORE.preview_sessions[first_preview_id]["configuration_cache_fingerprint"] = None
+
+    seed_completed_upload(upload_id="preview-legacy-upload-b", owner_user_id="preview-legacy-user")
+    seed_detection(upload_id="preview-legacy-upload-b", owner_user_id="preview-legacy-user")
+    save_configuration(client, upload_id="preview-legacy-upload-b", owner_user_id="preview-legacy-user")
+
+    second = client.post("/v1/previews", headers=headers, json={"upload_id": "preview-legacy-upload-b"})
+    assert second.status_code == 200
+    assert second.json()["preview_id"] != first_preview_id
+
+    repo = PreviewSessionRepository()
+    first_preview = repo.get_preview(
+        first_preview_id,
+        owner_user_id="preview-legacy-user",
+        access_token="test-token-for-preview-legacy-user",
+    )
+    second_preview = repo.get_preview(
+        second.json()["preview_id"],
+        owner_user_id="preview-legacy-user",
+        access_token="test-token-for-preview-legacy-user",
+    )
+
+    assert first_preview is not None
+    assert second_preview is not None
+    assert second_preview["preview_root_uri"] == first_preview["preview_root_uri"]
+    assert second_preview["keyframes"] == first_preview["keyframes"]
+
+
+def test_expired_reusable_preview_is_not_reused_when_delete_patch_misses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seed_completed_upload(upload_id="preview-expired-reuse-upload-a", owner_user_id="preview-expired-reuse-user")
+    seed_detection(upload_id="preview-expired-reuse-upload-a", owner_user_id="preview-expired-reuse-user")
+    save_configuration(client, upload_id="preview-expired-reuse-upload-a", owner_user_id="preview-expired-reuse-user")
+    headers = fake_auth_header("preview-expired-reuse-user", tier="pro")
+
+    first = client.post("/v1/previews", headers=headers, json={"upload_id": "preview-expired-reuse-upload-a"})
+    assert first.status_code == 200
+    first_preview_id = first.json()["preview_id"]
+
+    repo = PreviewSessionRepository()
+    expired = repo.update_preview(
+        first_preview_id,
+        owner_user_id="preview-expired-reuse-user",
+        patch={"expires_at": "2020-01-01T00:00:00+00:00"},
+        access_token="test-token-for-preview-expired-reuse-user",
+    )
+    assert expired is not None
+
+    monkeypatch.setattr(previews_api._preview_service._previews, "update_preview", lambda *args, **kwargs: None)
+
+    seed_completed_upload(upload_id="preview-expired-reuse-upload-b", owner_user_id="preview-expired-reuse-user")
+    seed_detection(upload_id="preview-expired-reuse-upload-b", owner_user_id="preview-expired-reuse-user")
+    save_configuration(client, upload_id="preview-expired-reuse-upload-b", owner_user_id="preview-expired-reuse-user")
+
+    second = client.post("/v1/previews", headers=headers, json={"upload_id": "preview-expired-reuse-upload-b"})
+    assert second.status_code == 200
+
+    first_preview = repo.get_preview(
+        first_preview_id,
+        owner_user_id="preview-expired-reuse-user",
+        access_token="test-token-for-preview-expired-reuse-user",
+    )
+    second_preview = repo.get_preview(
+        second.json()["preview_id"],
+        owner_user_id="preview-expired-reuse-user",
+        access_token="test-token-for-preview-expired-reuse-user",
+    )
+
+    assert first_preview is not None
+    assert second_preview is not None
+    assert second_preview["preview_root_uri"] != first_preview["preview_root_uri"]

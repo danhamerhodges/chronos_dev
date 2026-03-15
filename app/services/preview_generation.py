@@ -13,7 +13,12 @@ from urllib.parse import quote
 
 from app.api.problem_details import ProblemException
 from app.config import settings
-from app.db.phase2_store import PreviewSessionRepository, UploadRepository, _stable_uuid
+from app.db.phase2_store import (
+    PreviewSessionRepository,
+    UploadRepository,
+    _preview_configuration_cache_fingerprint,
+    _stable_uuid,
+)
 from app.models.status import UploadStatus
 from app.observability.monitoring import record_preview_generation
 from app.services.cost_estimation import BillingPricingUnavailableError, CostEstimationService
@@ -28,26 +33,6 @@ def _utc_now() -> datetime:
 def _isoformat(value: datetime) -> str: return value.isoformat()
 def _canonical_json(payload: dict[str, Any]) -> str: return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
 def _sha256(value: str) -> str: return hashlib.sha256(value.encode("utf-8")).hexdigest()
-
-
-def _preview_configuration_cache_payload(job_payload_preview: dict[str, Any]) -> dict[str, Any]:
-    config = dict(job_payload_preview.get("config") or {})
-    detection_snapshot = config.get("detection_snapshot")
-    if isinstance(detection_snapshot, dict):
-        config["detection_snapshot"] = {
-            key: value
-            for key, value in detection_snapshot.items()
-            if key != "detection_id"
-        }
-    return {
-        "mime_type": job_payload_preview.get("mime_type"),
-        "estimated_duration_seconds": job_payload_preview.get("estimated_duration_seconds"),
-        "fidelity_tier": job_payload_preview.get("fidelity_tier"),
-        "reproducibility_mode": job_payload_preview.get("reproducibility_mode"),
-        "processing_mode": job_payload_preview.get("processing_mode"),
-        "era_profile": job_payload_preview.get("era_profile") or {},
-        "config": config,
-    }
 
 
 def _preview_id_for_snapshot(*, upload_id: str, configured_at_snapshot: str) -> str:
@@ -94,7 +79,10 @@ class PreviewGenerationService:
         )
         if exact is not None:
             exact = self._expire_if_needed(exact, owner_user_id=owner_user_id, access_token=access_token)
-            if exact.get("deleted_at") is None and exact.get("status") == "ready":
+            if self._is_active_preview(
+                exact,
+                expected_configuration_fingerprint=str(snapshot["configuration_fingerprint"]),
+            ):
                 record_preview_generation(
                     outcome="cache_hit",
                     latency_ms=0.0,
@@ -126,7 +114,7 @@ class PreviewGenerationService:
         )
         if reusable is not None:
             reusable = self._expire_if_needed(reusable, owner_user_id=owner_user_id, access_token=access_token)
-            if reusable.get("deleted_at") is not None or reusable.get("status") != "ready":
+            if not self._is_active_preview(reusable):
                 reusable = None
 
         try:
@@ -226,9 +214,13 @@ class PreviewGenerationService:
         configuration_fingerprint = _sha256(
             _canonical_json({"configured_at": configured_at_snapshot, "job_payload_preview": job_payload_preview})
         )
-        configuration_cache_fingerprint = _sha256(
-            _canonical_json(_preview_configuration_cache_payload(job_payload_preview))
-        )
+        configuration_cache_fingerprint = _preview_configuration_cache_fingerprint(job_payload_preview)
+        if configuration_cache_fingerprint is None:
+            raise ProblemException(
+                title="Configuration Not Ready",
+                detail="Preview generation requires a saved launch payload from the latest configuration.",
+                status_code=409,
+            )
         cache_key = _sha256(
             _canonical_json(
                 {
@@ -498,7 +490,32 @@ class PreviewGenerationService:
             patch={"deleted_at": _isoformat(_utc_now())},
             access_token=access_token,
         )
-        return updated or preview
+        if updated is not None:
+            return updated
+        expired_preview = dict(preview)
+        expired_preview["deleted_at"] = _isoformat(_utc_now())
+        return expired_preview
+
+    def _is_active_preview(
+        self,
+        preview: dict[str, Any] | None,
+        *,
+        expected_configuration_fingerprint: str | None = None,
+    ) -> bool:
+        if not preview:
+            return False
+        if preview.get("status") != "ready" or preview.get("deleted_at") is not None:
+            return False
+        if (
+            expected_configuration_fingerprint is not None
+            and str(preview.get("configuration_fingerprint"))
+            != expected_configuration_fingerprint
+        ):
+            return False
+        expires_at_raw = preview.get("expires_at")
+        if not expires_at_raw:
+            return False
+        return datetime.fromisoformat(str(expires_at_raw)) > _utc_now()
 
     def _estimated_processing_time_seconds(self, duration_seconds: int) -> int:
         return max(2, min(6, int(round(max(duration_seconds, 1) / 90.0)) + 1))
