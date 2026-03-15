@@ -531,7 +531,8 @@ ChronosRefine uses four core metrics to enforce historical authenticity and prev
 **Description:** System must generate 10 scene-aware keyframes for user review before full processing.
 
 **Inputs:**
-- Job ID (for preview generation)
+- Upload ID (to create a draft preview session from the latest saved configuration)
+- Preview ID (to reread an existing draft preview session)
 - User ID (for authorization check)
 - Source media file (original upload, accessible via GCS signed URL)
 - Era classification (from FR-002)
@@ -545,9 +546,9 @@ ChronosRefine uses four core metrics to enforce historical authenticity and prev
 - Preview signed URL (GCS, expires in 24 hours)
 
 **Side Effects:**
-- Preview file generated and stored in GCS (`gs://chronosrefine-previews/{job_id}/`)
+- Preview file generated and stored in GCS (`gs://chronosrefine-previews/{preview_id}/`)
 - Signed URL generated with 24-hour expiration
-- Preview generation logged to Cloud Logging (INFO level) with job_id, user_id, preview_duration, latency
+- Preview generation logged to Cloud Logging (INFO level) with preview_id, user_id, preview_duration, latency
 - Metrics recorded: preview generation latency (histogram), preview size (histogram), preview view count (counter)
 - Preview cached for 24 hours (subsequent requests return cached preview)
 
