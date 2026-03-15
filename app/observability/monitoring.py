@@ -24,6 +24,8 @@ _GPU_EVENT_COUNTS: dict[str, int] = defaultdict(int)
 _GPU_ALLOCATION_LATENCY_SUMS_MS: dict[str, int] = defaultdict(int)
 _COST_RECONCILIATION_COUNTS: dict[str, int] = defaultdict(int)
 _COST_RECONCILIATION_OUTLIER_COUNTS: dict[str, int] = defaultdict(int)
+_PREVIEW_GENERATION_COUNTS: dict[str, int] = defaultdict(int)
+_PREVIEW_SELECTION_MODE_COUNTS: dict[str, int] = defaultdict(int)
 _ALERT_DELIVERY_COUNTS: dict[str, int] = defaultdict(int)
 _INCIDENT_COUNTS: dict[str, int] = defaultdict(int)
 _RUNTIME_GAUGES: dict[str, float] = defaultdict(float)
@@ -95,6 +97,19 @@ def record_cost_reconciliation(*, estimator_version: str, delta_percent: float, 
     if outlier:
         _COST_RECONCILIATION_OUTLIER_COUNTS[estimator_version] += 1
     _RUNTIME_GAUGES[f"cost_reconciliation_delta_percent:{estimator_version}"] = float(delta_percent)
+
+
+def record_preview_generation(
+    *,
+    outcome: str,
+    latency_ms: float,
+    selection_mode: str,
+    fallback_used: bool,
+) -> None:
+    _PREVIEW_GENERATION_COUNTS[outcome] += 1
+    _PREVIEW_SELECTION_MODE_COUNTS[selection_mode] += 1
+    _RUNTIME_GAUGES["preview_generation_latency_ms"] = float(latency_ms)
+    _RUNTIME_GAUGES["preview_generation_fallback_used"] = 1.0 if fallback_used else 0.0
 
 
 def record_runtime_snapshot(snapshot: dict[str, float | int]) -> None:
@@ -264,6 +279,24 @@ def metrics_payload(namespace: str) -> str:
         )
     lines.extend(
         [
+            f"# HELP {namespace}_preview_generation_total Total preview generation events by outcome.",
+            f"# TYPE {namespace}_preview_generation_total counter",
+        ]
+    )
+    for outcome, count in sorted(_PREVIEW_GENERATION_COUNTS.items()):
+        lines.append(f"{namespace}_preview_generation_total{{outcome=\"{outcome}\"}} {count}")
+    lines.extend(
+        [
+            f"# HELP {namespace}_preview_selection_mode_total Total preview selection outcomes by mode.",
+            f"# TYPE {namespace}_preview_selection_mode_total counter",
+        ]
+    )
+    for selection_mode, count in sorted(_PREVIEW_SELECTION_MODE_COUNTS.items()):
+        lines.append(
+            f"{namespace}_preview_selection_mode_total{{selection_mode=\"{selection_mode}\"}} {count}"
+        )
+    lines.extend(
+        [
             f"# HELP {namespace}_alert_delivery_total Total alert deliveries by route, severity, and outcome.",
             f"# TYPE {namespace}_alert_delivery_total counter",
         ]
@@ -320,6 +353,8 @@ def reset_monitoring_state() -> None:
     _CACHE_LATENCY_SUMS_MS.clear()
     _GPU_EVENT_COUNTS.clear()
     _GPU_ALLOCATION_LATENCY_SUMS_MS.clear()
+    _PREVIEW_GENERATION_COUNTS.clear()
+    _PREVIEW_SELECTION_MODE_COUNTS.clear()
     _COST_RECONCILIATION_COUNTS.clear()
     _COST_RECONCILIATION_OUTLIER_COUNTS.clear()
     _ALERT_DELIVERY_COUNTS.clear()

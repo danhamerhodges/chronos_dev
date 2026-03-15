@@ -19,6 +19,7 @@ from app.api.logs import router as logs_router
 from app.api.manifests import router as manifests_router
 from app.api.metrics import router as metrics_router
 from app.api.ops import router as ops_router
+from app.api.previews import router as previews_router
 from app.api.problem_details import (
     http_exception_handler,
     problem_exception_handler,
@@ -75,6 +76,7 @@ def create_app() -> FastAPI:
     app.include_router(fidelity_router, tags=["fidelity"])
     app.include_router(era_detection_router, tags=["era-detection"])
     app.include_router(jobs_router, tags=["jobs"])
+    app.include_router(previews_router, tags=["previews"])
     app.include_router(deletion_proofs_router, tags=["deletion-proofs"])
     app.include_router(manifests_router, tags=["manifests"])
     app.include_router(users_router, tags=["users"])

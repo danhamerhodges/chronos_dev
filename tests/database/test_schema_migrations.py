@@ -29,6 +29,8 @@ def test_expected_migrations_present() -> None:
         "0018_phase4_output_delivery.sql",
         "0019_phase4_output_delivery_rls.sql",
         "0020_phase4_cost_estimation.sql",
+        "0021_phase4_preview_sessions.sql",
+        "0022_phase4_preview_sessions_rls.sql",
     ]
 
 
@@ -100,3 +102,17 @@ def test_output_delivery_migrations_add_export_and_job_proof_tables() -> None:
     assert "ALTER TABLE public.job_export_packages ENABLE ROW LEVEL SECURITY" in rls_sql
     assert "CREATE POLICY job_deletion_proofs_owner_select" in rls_sql
     assert "CREATE POLICY job_export_packages_owner_select" in rls_sql
+
+
+def test_preview_session_migrations_add_owner_scoped_preview_storage() -> None:
+    root = Path(__file__).resolve().parents[2]
+    sql = (root / "supabase" / "migrations" / "0021_phase4_preview_sessions.sql").read_text(encoding="utf-8")
+    rls_sql = (root / "supabase" / "migrations" / "0022_phase4_preview_sessions_rls.sql").read_text(encoding="utf-8")
+
+    assert "CREATE TABLE IF NOT EXISTS public.preview_sessions" in sql
+    assert "external_preview_id TEXT NOT NULL UNIQUE" in sql
+    assert "status IN ('ready', 'failed')" in sql
+    assert "selection_mode IN ('scene_aware', 'uniform_fallback')" in sql
+    assert "CREATE INDEX IF NOT EXISTS idx_preview_sessions_owner_cache_key" in sql
+    assert "ALTER TABLE public.preview_sessions ENABLE ROW LEVEL SECURITY" in rls_sql
+    assert "CREATE POLICY preview_sessions_owner_access" in rls_sql
