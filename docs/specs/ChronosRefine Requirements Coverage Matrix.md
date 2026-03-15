@@ -278,7 +278,7 @@ After updating the matrix, recalculate:
 
 ---
 
-## Current Progress Snapshot (2026-03-14)
+## Current Progress Snapshot (2026-03-15)
 
 Source evidence:
 - `README.md` (Phase 1 baseline scope)
@@ -295,7 +295,7 @@ Source evidence:
 | Phase 1: Foundation & Core Infrastructure | 6/6 | ✅ Complete (baseline scope) | Baseline scaffolding and validation confirmed in `docs/phase1_readiness_report.md` |
 | Phase 2: API Foundation & Data Layer | 6/6 | ✅ Complete (merged via PR #1) | `main` includes merge commit `709687a`; this is the canonical baseline for later phases |
 | Phase 3: Core Processing Pipeline & AI Integration | 11/12 | ✅ Complete for Phase 4 kickoff | PR #2 merged to `main`; `SEC-007` remains deferred to its canonical `GA+3 months` milestone |
-| Phase 4: User-Facing Features & Application Logic | 9/14 on candidate branch `codex/packet4f-preview-substrate` (`8/14` on `main`) | 🚧 In Progress (Packets 4A, 4B, 4C, 4D, and 4E merged on `main`; Packet 4F complete on the candidate branch) | `FR-001`, `FR-003` + `DS-001`, `FR-004` + the Packet 4C portion of `DS-006`, `FR-005` + `ENG-015`, and `ENG-013` + the launch-decision slice of `NFR-003` are merged on `main`; `ENG-014` preview-generation substrate is complete on `codex/packet4f-preview-substrate`; Packet 4G is next |
+| Phase 4: User-Facing Features & Application Logic | 9/14 on `main` | 🚧 In Progress (Packets 4A, 4B, 4C, 4D, 4E, and 4F merged on `main`) | `FR-001`, `FR-003` + `DS-001`, `FR-004` + the Packet 4C portion of `DS-006`, `FR-005` + `ENG-015`, `ENG-013` + the launch-decision slice of `NFR-003`, and `ENG-014` preview-generation substrate are merged on `main`; Packet 4G is next |
 | Phase 5: Advanced Features & UX Refinement | 0/11 | ⏸️ Not Started | Dependent on Phase 4 completion |
 | Phase 6: Production Readiness & Launch | 0/10 | ⏸️ Not Started | Dependent on Phase 5 completion |
 
@@ -352,9 +352,9 @@ Source evidence:
 
 ### Phase 4 Current Status: User-Facing Features & Application Logic
 
-**Requirements:** 9 of 14 complete on candidate branch `codex/packet4f-preview-substrate` (`8 of 14` on `main`)  
-**Status:** Packets 4A and 4B are merged to `main` as of 2026-03-13 (`fc81b2a`); `Packet 4C = FR-004 + DS-006 (processing launch, progress, uncertainty callouts, and accessible runtime errors)` merged to `main` on 2026-03-14 in `8e8798c`; `Packet 4D = FR-005 + ENG-015 (output delivery, deterministic export packaging, and export-flow accessibility slices)` merged to `main` on 2026-03-14 in `f0667c8`; `Packet 4E = ENG-013 + the launch-time slice of NFR-003 (cost estimation, single-job overage approval, and launch-time cost controls)` merged to `main` on 2026-03-14 in `3303c65`; `Packet 4F = ENG-014 (draft preview-session substrate, owner-scoped `/v1/previews` create/reread, deterministic keyframe selection, cache reuse, and expiry-aware rereads)` is complete on candidate branch `codex/packet4f-preview-substrate`  
-**Completed Packets:** `Packet 4A = FR-001 (Video Upload and Validation)` on `main`; `Packet 4B = FR-003 + DS-001 (Fidelity Tier Selection + Configuration UX)` on `main`; `Packet 4C = FR-004 + DS-006 (Processing Launch, Progress, and Accessible Runtime Errors)` on `main`; `Packet 4D = FR-005 + ENG-015 (Output Delivery + Output Encoding)` on `main`; `Packet 4E = ENG-013 + launch-time NFR-003 cost controls` on `main`; `Packet 4F = ENG-014 (Preview Generation Substrate)` on candidate branch `codex/packet4f-preview-substrate`
+**Requirements:** 9 of 14 complete on `main`  
+**Status:** Packets 4A and 4B are merged to `main` as of 2026-03-13 (`fc81b2a`); `Packet 4C = FR-004 + DS-006 (processing launch, progress, uncertainty callouts, and accessible runtime errors)` merged to `main` on 2026-03-14 in `8e8798c`; `Packet 4D = FR-005 + ENG-015 (output delivery, deterministic export packaging, and export-flow accessibility slices)` merged to `main` on 2026-03-14 in `f0667c8`; `Packet 4E = ENG-013 + the launch-time slice of NFR-003 (cost estimation, single-job overage approval, and launch-time cost controls)` merged to `main` on 2026-03-14 in `3303c65`; `Packet 4F = ENG-014 (draft preview-session substrate, owner-scoped `/v1/previews` create/reread, deterministic keyframe selection, cache reuse, and expiry-aware rereads)` merged to `main` on 2026-03-15 in `aea4809`  
+**Completed Packets:** `Packet 4A = FR-001 (Video Upload and Validation)` on `main`; `Packet 4B = FR-003 + DS-001 (Fidelity Tier Selection + Configuration UX)` on `main`; `Packet 4C = FR-004 + DS-006 (Processing Launch, Progress, and Accessible Runtime Errors)` on `main`; `Packet 4D = FR-005 + ENG-015 (Output Delivery + Output Encoding)` on `main`; `Packet 4E = ENG-013 + launch-time NFR-003 cost controls` on `main`; `Packet 4F = ENG-014 (Preview Generation Substrate)` on `main`
 
 | Area | Current Phase 4 note |
 |---|---|
@@ -363,7 +363,7 @@ Source evidence:
 | Packet 4C scope on `main` | Launch processing from saved Packet 4B configuration, poll job progress, cancel processing, expose uncertainty callouts via `GET /v1/jobs/{job_id}/uncertainty-callouts`, and surface DS-006-compliant launch/cancel/refresh error states |
 | Packet 4D scope on `main` | Materialize deterministic AV1 + H.264 export packages at job finalization, expose owner-scoped `GET /v1/jobs/{job_id}/export` and `GET /v1/deletion-proofs/{proof_id}`, and extend the Packet 4C terminal UI with delivery/download actions plus export-path accessibility slices |
 | Packet 4E scope on `main` | Adds `POST /v1/jobs/estimate`, persists per-job cost-estimate and reconciliation summaries, resolves launch-time pricing from configured Stripe metadata, and extends the existing launch CTA into a cost-review modal with single-job overage approval and accessible modal/error states |
-| Packet 4F scope on candidate branch `codex/packet4f-preview-substrate` | Adds owner-scoped `POST /v1/previews` and `GET /v1/previews/{preview_id}`, persists draft preview sessions separate from `media_jobs`, reuses the latest saved Packet 4B configuration snapshot, emits deterministic scene-aware keyframes with uniform fallback, signs preview artifacts on reread, and keeps all Phase 5 preview-review UX out of scope |
+| Packet 4F scope on `main` | Adds owner-scoped `POST /v1/previews` and `GET /v1/previews/{preview_id}`, persists draft preview sessions separate from `media_jobs`, reuses the latest saved Packet 4B configuration snapshot, emits deterministic scene-aware keyframes with uniform fallback, signs preview artifacts on reread, and keeps all Phase 5 preview-review UX out of scope |
 | Explicit Exclusions after Packet 4F | `FR-006` preview-review UX remains Phase 5 work; `DS-002` through `DS-005` remain incomplete globally; `NFR-003` remains in progress because Packet 4E only delivered the launch-time cost-control slice |
 | Dependencies Satisfied | `SEC-013`, `ENG-002`, `ENG-016`; Phase 3 kickoff dependency is satisfied with `SEC-007` deferred per canon |
 | Packet 4A test mapping | `tests/api/test_upload.py`, `tests/integration/test_resumable_upload.py`, `tests/load/test_upload_performance.py` |
@@ -376,8 +376,8 @@ Source evidence:
 | Packet 4C merge evidence | `GET /v1/jobs/{job_id}/uncertainty-callouts` derives global low-confidence/manual-confirmation warnings plus deterministic segment callouts, Packet 4B `job_payload_preview` launches unchanged through `/v1/jobs`, and rendered DS-006 tests cover launch failures, cancel failures, non-blocking refresh failures, and terminal callout summaries; merged to `main` in `8e8798c394c36faf3e34e65b1c373f851e486f52` |
 | Packet 4D merge evidence | Completed and partial jobs materialize deterministic AV1 + H.264 export packages with manifest, uncertainty-callout, quality-report, and deletion-proof artifacts; owner-scoped export/proof APIs are covered by automated tests, Packet 4D terminal delivery actions plus export-path accessibility tests pass, and the packet merged to `main` in `f0667c8ab052324fdecd25292e6912933cf871a2` |
 | Packet 4E merge evidence | Launch review now runs through `POST /v1/jobs/estimate`, pricing metadata is resolved from configured Stripe price IDs with a short-lived cache, `POST /v1/jobs` persists `cost_estimate_summary` and terminal reconciliation data, launch-time overage approval remains single-job only, and rendered Packet 4E modal tests cover retry, approval, and focus/live-region behavior; merged to `main` in `3303c6584005e374e2d21ce8f028338ec3950177` |
-| Packet 4F candidate-branch evidence | `POST /v1/previews` consumes the latest saved Packet 4B `job_payload_preview` by `upload_id`, draft preview sessions are persisted separately from `media_jobs`, rereads stay owner-scoped through `preview_id`, deterministic scene-aware selection emits 10 keyframes with 320x180 thumbnails plus uniform fallback coverage, and preview performance/cache/expiry paths are covered by automated tests on `codex/packet4f-preview-substrate` |
-| Context Note | `docs/specs/chronosrefine_phase4_closeout_note.md` for Packet 4A; Packet 4G is next after Packet 4F on candidate branch `codex/packet4f-preview-substrate` |
+| Packet 4F merge evidence | `POST /v1/previews` consumes the latest saved Packet 4B `job_payload_preview` by `upload_id`, draft preview sessions are persisted separately from `media_jobs`, rereads stay owner-scoped through `preview_id`, deterministic scene-aware selection emits 10 keyframes with 320x180 thumbnails plus uniform fallback coverage, and preview performance/cache/expiry paths are covered by automated tests; merged to `main` in `aea4809b7cbb111e4273ece0a4fb566e96c63e7b` |
+| Context Note | `docs/specs/chronosrefine_phase4_closeout_note.md` for Packet 4A; Packet 4G is next after Packet 4F on `main` |
 
 ## Progress Tracking Template
 
