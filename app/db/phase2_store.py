@@ -167,6 +167,7 @@ class Phase2Store:
     users: dict[str, dict[str, Any]] = field(default_factory=dict)
     usage: dict[str, dict[str, Any]] = field(default_factory=dict)
     upload_sessions: dict[str, dict[str, Any]] = field(default_factory=dict)
+    preview_sessions: dict[str, dict[str, Any]] = field(default_factory=dict)
     gcs_object_pointers: dict[str, dict[str, Any]] = field(default_factory=dict)
     jobs: dict[str, dict[str, Any]] = field(default_factory=dict)
     job_segments: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
@@ -190,6 +191,7 @@ def reset_phase2_store() -> None:
     _STORE.users.clear()
     _STORE.usage.clear()
     _STORE.upload_sessions.clear()
+    _STORE.preview_sessions.clear()
     _STORE.gcs_object_pointers.clear()
     _STORE.jobs.clear()
     _STORE.job_segments.clear()
@@ -380,6 +382,77 @@ class _MemoryUploadRepository:
         with _UPLOAD_STORE_LOCK:
             _STORE.gcs_object_pointers[upload_id] = record
             return dict(record)
+
+
+class _MemoryPreviewSessionRepository:
+    def create_preview(
+        self,
+        *,
+        payload: dict[str, Any],
+        access_token: str | None = None,
+    ) -> dict[str, Any]:
+        del access_token
+        record = dict(payload)
+        record.setdefault("created_at", _utc_now())
+        record["updated_at"] = _utc_now()
+        _STORE.preview_sessions[record["preview_id"]] = record
+        return dict(record)
+
+    def get_preview(
+        self,
+        preview_id: str,
+        *,
+        owner_user_id: str | None = None,
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        del access_token
+        record = _STORE.preview_sessions.get(preview_id)
+        if record is None:
+            return None
+        if owner_user_id and record["owner_user_id"] != owner_user_id:
+            return None
+        return dict(record)
+
+    def get_cached_preview(
+        self,
+        *,
+        upload_id: str,
+        source_asset_checksum: str,
+        configuration_fingerprint: str,
+        owner_user_id: str,
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        del access_token
+        candidates = [
+            dict(record)
+            for record in _STORE.preview_sessions.values()
+            if record["owner_user_id"] == owner_user_id
+            and record["upload_id"] == upload_id
+            and record["source_asset_checksum"] == source_asset_checksum
+            and record["configuration_fingerprint"] == configuration_fingerprint
+        ]
+        if not candidates:
+            return None
+        candidates.sort(key=lambda item: item["created_at"], reverse=True)
+        return candidates[0]
+
+    def update_preview(
+        self,
+        preview_id: str,
+        *,
+        owner_user_id: str,
+        patch: dict[str, Any],
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        del access_token
+        record = _STORE.preview_sessions.get(preview_id)
+        if record is None or record["owner_user_id"] != owner_user_id:
+            return None
+        updated = dict(record)
+        updated.update(_request_patch(patch, nullable_keys={"deleted_at"}))
+        updated["updated_at"] = _utc_now()
+        _STORE.preview_sessions[preview_id] = updated
+        return dict(updated)
 
 
 class _MemoryEraDetectionRepository:
@@ -1305,6 +1378,155 @@ class _SupabaseUploadRepository(_SupabaseRepositoryBase):
             "checksum_sha256": row.get("checksum_sha256"),
             "created_at": row["created_at"],
         }
+
+
+class _SupabasePreviewSessionRepository(_SupabaseRepositoryBase):
+    def _require_access_token(self, access_token: str | None) -> str:
+        if not access_token:
+            raise ValueError("Preview routes require an end-user access token.")
+        return access_token
+
+    def _preview_from_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "preview_id": row["external_preview_id"],
+            "upload_id": row["external_upload_id"],
+            "owner_user_id": row["external_user_id"],
+            "org_id": row["org_id"],
+            "status": row["status"],
+            "configuration_fingerprint": row["configuration_fingerprint"],
+            "source_asset_checksum": row["source_asset_checksum"],
+            "cache_key": row["cache_key"],
+            "job_payload_preview": row.get("job_payload_preview") or {},
+            "selection_mode": row["selection_mode"],
+            "scene_diversity": float(row.get("scene_diversity", 0.0) or 0.0),
+            "keyframe_count": int(row.get("keyframe_count", 0) or 0),
+            "estimated_cost_summary": row.get("estimated_cost_summary") or {},
+            "estimated_processing_time_seconds": int(row.get("estimated_processing_time_seconds", 0) or 0),
+            "keyframes": row.get("keyframes") or [],
+            "preview_root_uri": row["preview_root_uri"],
+            "expires_at": row["expires_at"],
+            "deleted_at": row.get("deleted_at"),
+            "created_at": row["created_at"],
+            "updated_at": row.get("updated_at") or row["created_at"],
+        }
+
+    def create_preview(
+        self,
+        *,
+        payload: dict[str, Any],
+        access_token: str | None = None,
+    ) -> dict[str, Any]:
+        headers = self._client.user_scoped_headers(self._require_access_token(access_token))
+        row = self._client.rest_upsert(
+            "preview_sessions",
+            payload={
+                "id": _stable_uuid(payload["preview_id"]),
+                "owner_user_id": payload["owner_user_id"],
+                "external_user_id": payload["owner_user_id"],
+                "upload_session_id": _stable_uuid(payload["upload_id"]),
+                "external_upload_id": payload["upload_id"],
+                "external_preview_id": payload["preview_id"],
+                "org_id": payload["org_id"],
+                "status": payload["status"],
+                "configuration_fingerprint": payload["configuration_fingerprint"],
+                "source_asset_checksum": payload["source_asset_checksum"],
+                "cache_key": payload["cache_key"],
+                "job_payload_preview": payload.get("job_payload_preview") or {},
+                "selection_mode": payload["selection_mode"],
+                "scene_diversity": payload["scene_diversity"],
+                "keyframe_count": payload["keyframe_count"],
+                "estimated_cost_summary": payload.get("estimated_cost_summary") or {},
+                "estimated_processing_time_seconds": payload["estimated_processing_time_seconds"],
+                "keyframes": payload.get("keyframes") or [],
+                "preview_root_uri": payload["preview_root_uri"],
+                "expires_at": payload["expires_at"],
+                "deleted_at": payload.get("deleted_at"),
+                "updated_at": _utc_now(),
+            },
+            on_conflict="external_preview_id",
+            headers=headers,
+        )[0]
+        return self._preview_from_row(row)
+
+    def get_preview(
+        self,
+        preview_id: str,
+        *,
+        owner_user_id: str | None = None,
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        params = {
+            "select": "*",
+            "external_preview_id": f"eq.{preview_id}",
+            "limit": "1",
+        }
+        if owner_user_id:
+            params["external_user_id"] = f"eq.{owner_user_id}"
+        rows = self._client.rest_select(
+            "preview_sessions",
+            params=params,
+            headers=self._client.user_scoped_headers(self._require_access_token(access_token)),
+        )
+        if not rows:
+            return None
+        return self._preview_from_row(rows[0])
+
+    def get_cached_preview(
+        self,
+        *,
+        upload_id: str,
+        source_asset_checksum: str,
+        configuration_fingerprint: str,
+        owner_user_id: str,
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        rows = self._client.rest_select(
+            "preview_sessions",
+            params={
+                "select": "*",
+                "external_upload_id": f"eq.{upload_id}",
+                "external_user_id": f"eq.{owner_user_id}",
+                "source_asset_checksum": f"eq.{source_asset_checksum}",
+                "configuration_fingerprint": f"eq.{configuration_fingerprint}",
+                "order": "created_at.desc",
+                "limit": "1",
+            },
+            headers=self._client.user_scoped_headers(self._require_access_token(access_token)),
+        )
+        if not rows:
+            return None
+        return self._preview_from_row(rows[0])
+
+    def update_preview(
+        self,
+        preview_id: str,
+        *,
+        owner_user_id: str,
+        patch: dict[str, Any],
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        payload = _request_patch(
+            {
+                "status": patch.get("status"),
+                "expires_at": patch.get("expires_at"),
+                "deleted_at": patch.get("deleted_at"),
+                "updated_at": _utc_now(),
+            },
+            nullable_keys={"deleted_at"},
+        )
+        rows = self._client.rest_update(
+            "preview_sessions",
+            payload=payload,
+            params={
+                "external_preview_id": f"eq.{preview_id}",
+                "external_user_id": f"eq.{owner_user_id}",
+                "select": "*",
+            },
+            headers=self._client.user_scoped_headers(self._require_access_token(access_token)),
+        )
+        if not rows:
+            return None
+        return self._preview_from_row(rows[0])
 
 
 class _SupabaseEraDetectionRepository(_SupabaseRepositoryBase):
@@ -2841,6 +3063,10 @@ def _upload_backend() -> _MemoryUploadRepository | _SupabaseUploadRepository:
     return _SupabaseUploadRepository() if phase2_backend_name() == "supabase" else _MemoryUploadRepository()
 
 
+def _preview_session_backend() -> _MemoryPreviewSessionRepository | _SupabasePreviewSessionRepository:
+    return _SupabasePreviewSessionRepository() if phase2_backend_name() == "supabase" else _MemoryPreviewSessionRepository()
+
+
 def _era_detection_backend() -> _MemoryEraDetectionRepository | _SupabaseEraDetectionRepository:
     return _SupabaseEraDetectionRepository() if phase2_backend_name() == "supabase" else _MemoryEraDetectionRepository()
 
@@ -3008,6 +3234,60 @@ class UploadRepository:
             mime_type=mime_type,
             size_bytes=size_bytes,
             checksum_sha256=checksum_sha256,
+            access_token=access_token,
+        )
+
+
+class PreviewSessionRepository:
+    def __init__(self) -> None:
+        self._backend = _preview_session_backend()
+
+    def create_preview(
+        self,
+        *,
+        payload: dict[str, Any],
+        access_token: str | None = None,
+    ) -> dict[str, Any]:
+        return self._backend.create_preview(payload=payload, access_token=access_token)
+
+    def get_preview(
+        self,
+        preview_id: str,
+        *,
+        owner_user_id: str | None = None,
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        return self._backend.get_preview(preview_id, owner_user_id=owner_user_id, access_token=access_token)
+
+    def get_cached_preview(
+        self,
+        *,
+        upload_id: str,
+        source_asset_checksum: str,
+        configuration_fingerprint: str,
+        owner_user_id: str,
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        return self._backend.get_cached_preview(
+            upload_id=upload_id,
+            source_asset_checksum=source_asset_checksum,
+            configuration_fingerprint=configuration_fingerprint,
+            owner_user_id=owner_user_id,
+            access_token=access_token,
+        )
+
+    def update_preview(
+        self,
+        preview_id: str,
+        *,
+        owner_user_id: str,
+        patch: dict[str, Any],
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        return self._backend.update_preview(
+            preview_id,
+            owner_user_id=owner_user_id,
+            patch=patch,
             access_token=access_token,
         )
 
