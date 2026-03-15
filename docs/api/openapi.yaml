@@ -1752,7 +1752,7 @@ components:
           type: string
     PreviewStatus:
       type: string
-      enum: [ready, failed]
+      enum: [ready]
     PreviewSelectionMode:
       type: string
       enum: [scene_aware, uniform_fallback]

@@ -103,6 +103,9 @@ def test_tracked_openapi_spec_covers_phase2_subset() -> None:
     assert 'description: Billing pricing metadata is temporarily unavailable' in openapi_spec
     assert "/v1/previews:" in openapi_spec
     assert "/v1/previews/{preview_id}:" in openapi_spec
+    assert "PreviewStatus:" in openapi_spec
+    assert "enum: [ready]" in openapi_spec
+    assert "enum: [ready, failed]" not in openapi_spec
     assert "Preview storage/signing is temporarily unavailable" in openapi_spec
     assert "/v1/jobs/{job_id}/export:" in openapi_spec
     assert "/v1/jobs/{job_id}/uncertainty-callouts:" in openapi_spec
