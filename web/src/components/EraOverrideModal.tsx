@@ -31,13 +31,13 @@ export function EraOverrideModal({
   const uniqueOptions = Array.from(new Set(candidateOptions.filter(Boolean)));
   const canApplyOverride = Boolean(selectedEra.trim() && overrideReason.trim());
   return (
-    <Modal open={open} onClose={onClose} labelledBy="era-override-title">
+    <Modal open={open} onClose={onClose} labelledBy="era-override-title" describedBy="era-override-description">
       <div style={{ display: "grid", gap: "var(--spacing-md)" }}>
         <div>
           <h4 id="era-override-title" style={{ margin: 0 }}>
             Override Era Detection
           </h4>
-          <p style={{ marginBottom: 0 }}>
+          <p id="era-override-description" style={{ marginBottom: 0 }}>
             Current confidence: {detection ? Math.round(detection.confidence * 100) : 0}%. Review the candidates, then
             choose a manual era if the visible evidence supports it.
           </p>
@@ -46,6 +46,7 @@ export function EraOverrideModal({
           <div style={{ marginBottom: "var(--spacing-xs)" }}>Manual era</div>
           <select
             aria-label="Manual era override"
+            className="chronos-select"
             onChange={(event) => onSelectEra(event.target.value)}
             required
             value={selectedEra}
@@ -62,6 +63,7 @@ export function EraOverrideModal({
           <div style={{ marginBottom: "var(--spacing-xs)" }}>Override reason</div>
           <textarea
             aria-label="Override reason"
+            className="chronos-textarea"
             onChange={(event) => onChangeReason(event.target.value)}
             required
             rows={3}

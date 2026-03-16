@@ -2,16 +2,15 @@ import React from "react";
 
 type InputFieldProps = React.InputHTMLAttributes<HTMLInputElement>;
 
-export function InputField(props: InputFieldProps) {
+export const InputField = React.forwardRef<HTMLInputElement, InputFieldProps>(function InputField(
+  { className, ...props },
+  ref,
+) {
   return (
     <input
-      style={{
-        width: "100%",
-        border: "1px solid #c9d4e0",
-        borderRadius: "var(--radius-sm)",
-        padding: "var(--spacing-sm)",
-      }}
+      className={["chronos-input", className].filter(Boolean).join(" ")}
+      ref={ref}
       {...props}
     />
   );
-}
+});

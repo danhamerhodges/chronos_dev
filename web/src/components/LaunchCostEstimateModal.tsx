@@ -38,13 +38,13 @@ export function LaunchCostEstimateModal({
   const launchBlocked = estimate?.launch_blocker === "overage_approval_required";
 
   return (
-    <Modal open={open} onClose={onClose} labelledBy="launch-cost-title">
+    <Modal open={open} onClose={onClose} labelledBy="launch-cost-title" describedBy="launch-cost-description">
       <div style={{ display: "grid", gap: "var(--spacing-md)", maxWidth: 520 }}>
         <div>
           <h4 id="launch-cost-title" style={{ margin: 0 }}>
             Review Cost & Start
           </h4>
-          <p style={{ marginBottom: 0 }}>
+          <p id="launch-cost-description" style={{ marginBottom: 0 }}>
             Packet 4E adds a launch-time cost estimate so we can review projected usage and charges before processing
             starts.
           </p>
@@ -89,12 +89,8 @@ export function LaunchCostEstimateModal({
 
             {launchBlocked ? (
               <div
-                style={{
-                  borderRadius: "var(--radius-md)",
-                  background: "#fff7e6",
-                  color: "#7a4b00",
-                  padding: "var(--spacing-sm) var(--spacing-md)",
-                }}
+                className="chronos-warning-banner"
+                style={{ background: "#fff7e6", color: "#7a4b00", borderColor: "#9a6700" }}
               >
                 This launch needs single-job overage approval before processing can start.
               </div>
@@ -106,11 +102,8 @@ export function LaunchCostEstimateModal({
           <div
             aria-live="polite"
             role="status"
-            style={{
-              borderRadius: "var(--radius-md)",
-              background: "#eef5ff",
-              padding: "var(--spacing-sm) var(--spacing-md)",
-            }}
+            className="chronos-status-banner"
+            style={{ background: "#eef5ff", borderColor: "#0f4c81" }}
           >
             {notice}
           </div>
@@ -120,12 +113,8 @@ export function LaunchCostEstimateModal({
           <div
             aria-live="assertive"
             role="alert"
-            style={{
-              borderRadius: "var(--radius-md)",
-              background: "#fff0f0",
-              color: "#8a1f1f",
-              padding: "var(--spacing-sm) var(--spacing-md)",
-            }}
+            className="chronos-alert-banner"
+            style={{ background: "#fff0f0", color: "#8a1f1f", borderColor: "#b42318" }}
           >
             {error}
           </div>

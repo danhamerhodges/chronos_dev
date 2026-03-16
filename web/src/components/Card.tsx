@@ -14,7 +14,7 @@ export function Card({ title, children }: CardProps) {
         boxShadow: "0 4px 16px rgba(0,0,0,0.08)",
       }}
     >
-      {title ? <h3 style={{ marginTop: 0 }}>{title}</h3> : null}
+      {title ? <h2 style={{ marginTop: 0 }}>{title}</h2> : null}
       {children}
     </section>
   );
