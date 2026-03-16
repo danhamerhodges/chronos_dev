@@ -6,6 +6,7 @@ import { EraOverrideModal } from "./components/EraOverrideModal";
 import { FidelityTierSelector } from "./components/FidelityTierSelector";
 import { InputField } from "./components/InputField";
 import { LaunchCostEstimateModal } from "./components/LaunchCostEstimateModal";
+import { Modal } from "./components/Modal";
 import { ProgressBar } from "./components/ProgressBar";
 import { UncertaintyCalloutsList } from "./components/UncertaintyCalloutsList";
 import {
@@ -78,6 +79,8 @@ type DeliveryRetryAction =
   | { type: "manifest" }
   | { type: "proof" };
 
+type FormErrorTarget = "file" | "duration" | "persona" | "tier" | "grain" | "configuration";
+
 function isExportReadyStatus(status: JobDetailResponse["status"] | null | undefined): boolean {
   return status === "completed" || status === "partial";
 }
@@ -120,6 +123,7 @@ export function App() {
   const [jobBusy, setJobBusy] = useState(false);
   const [statusNotice, setStatusNotice] = useState("");
   const [showLaunchCostModal, setShowLaunchCostModal] = useState(false);
+  const [showKeyboardShortcutsModal, setShowKeyboardShortcutsModal] = useState(false);
   const [costEstimate, setCostEstimate] = useState<JobCostEstimateResponse | null>(null);
   const [costEstimateBusy, setCostEstimateBusy] = useState(false);
   const [overageApprovalBusy, setOverageApprovalBusy] = useState(false);
@@ -136,7 +140,16 @@ export function App() {
   const [deliveryNotice, setDeliveryNotice] = useState("");
   const [deliveryError, setDeliveryError] = useState("");
   const [deliveryRetryAction, setDeliveryRetryAction] = useState<DeliveryRetryAction | null>(null);
+  const [formErrorTarget, setFormErrorTarget] = useState<FormErrorTarget | null>(null);
   const [lastStartedConfigurationKey, setLastStartedConfigurationKey] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const durationInputRef = useRef<HTMLInputElement | null>(null);
+  const personaSelectRef = useRef<HTMLSelectElement | null>(null);
+  const grainSelectRef = useRef<HTMLSelectElement | null>(null);
+  const saveConfigurationButtonRef = useRef<HTMLButtonElement | null>(null);
+  const launchReviewButtonRef = useRef<HTMLButtonElement | null>(null);
+  const primaryDeliveryButtonRef = useRef<HTMLButtonElement | null>(null);
+  const appErrorRef = useRef<HTMLDivElement | null>(null);
   const activeUploadIdRef = useRef<string | null>(null);
   const activeJobIdRef = useRef<string | null>(null);
   const processingStatusRef = useRef<JobDetailResponse["status"] | null>(null);
@@ -173,6 +186,12 @@ export function App() {
       deliveryAlertRef.current?.focus();
     }
   }, [deliveryError]);
+
+  useEffect(() => {
+    if (error) {
+      appErrorRef.current?.focus();
+    }
+  }, [error]);
 
   function resetConfigurationState(): void {
     setEstimatedDurationSeconds(180);
@@ -222,6 +241,33 @@ export function App() {
     setOverageApprovalBusy(false);
     setLaunchModalError("");
     setLaunchModalNotice("");
+  }
+
+  function focusFormTarget(target: FormErrorTarget): void {
+    const targetElement =
+      target === "file"
+        ? fileInputRef.current
+        : target === "duration"
+          ? durationInputRef.current
+          : target === "persona"
+            ? personaSelectRef.current
+            : target === "grain"
+              ? grainSelectRef.current
+              : target === "tier"
+                ? document.querySelector<HTMLElement>('input[name="fidelity-tier"]')
+                : saveConfigurationButtonRef.current;
+    targetElement?.focus();
+  }
+
+  function setFormError(message: string, target: FormErrorTarget): void {
+    setFormErrorTarget(target);
+    setError(message);
+    window.setTimeout(() => focusFormTarget(target), 0);
+  }
+
+  function clearFormError(): void {
+    setFormErrorTarget(null);
+    setError("");
   }
 
   const jobActive = isActiveJobStatus(processingJob?.status);
@@ -315,13 +361,58 @@ export function App() {
     };
   }, [exportReady, processingJob?.job_id]);
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (showOverrideModal || showLaunchCostModal || showKeyboardShortcutsModal) {
+        return;
+      }
+      if (!(event.metaKey || event.ctrlKey) || !event.shiftKey) {
+        return;
+      }
+      const key = event.key.toLowerCase();
+      if (key === "u") {
+        event.preventDefault();
+        fileInputRef.current?.focus();
+        return;
+      }
+      if (key === "s") {
+        if (saveConfigurationButtonRef.current?.disabled) {
+          return;
+        }
+        event.preventDefault();
+        saveConfigurationButtonRef.current?.focus();
+        return;
+      }
+      if (key === "l") {
+        if (!canStartSavedConfiguration || jobBusy || processingJob) {
+          return;
+        }
+        event.preventDefault();
+        launchReviewButtonRef.current?.focus();
+        return;
+      }
+      if (key === "e") {
+        if (!exportReady) {
+          return;
+        }
+        event.preventDefault();
+        primaryDeliveryButtonRef.current?.focus();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [canStartSavedConfiguration, exportReady, jobBusy, processingJob, showKeyboardShortcutsModal, showLaunchCostModal, showOverrideModal]);
+
   async function runUpload(resumeExisting: boolean): Promise<void> {
     if (!selectedFile) {
-      setError("Choose a file before starting an upload.");
+      setFormError("Choose a file before starting an upload.", "file");
       return;
     }
     if (!isSupportedUploadFormat(selectedFile.name, selectedFile.type)) {
-      setError("Supported formats are MP4, AVI, MOV, MKV, TIFF, PNG, and JPEG.");
+      setFormError("Supported formats are MP4, AVI, MOV, MKV, TIFF, PNG, and JPEG.", "file");
       return;
     }
 
@@ -351,6 +442,9 @@ export function App() {
 
   function handlePersonaChange(nextPersona: UserPersona): void {
     setSelectedPersona(nextPersona);
+    if (formErrorTarget === "persona") {
+      clearFormError();
+    }
     if (!catalog) {
       return;
     }
@@ -369,6 +463,9 @@ export function App() {
 
   function handleTierChange(nextTier: FidelityTier): void {
     setSelectedTier(nextTier);
+    if (formErrorTarget === "tier") {
+      clearFormError();
+    }
     if (!catalog) {
       return;
     }
@@ -382,7 +479,7 @@ export function App() {
     overrides: { manual_override_era?: string; override_reason?: string } = {},
   ): Promise<void> {
     if (!uploadSession) {
-      setError("Complete the upload before running era detection.");
+      setFormError("Complete the upload before running era detection.", "file");
       return;
     }
     const requestUploadId = uploadSession.upload_id;
@@ -399,7 +496,7 @@ export function App() {
       setDetection(nextDetection);
       setSavedConfiguration(null);
       resetLaunchEstimateState();
-      setError("");
+      clearFormError();
       setManualOverrideEra(overrides.manual_override_era ?? "");
       setOverrideReason(overrides.override_reason ?? "");
       setShowOverrideModal(false);
@@ -412,11 +509,11 @@ export function App() {
 
   async function handleSaveConfiguration(): Promise<void> {
     if (!uploadSession || !selectedTier || !selectedGrainPreset) {
-      setError("Run era detection and choose a tier before saving the Packet 4B configuration.");
+      setFormError("Run era detection and choose a tier before saving the Packet 4B configuration.", "tier");
       return;
     }
     if (!selectedPersona) {
-      setError("Select a persona before saving the Packet 4B configuration.");
+      setFormError("Select a persona before saving the Packet 4B configuration.", "persona");
       return;
     }
     const requestUploadId = uploadSession.upload_id;
@@ -440,7 +537,7 @@ export function App() {
       setSelectedTier(nextConfiguration.fidelity_tier);
       setSelectedGrainPreset(nextConfiguration.grain_preset);
       resetLaunchEstimateState();
-      setError("");
+      clearFormError();
       setStatusNotice("");
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to save the launch-ready configuration.");
@@ -529,7 +626,7 @@ export function App() {
 
   async function handleOpenLaunchCostModal(): Promise<void> {
     if (!savedConfiguration) {
-      setError("Save a launch-ready configuration before reviewing launch costs.");
+      setFormError("Save a launch-ready configuration before reviewing launch costs.", "configuration");
       return;
     }
     resetLaunchEstimateState({ closeModal: false });
@@ -585,7 +682,7 @@ export function App() {
       deliveryPlanLoadedJobIdRef.current = null;
       setProcessingJob(createdJob);
       setJobCallouts(null);
-      setError("");
+      clearFormError();
       setStatusNotice("");
       setDeliveryPlanTier(null);
       setDeliveryRetentionDays(7);
@@ -617,7 +714,7 @@ export function App() {
       if (activeUploadIdRef.current !== requestUploadId || activeJobIdRef.current !== requestJobId) {
         return;
       }
-      setError("");
+      clearFormError();
       try {
         await refreshProcessingState(requestJobId, requestUploadId);
       } catch (caught) {
@@ -862,9 +959,15 @@ export function App() {
   }, [processingJob?.job_id, uploadSession?.upload_id]);
 
   const grainOptions = catalog ? allowedGrainPresetsForTier(catalog, selectedTier) : [];
+  const activeFormErrorId = formErrorTarget ? "packet4g-form-error" : undefined;
 
   return (
-    <main
+    <>
+      <a className="skip-link" href="#main-content">
+        Skip to main content
+      </a>
+      <main
+        id="main-content"
       style={{
         minHeight: "100vh",
         background:
@@ -875,6 +978,17 @@ export function App() {
       }}
     >
       <div style={{ maxWidth: 920, margin: "0 auto", display: "grid", gap: "var(--spacing-lg)" }}>
+        <header style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "var(--spacing-md)", flexWrap: "wrap" }}>
+          <div>
+            <h1 style={{ marginBottom: "var(--spacing-xs)" }}>ChronosRefine Phase 4 Workspace</h1>
+            <p style={{ color: "var(--color-text-muted)", marginTop: 0, marginBottom: 0 }}>
+              Keyboard-friendly upload, configuration, launch, processing, and export flow.
+            </p>
+          </div>
+          <Button onClick={() => setShowKeyboardShortcutsModal(true)} type="button" variant="secondary">
+            Help & Keyboard Shortcuts
+          </Button>
+        </header>
         <Card title="Packet 4B Configuration Flow">
           <p style={{ color: "var(--color-text-muted)", marginTop: 0 }}>
             Upload the media, detect its era, choose the right persona and fidelity settings, then save a launch-ready
@@ -884,8 +998,11 @@ export function App() {
             <label>
               <div style={{ marginBottom: "var(--spacing-xs)" }}>Media file</div>
               <InputField
+                aria-describedby={formErrorTarget === "file" ? activeFormErrorId : undefined}
+                aria-invalid={formErrorTarget === "file"}
                 type="file"
                 accept=".mp4,.avi,.mov,.mkv,.tif,.tiff,.png,.jpg,.jpeg"
+                ref={fileInputRef}
                 onChange={(event) => {
                   const file = event.target.files?.[0] ?? null;
                   setSelectedFile(file);
@@ -893,7 +1010,7 @@ export function App() {
                   setProgress(0);
                   setEtaSeconds(0);
                   setStatus("pending");
-                  setError("");
+                  clearFormError();
                   setCanResume(false);
                   resetConfigurationState();
                   resetProcessingState();
@@ -951,8 +1068,16 @@ export function App() {
               <label>
                 <div style={{ marginBottom: "var(--spacing-xs)" }}>Estimated duration (seconds)</div>
                 <InputField
+                  aria-describedby={formErrorTarget === "duration" ? activeFormErrorId : undefined}
+                  aria-invalid={formErrorTarget === "duration"}
                   min={1}
-                  onChange={(event) => setEstimatedDurationSeconds(Math.max(Number(event.target.value || 0), 1))}
+                  onChange={(event) => {
+                    setEstimatedDurationSeconds(Math.max(Number(event.target.value || 0), 1));
+                    if (formErrorTarget === "duration") {
+                      clearFormError();
+                    }
+                  }}
+                  ref={durationInputRef}
                   type="number"
                   value={estimatedDurationSeconds}
                   disabled={configBusy || jobLocked}
@@ -964,6 +1089,11 @@ export function App() {
                     <div style={{ marginBottom: "var(--spacing-xs)" }}>Persona</div>
                     <select
                       aria-label="Select user persona"
+                      aria-describedby={formErrorTarget === "persona" ? activeFormErrorId : undefined}
+                      aria-invalid={formErrorTarget === "persona"}
+                      className="chronos-select"
+                      id="packet4g-persona-select"
+                      ref={personaSelectRef}
                       onChange={(event) => {
                         const nextPersona = event.target.value;
                         if (!nextPersona) {
@@ -986,6 +1116,7 @@ export function App() {
                   <div>
                     <div style={{ marginBottom: "var(--spacing-xs)" }}>Fidelity tier</div>
                     <FidelityTierSelector
+                      describedBy={formErrorTarget === "tier" ? activeFormErrorId : undefined}
                       onSelect={handleTierChange}
                       selectedTier={selectedTier}
                       tiers={catalog.tiers}
@@ -996,7 +1127,17 @@ export function App() {
                     <div style={{ marginBottom: "var(--spacing-xs)" }}>Grain preset</div>
                     <select
                       aria-label="Select grain preset"
-                      onChange={(event) => setSelectedGrainPreset(event.target.value as GrainPreset)}
+                      aria-describedby={formErrorTarget === "grain" ? activeFormErrorId : undefined}
+                      aria-invalid={formErrorTarget === "grain"}
+                      className="chronos-select"
+                      id="packet4g-grain-select"
+                      ref={grainSelectRef}
+                      onChange={(event) => {
+                        setSelectedGrainPreset(event.target.value as GrainPreset);
+                        if (formErrorTarget === "grain") {
+                          clearFormError();
+                        }
+                      }}
                       value={selectedGrainPreset ?? ""}
                       disabled={configBusy || jobLocked}
                     >
@@ -1025,8 +1166,10 @@ export function App() {
                   Override Era
                 </Button>
                 <Button
+                  aria-describedby={formErrorTarget === "configuration" ? activeFormErrorId : undefined}
                   disabled={configBusy || jobLocked || !detection || !selectedTier || !selectedGrainPreset}
                   onClick={() => void handleSaveConfiguration()}
+                  ref={saveConfigurationButtonRef}
                   type="button"
                 >
                   Save Configuration
@@ -1034,10 +1177,9 @@ export function App() {
               </div>
               {detection ? (
                 <div
+                  className="chronos-card-note"
                   style={{
-                    borderRadius: "var(--radius-md)",
                     background: "#f7fafc",
-                    padding: "var(--spacing-md)",
                   }}
                 >
                   <div>
@@ -1060,10 +1202,9 @@ export function App() {
               ) : null}
               {savedConfiguration ? (
                 <div
+                  className="chronos-card-note"
                   style={{
-                    borderRadius: "var(--radius-md)",
                     background: "#edf7ef",
-                    padding: "var(--spacing-md)",
                   }}
                 >
                   <div>
@@ -1119,17 +1260,20 @@ export function App() {
 
               {!processingJob ? (
                 <div style={{ display: "flex", gap: "var(--spacing-sm)", flexWrap: "wrap" }}>
-                  <Button disabled={jobBusy || !canStartSavedConfiguration} onClick={() => void handleOpenLaunchCostModal()}>
+                  <Button
+                    disabled={jobBusy || !canStartSavedConfiguration}
+                    onClick={() => void handleOpenLaunchCostModal()}
+                    ref={launchReviewButtonRef}
+                  >
                     {jobBusy ? "Starting..." : "Review Cost & Start"}
                   </Button>
                 </div>
               ) : (
                 <>
                   <div
+                    className="chronos-card-note"
                     style={{
-                      borderRadius: "var(--radius-md)",
                       background: "#edf5fb",
-                      padding: "var(--spacing-md)",
                     }}
                   >
                     <div>
@@ -1157,11 +1301,8 @@ export function App() {
                     <div
                       aria-live="polite"
                       role="status"
-                      style={{
-                        borderRadius: "var(--radius-md)",
-                        background: "#eef5ff",
-                        padding: "var(--spacing-sm) var(--spacing-md)",
-                      }}
+                      className="chronos-status-banner"
+                      style={{ background: "#eef5ff", borderColor: "#0f4c81" }}
                     >
                       <div>{statusNotice}</div>
                       <div style={{ marginTop: "var(--spacing-sm)" }}>
@@ -1181,6 +1322,7 @@ export function App() {
                       <Button
                         disabled={jobBusy || !canStartSavedConfiguration}
                         onClick={() => void handleOpenLaunchCostModal()}
+                        ref={launchReviewButtonRef}
                       >
                         {jobBusy ? "Starting..." : "Review Cost & Start Again"}
                       </Button>
@@ -1229,6 +1371,7 @@ export function App() {
                           <div style={{ marginBottom: "var(--spacing-xs)" }}>Retention window</div>
                           <select
                             aria-label="Select retention window"
+                            className="chronos-select"
                             onChange={(event) => setDeliveryRetentionDays(Number(event.target.value))}
                             value={deliveryRetentionDays}
                           >
@@ -1244,6 +1387,7 @@ export function App() {
                           aria-label="Download AV1 Package"
                           disabled={deliveryBusy.av1}
                           onClick={() => void handleDownloadPackage("av1")}
+                          ref={primaryDeliveryButtonRef}
                         >
                           {deliveryBusy.av1 ? "Preparing AV1..." : "Download AV1 Package"}
                         </Button>
@@ -1277,11 +1421,8 @@ export function App() {
                         <div
                           aria-live="polite"
                           role="status"
-                          style={{
-                            borderRadius: "var(--radius-md)",
-                            background: "#eef5ff",
-                            padding: "var(--spacing-sm) var(--spacing-md)",
-                          }}
+                          className="chronos-status-banner"
+                          style={{ background: "#eef5ff", borderColor: "#0f4c81" }}
                         >
                           <div>{deliveryNotice}</div>
                           {deliveryRetryAction ? (
@@ -1300,12 +1441,8 @@ export function App() {
                           aria-live="assertive"
                           role="alert"
                           tabIndex={-1}
-                          style={{
-                            borderRadius: "var(--radius-md)",
-                            background: "#fff0f0",
-                            color: "#8a1f1f",
-                            padding: "var(--spacing-sm) var(--spacing-md)",
-                          }}
+                          className="chronos-alert-banner"
+                          style={{ background: "#fff0f0", color: "#8a1f1f", borderColor: "#b42318" }}
                         >
                           <div>{deliveryError}</div>
                           {deliveryRetryAction ? (
@@ -1327,13 +1464,12 @@ export function App() {
 
         {error ? (
           <div
+            id="packet4g-form-error"
+            ref={appErrorRef}
             role="alert"
-            style={{
-              borderRadius: "var(--radius-md)",
-              background: "#fff0f0",
-              color: "#8a1f1f",
-              padding: "var(--spacing-sm) var(--spacing-md)",
-            }}
+            tabIndex={-1}
+            className="chronos-alert-banner"
+            style={{ background: "#fff0f0", color: "#8a1f1f", borderColor: "#b42318" }}
           >
             {error}
           </div>
@@ -1357,6 +1493,46 @@ export function App() {
         open={showLaunchCostModal}
         starting={jobBusy}
       />
+      <Modal
+        open={showKeyboardShortcutsModal}
+        onClose={() => setShowKeyboardShortcutsModal(false)}
+        labelledBy="keyboard-shortcuts-title"
+        describedBy="keyboard-shortcuts-description"
+      >
+        <div style={{ display: "grid", gap: "var(--spacing-md)", maxWidth: 520 }}>
+          <div>
+            <h2 id="keyboard-shortcuts-title" style={{ marginBottom: "var(--spacing-xs)" }}>
+              Keyboard Shortcuts
+            </h2>
+            <p id="keyboard-shortcuts-description" style={{ marginTop: 0, marginBottom: 0 }}>
+              Packet 4G documents safe keyboard shortcuts for the current Phase 4 flow without triggering processing
+              automatically.
+            </p>
+          </div>
+          <dl style={{ margin: 0, display: "grid", gridTemplateColumns: "auto 1fr", gap: "var(--spacing-xs) var(--spacing-md)" }}>
+            <dt><strong>Cmd/Ctrl + Shift + U</strong></dt>
+            <dd style={{ margin: 0 }}>Focus the media file input.</dd>
+            <dt><strong>Cmd/Ctrl + Shift + S</strong></dt>
+            <dd style={{ margin: 0 }}>Focus the Save Configuration action.</dd>
+            <dt><strong>Cmd/Ctrl + Shift + L</strong></dt>
+            <dd style={{ margin: 0 }}>Focus the launch cost review action.</dd>
+            <dt><strong>Cmd/Ctrl + Shift + E</strong></dt>
+            <dd style={{ margin: 0 }}>Jump to the primary delivery action when exports are available.</dd>
+            <dt><strong>Tab / Shift + Tab</strong></dt>
+            <dd style={{ margin: 0 }}>Move forward or backward through interactive controls.</dd>
+            <dt><strong>Escape</strong></dt>
+            <dd style={{ margin: 0 }}>Close the currently open modal or dialog.</dd>
+          </dl>
+          <div className="chronos-status-banner" role="note">
+            Shortcuts only move focus or open review surfaces. Use Enter or Space to activate the focused control.
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <Button data-autofocus="true" onClick={() => setShowKeyboardShortcutsModal(false)} type="button" variant="secondary">
+              Close
+            </Button>
+          </div>
+        </div>
+      </Modal>
       <EraOverrideModal
         detection={detection}
         learnMoreUrl={learnMoreUrl()}
@@ -1373,6 +1549,7 @@ export function App() {
         overrideReason={overrideReason}
         selectedEra={manualOverrideEra}
       />
-    </main>
+      </main>
+    </>
   );
 }
