@@ -309,4 +309,14 @@ describe("Packet 4D keyboard navigation", () => {
     await user.tab();
     expect(screen.getByRole("button", { name: "Download Deletion Proof PDF" })).toHaveFocus();
   });
+
+  it("provides a skip link that lands on the main workspace", async () => {
+    const user = userEvent.setup();
+    render(React.createElement(App));
+
+    await user.tab();
+    const skipLink = screen.getByRole("link", { name: "Skip to main content" });
+    expect(skipLink).toHaveFocus();
+    expect(skipLink).toHaveAttribute("href", "#main-content");
+  });
 });
