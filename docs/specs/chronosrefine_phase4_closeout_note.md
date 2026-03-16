@@ -124,7 +124,7 @@ set +a
 - Packet: `Packet 4G`
 - Requirements: `DS-002`, `DS-003`, `DS-004`, `DS-005`
 - Candidate branch: `codex/packet4g-accessibility-closeout`
-- Candidate SHA: working tree on `codex/packet4g-accessibility-closeout` after Packet 4G accessibility closeout implementation
+- Candidate SHA: pending final Packet 4G manual-evidence commit
 - Closure date: pending manual Packet 4G accessibility verification
 
 ## Packet 4G Summary
@@ -139,7 +139,7 @@ Automated Packet 4G gates:
 ./node_modules/.bin/pnpm -C web test
 python3 scripts/validate_test_traceability.py
 scripts/validate_codex_setup.sh
-.agents/skills/spec-consistency-audit/scripts/audit_specs.sh /Users/geekboy/Projects/chronos_dev
+.agents/skills/spec-consistency-audit/scripts/audit_specs.sh .
 ```
 
 ## Packet 4G Automated Evidence Summary
@@ -151,7 +151,7 @@ scripts/validate_codex_setup.sh
   - Result: passed
 - `scripts/validate_codex_setup.sh`
   - Result: passed
-- `.agents/skills/spec-consistency-audit/scripts/audit_specs.sh /Users/geekboy/Projects/chronos_dev`
+- `.agents/skills/spec-consistency-audit/scripts/audit_specs.sh .`
   - Result: passed
 
 ## Packet 4G Manual Verification Matrix

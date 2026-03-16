@@ -162,7 +162,9 @@ export function buildCompletedJob() {
 
 export function resetPhase4AppMocks(options: { planTier?: PlanTier } = {}) {
   const planTier = options.planTier ?? "museum";
-  Object.values(phase4Mocks).forEach((mock) => mock.mockReset());
+  Object.values(phase4Mocks).forEach((mock) => {
+    mock.mockReset();
+  });
   vi.spyOn(window, "open").mockImplementation(() => null);
 
   phase4Mocks.fetchJobEstimate.mockResolvedValue(buildEstimate("none", planTier));

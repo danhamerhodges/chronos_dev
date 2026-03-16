@@ -47,6 +47,6 @@ describe("Packet 4G form focus handling", () => {
     expect(personaSelect).toHaveFocus();
     expect(personaSelect).toHaveAttribute("aria-invalid", "true");
     expect(personaSelect).toHaveAttribute("aria-describedby", "packet4g-form-error");
-    expect(screen.getByRole("alert")).toHaveTextContent("Select a persona before saving the Packet 4B configuration.");
+    expect(screen.getByRole("alert")).toHaveTextContent("Select a persona before saving the Packet 4G configuration.");
   });
 });

@@ -16,6 +16,8 @@ function expectShortcutsIgnored(activeElement: HTMLElement) {
   for (const key of packet4gShortcutKeys) {
     fireEvent.keyDown(window, { key, ctrlKey: true, shiftKey: true });
     expect(activeElement).toHaveFocus();
+    fireEvent.keyDown(window, { key, metaKey: true, shiftKey: true });
+    expect(activeElement).toHaveFocus();
   }
 }
 

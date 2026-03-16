@@ -87,35 +87,18 @@ export function LaunchCostEstimateModal({
               <div>Approved overage remaining: {estimate.usage_snapshot.remaining_approved_overage_minutes}</div>
             </section>
 
-            {launchBlocked ? (
-              <div
-                className="chronos-warning-banner"
-                style={{ background: "#fff7e6", color: "#7a4b00", borderColor: "#9a6700" }}
-              >
-                This launch needs single-job overage approval before processing can start.
-              </div>
-            ) : null}
+            {launchBlocked ? <div className="chronos-warning-banner">This launch needs single-job overage approval before processing can start.</div> : null}
           </>
         ) : null}
 
         {notice ? (
-          <div
-            aria-live="polite"
-            role="status"
-            className="chronos-status-banner"
-            style={{ background: "#eef5ff", borderColor: "#0f4c81" }}
-          >
+          <div aria-live="polite" role="status" className="chronos-status-banner">
             {notice}
           </div>
         ) : null}
 
         {error ? (
-          <div
-            aria-live="assertive"
-            role="alert"
-            className="chronos-alert-banner"
-            style={{ background: "#fff0f0", color: "#8a1f1f", borderColor: "#b42318" }}
-          >
+          <div aria-live="assertive" role="alert" className="chronos-alert-banner">
             {error}
           </div>
         ) : null}

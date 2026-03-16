@@ -244,18 +244,30 @@ export function App() {
   }
 
   function focusFormTarget(target: FormErrorTarget): void {
-    const targetElement =
-      target === "file"
-        ? fileInputRef.current
-        : target === "duration"
-          ? durationInputRef.current
-          : target === "persona"
-            ? personaSelectRef.current
-            : target === "grain"
-              ? grainSelectRef.current
-              : target === "tier"
-                ? document.querySelector<HTMLElement>('input[name="fidelity-tier"]')
-                : saveConfigurationButtonRef.current;
+    let targetElement: HTMLElement | null = null;
+    switch (target) {
+      case "file":
+        targetElement = fileInputRef.current;
+        break;
+      case "duration":
+        targetElement = durationInputRef.current;
+        break;
+      case "persona":
+        targetElement = personaSelectRef.current;
+        break;
+      case "grain":
+        targetElement = grainSelectRef.current;
+        break;
+      case "tier":
+        targetElement = document.querySelector<HTMLElement>('input[name="fidelity-tier"]');
+        break;
+      case "configuration":
+        targetElement = saveConfigurationButtonRef.current;
+        break;
+      default:
+        targetElement = saveConfigurationButtonRef.current;
+        break;
+    }
     targetElement?.focus();
   }
 
@@ -513,7 +525,7 @@ export function App() {
       return;
     }
     if (!selectedPersona) {
-      setFormError("Select a persona before saving the Packet 4B configuration.", "persona");
+      setFormError("Select a persona before saving the Packet 4G configuration.", "persona");
       return;
     }
     const requestUploadId = uploadSession.upload_id;

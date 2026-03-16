@@ -68,7 +68,7 @@ export function Modal({ open, onClose, labelledBy, describedBy, initialFocusSele
       document.removeEventListener("keydown", handleKeyDown);
       lastFocusedElementRef.current?.focus();
     };
-  }, [open]);
+  }, [initialFocusSelector, open]);
 
   if (!open) return null;
   return (
