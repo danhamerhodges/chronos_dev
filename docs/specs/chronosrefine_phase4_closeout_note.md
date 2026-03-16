@@ -1,8 +1,8 @@
-# ChronosRefine Phase 4 Packet 4A Closeout Note
+# ChronosRefine Phase 4 Closeout Notes
 
 Status: Context-only evidence note. This file does not alter canonical source-of-truth ordering in `AGENTS.md`.
 
-## Scope
+## Packet 4A Scope
 
 - Packet: `Packet 4A`
 - Requirement: `FR-001`
@@ -116,3 +116,58 @@ set +a
 
 - Phase 4 overall is incomplete. This note only closes Packet 4A (`FR-001`).
 - The staging latency result meets functional proof needs, but `p95`/`p99` remain elevated enough to warrant monitoring during later Phase 4 follow-on work.
+
+---
+
+## Packet 4G Scope
+
+- Packet: `Packet 4G`
+- Requirements: `DS-002`, `DS-003`, `DS-004`, `DS-005`
+- Candidate branch: `codex/packet4g-accessibility-closeout`
+- Candidate SHA: working tree on `codex/packet4g-accessibility-closeout` after Packet 4G accessibility closeout implementation
+- Closure date: pending manual Packet 4G accessibility verification
+
+## Packet 4G Summary
+
+Packet 4G is in progress on the candidate branch for the implemented upload, detection, configuration, launch-review, processing/progress, and export/delivery journey. The current branch adds app-level skip navigation, semantic `main` landmarking, Help-documented safe shortcuts for existing Phase 4 actions, shared focus/contrast primitives, and rendered DS-002 through DS-005 coverage without pulling preview-review UX forward from Phase 5 `FR-006`. Automated evidence is complete; the manual browser and screen-reader closeout matrix below is still pending before Packet 4G can be counted complete on the candidate branch.
+
+## Packet 4G Verification Commands
+
+Automated Packet 4G gates:
+
+```bash
+./node_modules/.bin/pnpm -C web test
+python3 scripts/validate_test_traceability.py
+scripts/validate_codex_setup.sh
+.agents/skills/spec-consistency-audit/scripts/audit_specs.sh /Users/geekboy/Projects/chronos_dev
+```
+
+## Packet 4G Automated Evidence Summary
+
+- `./node_modules/.bin/pnpm -C web test`
+  - Result: passed
+  - Coverage includes skip link, keyboard shortcuts help, screen-reader labels/live regions, focus movement, modal focus return, and contrast-safe shared primitives
+- `python3 scripts/validate_test_traceability.py`
+  - Result: passed
+- `scripts/validate_codex_setup.sh`
+  - Result: passed
+- `.agents/skills/spec-consistency-audit/scripts/audit_specs.sh /Users/geekboy/Projects/chronos_dev`
+  - Result: passed
+
+## Packet 4G Manual Verification Matrix
+
+This matrix is the remaining candidate-branch closeout checklist for Packet 4G. It keeps preview-review accessibility obligations with Phase 5 `FR-006` and limits Phase 4 evidence to the shipped UI journey.
+
+| Area | Scope | Evidence / Status |
+|---|---|---|
+| Chrome | Upload → Detection → Configure → Launch Review → Processing/Progress → Export/Delivery | Pending manual verification on the candidate branch |
+| Firefox | Upload → Detection → Configure → Launch Review → Processing/Progress → Export/Delivery | Pending manual verification on the candidate branch |
+| Safari/WebKit | Upload → Detection → Configure → Launch Review → Processing/Progress → Export/Delivery | Pending manual verification on the candidate branch |
+| Keyboard-only sweep | Skip link, logical tab order, safe shortcuts, modal trap/escape, focus return, first-error focus, no focus steal | Pending manual verification on the candidate branch |
+| Screen-reader pass summary | Labels, roles, aria-describedby, aria-live announcements, runtime status/delivery updates | Pending manual verification on the candidate branch |
+| Contrast evidence | Buttons, inputs, focus indicators, alerts, status notices, shared tokens | Automated evidence in `tests/accessibility/test_color_contrast.spec.ts`, `tests/accessibility/test_button_contrast.spec.ts`, and `tests/accessibility/test_focus_contrast.spec.ts` |
+
+## Packet 4G Scope Notes
+
+- Preview-review accessibility remains Phase 5 `FR-006` work and is intentionally excluded from Packet 4G.
+- `NFR-003` remains the only open Phase 4 requirement after Packet 4G is fully closed.
