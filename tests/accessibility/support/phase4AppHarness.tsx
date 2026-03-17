@@ -160,8 +160,51 @@ export function buildCompletedJob() {
   };
 }
 
+export function buildSavedConfiguration(configuredAt = "2026-03-13T00:05:00+00:00") {
+  return {
+    upload_id: "upload-1",
+    status: "completed",
+    persona: "filmmaker",
+    fidelity_tier: "Restore",
+    grain_preset: "Heavy",
+    detection_snapshot: {
+      upload_id: "upload-1",
+      detection_id: "detect-1",
+      job_id: "upload:upload-1",
+      era: "1970s Super 8 Film",
+      confidence: 0.61,
+      manual_confirmation_required: true,
+      top_candidates: [],
+      forensic_markers: { grain_structure: "consumer film grain", color_saturation: 0.58, format_artifacts: ["frame_jitter"] },
+      warnings: [],
+      processing_timestamp: "2026-03-13T00:00:00+00:00",
+      source: "system",
+      model_version: "deterministic-fallback",
+      prompt_version: "v1",
+      estimated_usage_minutes: 3,
+    },
+    resolved_fidelity_profile: { tier: "Restore", grain_preset: "Heavy" },
+    relative_cost_multiplier: 1.5,
+    relative_processing_time_band: "<4 min/min",
+    job_payload_preview: {
+      media_uri: "gs://chronos-test-bucket/uploads/phase4-user/upload-1/archive.mov",
+      original_filename: "archive.mov",
+      mime_type: "video/quicktime",
+      estimated_duration_seconds: 180,
+      source_asset_checksum: "abc12345def67890",
+      fidelity_tier: "Restore",
+      reproducibility_mode: "perceptual_equivalence",
+      processing_mode: "balanced",
+      era_profile: {},
+      config: {},
+    },
+    configured_at: configuredAt,
+  };
+}
+
 export function resetPhase4AppMocks(options: { planTier?: PlanTier } = {}) {
   const planTier = options.planTier ?? "museum";
+  vi.restoreAllMocks();
   Object.values(phase4Mocks).forEach((mock) => {
     mock.mockReset();
   });
@@ -213,45 +256,7 @@ export function resetPhase4AppMocks(options: { planTier?: PlanTier } = {}) {
     prompt_version: "v1",
     estimated_usage_minutes: 3,
   });
-  phase4Mocks.saveUploadConfiguration.mockResolvedValue({
-    upload_id: "upload-1",
-    status: "completed",
-    persona: "filmmaker",
-    fidelity_tier: "Restore",
-    grain_preset: "Heavy",
-    detection_snapshot: {
-      upload_id: "upload-1",
-      detection_id: "detect-1",
-      job_id: "upload:upload-1",
-      era: "1970s Super 8 Film",
-      confidence: 0.61,
-      manual_confirmation_required: true,
-      top_candidates: [],
-      forensic_markers: { grain_structure: "consumer film grain", color_saturation: 0.58, format_artifacts: ["frame_jitter"] },
-      warnings: [],
-      processing_timestamp: "2026-03-13T00:00:00+00:00",
-      source: "system",
-      model_version: "deterministic-fallback",
-      prompt_version: "v1",
-      estimated_usage_minutes: 3,
-    },
-    resolved_fidelity_profile: { tier: "Restore", grain_preset: "Heavy" },
-    relative_cost_multiplier: 1.5,
-    relative_processing_time_band: "<4 min/min",
-    job_payload_preview: {
-      media_uri: "gs://chronos-test-bucket/uploads/phase4-user/upload-1/archive.mov",
-      original_filename: "archive.mov",
-      mime_type: "video/quicktime",
-      estimated_duration_seconds: 180,
-      source_asset_checksum: "abc12345def67890",
-      fidelity_tier: "Restore",
-      reproducibility_mode: "perceptual_equivalence",
-      processing_mode: "balanced",
-      era_profile: {},
-      config: {},
-    },
-    configured_at: "2026-03-13T00:05:00+00:00",
-  });
+  phase4Mocks.saveUploadConfiguration.mockResolvedValue(buildSavedConfiguration());
   phase4Mocks.executeUploadFlow.mockImplementation(async ({ handlers }) => {
     handlers.setStatus("completed");
     handlers.setProgress(100);
@@ -299,7 +304,7 @@ export function resetPhase4AppMocks(options: { planTier?: PlanTier } = {}) {
     proof_sha256: "def456",
     pdf_download_url: "https://example.invalid/proof.pdf",
     pdf_expires_at: "2026-03-20T00:00:00+00:00",
-    verification_summary: "verified",
+    verification_summary: { status: "verified" },
   });
   phase4Mocks.fetchTransformationManifest.mockResolvedValue({
     job_id: "job-phase4-1",

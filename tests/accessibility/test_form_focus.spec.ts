@@ -24,9 +24,11 @@ describe("Packet 4G form focus handling", () => {
     fireEvent.change(fileInput, { target: { files: [badFile] } });
     await user.click(screen.getByRole("button", { name: "Start Upload" }));
 
-    expect(fileInput).toHaveFocus();
+    await waitFor(() => expect(fileInput).toHaveFocus());
     expect(fileInput).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByRole("alert")).toHaveTextContent("Supported formats are MP4, AVI, MOV, MKV, TIFF, PNG, and JPEG.");
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("Supported formats are MP4, AVI, MOV, MKV, TIFF, PNG, and JPEG.");
+    expect(alert).not.toHaveFocus();
   });
 
   it("moves focus to the first invalid configuration field when saving without a persona", async () => {
@@ -44,9 +46,40 @@ describe("Packet 4G form focus handling", () => {
     await user.click(screen.getByRole("button", { name: "Save Configuration" }));
 
     const personaSelect = screen.getByLabelText("Select user persona");
-    expect(personaSelect).toHaveFocus();
+    await waitFor(() => expect(personaSelect).toHaveFocus());
     expect(personaSelect).toHaveAttribute("aria-invalid", "true");
     expect(personaSelect).toHaveAttribute("aria-describedby", "packet4g-form-error");
-    expect(screen.getByRole("alert")).toHaveTextContent("Select a persona before saving the Packet 4G configuration.");
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("Select a persona before saving the Packet 4G configuration.");
+    expect(alert).not.toHaveFocus();
+  });
+
+  it("clears stale field targeting before surfacing runtime configuration errors", async () => {
+    const user = userEvent.setup();
+    renderPhase4App();
+
+    const file = new File(["12345"], "archive.mov", { type: "video/quicktime" });
+    await user.upload(screen.getByLabelText("Media file"), file);
+    await user.click(screen.getByRole("button", { name: "Start Upload" }));
+    await waitFor(() => expect(phase4Mocks.fetchFidelityCatalog).toHaveBeenCalled());
+    await user.click(await screen.findByRole("button", { name: "Detect Era" }));
+    await waitFor(() => expect(phase4Mocks.detectUploadEra).toHaveBeenCalled());
+
+    const personaSelect = screen.getByLabelText("Select user persona");
+    await user.selectOptions(personaSelect, "");
+    await user.click(screen.getByRole("button", { name: "Save Configuration" }));
+    await waitFor(() => expect(personaSelect).toHaveFocus());
+    expect(personaSelect).toHaveAttribute("aria-invalid", "true");
+
+    phase4Mocks.saveUploadConfiguration.mockRejectedValueOnce(new Error("Unable to save the launch-ready configuration."));
+
+    await user.selectOptions(personaSelect, "filmmaker");
+    await user.click(screen.getByRole("button", { name: "Save Configuration" }));
+
+    const alert = await screen.findByRole("alert");
+    await waitFor(() => expect(alert).toHaveFocus());
+    expect(alert).toHaveTextContent("Unable to save the launch-ready configuration.");
+    expect(personaSelect).not.toHaveAttribute("aria-invalid", "true");
+    expect(personaSelect).not.toHaveAttribute("aria-describedby", "packet4g-form-error");
   });
 });

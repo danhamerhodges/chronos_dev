@@ -98,6 +98,22 @@ function deliveryActionLabel(action: DeliveryRetryAction | null): string {
   return "Retry Deletion Proof";
 }
 
+function isEditableShortcutTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  if (target.isContentEditable) {
+    return true;
+  }
+  return Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+}
+
+function isShortcutFocusableTarget(
+  target: HTMLButtonElement | HTMLInputElement | HTMLSelectElement | null,
+): target is HTMLButtonElement | HTMLInputElement | HTMLSelectElement {
+  return Boolean(target) && !target.disabled;
+}
+
 export function App() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [uploadSession, setUploadSession] = useState<UploadResponse | null>(null);
@@ -188,10 +204,10 @@ export function App() {
   }, [deliveryError]);
 
   useEffect(() => {
-    if (error) {
+    if (error && !formErrorTarget) {
       appErrorRef.current?.focus();
     }
-  }, [error]);
+  }, [error, formErrorTarget]);
 
   function resetConfigurationState(): void {
     setEstimatedDurationSeconds(180);
@@ -277,6 +293,11 @@ export function App() {
     window.setTimeout(() => focusFormTarget(target), 0);
   }
 
+  function setAppError(message: string): void {
+    setFormErrorTarget(null);
+    setError(message);
+  }
+
   function clearFormError(): void {
     setFormErrorTarget(null);
     setError("");
@@ -332,7 +353,7 @@ export function App() {
         setSelectedGrainPreset(nextGrain);
       } catch (caught) {
         if (!ignore) {
-          setError(caught instanceof Error ? caught.message : "Unable to load Packet 4B configuration options.");
+          setAppError(caught instanceof Error ? caught.message : "Unable to load Packet 4B configuration options.");
         }
       } finally {
         if (!ignore) {
@@ -378,17 +399,23 @@ export function App() {
       if (showOverrideModal || showLaunchCostModal || showKeyboardShortcutsModal) {
         return;
       }
+      if (isEditableShortcutTarget(event.target)) {
+        return;
+      }
       if (!(event.metaKey || event.ctrlKey) || !event.shiftKey) {
         return;
       }
       const key = event.key.toLowerCase();
       if (key === "u") {
+        if (!isShortcutFocusableTarget(fileInputRef.current)) {
+          return;
+        }
         event.preventDefault();
         fileInputRef.current?.focus();
         return;
       }
       if (key === "s") {
-        if (saveConfigurationButtonRef.current?.disabled) {
+        if (!isShortcutFocusableTarget(saveConfigurationButtonRef.current)) {
           return;
         }
         event.preventDefault();
@@ -396,7 +423,7 @@ export function App() {
         return;
       }
       if (key === "l") {
-        if (!canStartSavedConfiguration || jobBusy || processingJob) {
+        if (!isShortcutFocusableTarget(launchReviewButtonRef.current)) {
           return;
         }
         event.preventDefault();
@@ -404,7 +431,7 @@ export function App() {
         return;
       }
       if (key === "e") {
-        if (!exportReady) {
+        if (!isShortcutFocusableTarget(primaryDeliveryButtonRef.current)) {
           return;
         }
         event.preventDefault();
@@ -416,7 +443,7 @@ export function App() {
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [canStartSavedConfiguration, exportReady, jobBusy, processingJob, showKeyboardShortcutsModal, showLaunchCostModal, showOverrideModal]);
+  }, [showKeyboardShortcutsModal, showLaunchCostModal, showOverrideModal]);
 
   async function runUpload(resumeExisting: boolean): Promise<void> {
     if (!selectedFile) {
@@ -444,7 +471,7 @@ export function App() {
           setProgress,
           setEtaSeconds,
           setCanResume,
-          setError,
+          setError: setAppError,
         },
       });
     } finally {
@@ -513,7 +540,7 @@ export function App() {
       setOverrideReason(overrides.override_reason ?? "");
       setShowOverrideModal(false);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to detect the upload era.");
+      setAppError(caught instanceof Error ? caught.message : "Unable to detect the upload era.");
     } finally {
       setConfigBusy(false);
     }
@@ -552,7 +579,7 @@ export function App() {
       clearFormError();
       setStatusNotice("");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to save the launch-ready configuration.");
+      setAppError(caught instanceof Error ? caught.message : "Unable to save the launch-ready configuration.");
     } finally {
       setConfigBusy(false);
     }
@@ -738,7 +765,7 @@ export function App() {
         );
       }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to cancel processing.");
+      setAppError(caught instanceof Error ? caught.message : "Unable to cancel processing.");
     } finally {
       if (activeUploadIdRef.current === requestUploadId && activeJobIdRef.current === requestJobId) {
         setJobBusy(false);
