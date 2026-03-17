@@ -124,7 +124,7 @@ set +a
 - Packet: `Packet 4G`
 - Requirements: `DS-002`, `DS-003`, `DS-004`, `DS-005`
 - Candidate branch: `codex/packet4g-accessibility-closeout`
-- Candidate SHA: final Packet 4G completion commit on `codex/packet4g-accessibility-closeout`
+- Candidate SHA: `2a65a08cf1da201b1f8048d7eb4bf9baee311d37`
 - Closure date: 2026-03-17
 
 ## Packet 4G Summary
