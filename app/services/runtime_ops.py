@@ -414,6 +414,39 @@ def release_gpu(job_id: str, *, gpu_runtime_seconds: int) -> dict[str, Any]:
     return reconcile_gpu_pool(queue_depth=0, queue_age_seconds=0.0)
 
 
+def autoscaler_idle_scale_down_healthy(snapshot: dict[str, Any] | None = None) -> bool:
+    effective_snapshot = snapshot or current_runtime_snapshot()
+    queue_depth = int(effective_snapshot.get("queue_depth", 0) or 0)
+    active_warm_instances = int(effective_snapshot.get("active_warm_instances", 0) or 0)
+    desired_warm_instances = int(effective_snapshot.get("desired_warm_instances", 0) or 0)
+    min_warm = max(settings.gpu_pool_min_warm_instances, 0)
+    if queue_depth > 0:
+        return active_warm_instances >= desired_warm_instances
+
+    leases = RuntimeOpsRepository().list_gpu_leases()
+    idle_warm = [
+        lease
+        for lease in leases
+        if lease.get("lease_state") != "released"
+        and lease.get("is_warm") is True
+        and lease.get("lease_state") == "idle"
+    ]
+    if len(idle_warm) <= min_warm:
+        return True
+
+    now = datetime.now(timezone.utc)
+    sorted_idle = sorted(
+        idle_warm,
+        key=lambda lease: _parse_iso8601(str(lease.get("expires_at") or "")) or datetime.min.replace(tzinfo=timezone.utc),
+    )
+    extra_idle = sorted_idle[: len(sorted_idle) - min_warm]
+    for lease in extra_idle:
+        expires_at = _parse_iso8601(str(lease.get("expires_at") or ""))
+        if expires_at is None or expires_at <= now:
+            return False
+    return True
+
+
 def _route_alert(*, route: str, payload: dict[str, Any]) -> None:
     if settings.alert_routing_mode.lower() == "memory":
         return

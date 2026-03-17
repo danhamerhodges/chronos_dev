@@ -28,6 +28,7 @@ from app.observability.monitoring import (
 from app.services.fidelity_profiles import fidelity_profile_for
 from app.services.billing_service import BillingService, billable_minutes_for_duration
 from app.services.cost_estimation import CostEstimationService, calculate_operational_cost_summary
+from app.services.cost_ops import refresh_cost_ops_signals
 from app.services.job_dispatcher import (
     pop_next_dispatch_message,
     publish_job,
@@ -108,6 +109,16 @@ def _consume_usage_and_reconcile(
         record_job_runtime_event("cost_reconciliation_persist_failed")
         _LOGGER.warning(
             "Failed to persist cost reconciliation summary for terminal job %s.",
+            job["job_id"],
+            exc_info=True,
+        )
+        return reconciliation_summary
+    try:
+        refresh_cost_ops_signals()
+    except Exception:
+        record_job_runtime_event("cost_ops_signal_refresh_failed")
+        _LOGGER.warning(
+            "Failed to refresh cost ops signals for terminal job %s.",
             job["job_id"],
             exc_info=True,
         )

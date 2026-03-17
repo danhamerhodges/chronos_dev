@@ -19,6 +19,9 @@ class StripeConfig:
     price_id: str
     overage_product_id: str
     overage_price_id: str
+    hobbyist_price_id: str = ""
+    pro_price_id: str = ""
+    museum_price_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -26,6 +29,21 @@ class BillingPricingMetadata:
     subscription_price_id: str
     overage_price_id: str
     overage_rate_usd_per_minute: float
+    subscription_price_usd: float = 0.0
+    subscription_price_ids_by_tier: dict[str, str] | None = None
+    subscription_prices_usd_by_tier: dict[str, float] | None = None
+
+    def subscription_price_id_for_tier(self, plan_tier: str) -> str:
+        normalized_tier = plan_tier.strip().lower()
+        tier_mapping = self.subscription_price_ids_by_tier or {}
+        return str(tier_mapping.get(normalized_tier) or self.subscription_price_id)
+
+    def subscription_price_usd_for_tier(self, plan_tier: str) -> float:
+        normalized_tier = plan_tier.strip().lower()
+        tier_mapping = self.subscription_prices_usd_by_tier or {}
+        if normalized_tier in tier_mapping:
+            return float(tier_mapping[normalized_tier])
+        return float(self.subscription_price_usd)
 
 
 def load_stripe_config() -> StripeConfig:
@@ -33,17 +51,22 @@ def load_stripe_config() -> StripeConfig:
         secret_key=settings.stripe_secret_key,
         product_id=settings.stripe_product_id,
         price_id=settings.stripe_price_id,
+        hobbyist_price_id=settings.stripe_hobbyist_price_id,
+        pro_price_id=settings.stripe_pro_price_id,
+        museum_price_id=settings.stripe_museum_price_id,
         overage_product_id=settings.stripe_overage_product_id,
         overage_price_id=settings.stripe_overage_price_id,
     )
 
 
 def validate_no_hardcoded_prices(config: StripeConfig) -> bool:
+    tier_price_ids = [config.hobbyist_price_id, config.pro_price_id, config.museum_price_id]
     return (
         config.product_id.startswith("prod_")
         and config.price_id.startswith("price_")
         and config.overage_product_id.startswith("prod_")
         and config.overage_price_id.startswith("price_")
+        and all((not price_id) or price_id.startswith("price_") for price_id in tier_price_ids)
     )
 
 
@@ -89,6 +112,28 @@ def _cached_overage_rate(secret_key: str, overage_price_id: str, cache_bucket: i
     return float((Decimal(str(raw_amount)) / Decimal("100")).quantize(Decimal("0.0001")))
 
 
+@lru_cache(maxsize=16)
+def _cached_subscription_price(secret_key: str, subscription_price_id: str, cache_bucket: int) -> float:
+    del cache_bucket
+    stripe.api_key = secret_key
+    price = stripe.Price.retrieve(subscription_price_id)
+    raw_amount = price.get("unit_amount_decimal")
+    if raw_amount is None:
+        raw_amount = price.get("unit_amount")
+    if raw_amount is None:
+        raise ValueError("Stripe subscription price is missing unit_amount metadata.")
+    return float((Decimal(str(raw_amount)) / Decimal("100")).quantize(Decimal("0.0001")))
+
+
+def _subscription_price_ids_by_tier(config: StripeConfig) -> dict[str, str]:
+    default_paid_price_id = config.price_id
+    return {
+        "hobbyist": config.hobbyist_price_id,
+        "pro": config.pro_price_id or default_paid_price_id,
+        "museum": config.museum_price_id or default_paid_price_id,
+    }
+
+
 def retrieve_catalog_entities(config: StripeConfig | None = None) -> tuple[Any, Any]:
     """Retrieve Stripe Product and Price via the Stripe SDK."""
     cfg = config or load_stripe_config()
@@ -106,14 +151,31 @@ def resolve_billing_pricing_metadata(
     cfg = config or load_stripe_config()
     if not cfg.secret_key:
         raise ValueError("STRIPE_SECRET_KEY is required for billing price resolution.")
+    cache_bucket = _cache_bucket(cache_ttl_seconds)
+    subscription_price_ids_by_tier = _subscription_price_ids_by_tier(cfg)
+    subscription_prices_usd_by_tier = {
+        tier: (
+            _cached_subscription_price(
+                cfg.secret_key,
+                price_id,
+                cache_bucket,
+            )
+            if price_id
+            else 0.0
+        )
+        for tier, price_id in subscription_price_ids_by_tier.items()
+    }
     return BillingPricingMetadata(
         subscription_price_id=cfg.price_id,
         overage_price_id=cfg.overage_price_id,
         overage_rate_usd_per_minute=_cached_overage_rate(
             cfg.secret_key,
             cfg.overage_price_id,
-            _cache_bucket(cache_ttl_seconds),
+            cache_bucket,
         ),
+        subscription_price_usd=subscription_prices_usd_by_tier.get("pro", 0.0),
+        subscription_price_ids_by_tier=subscription_price_ids_by_tier,
+        subscription_prices_usd_by_tier=subscription_prices_usd_by_tier,
     )
 
 

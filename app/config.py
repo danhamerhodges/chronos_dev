@@ -49,6 +49,17 @@ class Settings:
     stripe_webhook_secret: str = os.getenv("STRIPE_WEBHOOK_SECRET", "")
     stripe_product_id: str = _env_with_fallback("STRIPE_PRODUCT_ID", "STRIPE_SUBSCRIPTION_PRODUCT_ID")
     stripe_price_id: str = _env_with_fallback("STRIPE_PRICE_ID", "STRIPE_SUBSCRIPTION_PRICE_ID")
+    stripe_hobbyist_price_id: str = _env_with_fallback("STRIPE_HOBBYIST_PRICE_ID")
+    stripe_pro_price_id: str = _env_with_fallback(
+        "STRIPE_PRO_PRICE_ID",
+        "STRIPE_PRICE_ID",
+        "STRIPE_SUBSCRIPTION_PRICE_ID",
+    )
+    stripe_museum_price_id: str = _env_with_fallback(
+        "STRIPE_MUSEUM_PRICE_ID",
+        "STRIPE_PRICE_ID",
+        "STRIPE_SUBSCRIPTION_PRICE_ID",
+    )
     stripe_overage_product_id: str = _env_with_fallback(
         "STRIPE_OVERAGE_PRODUCT_ID",
         default=_env_with_fallback("STRIPE_PRODUCT_ID", "STRIPE_SUBSCRIPTION_PRODUCT_ID"),

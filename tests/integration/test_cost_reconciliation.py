@@ -81,3 +81,27 @@ def test_terminal_reconciliation_uses_post_consumption_billing_state() -> None:
     assert payload["cost_estimate_summary"]["billing_breakdown_usd"]["estimated_charge_total_usd"] == 0.0
     assert payload["cost_reconciliation_summary"]["actual_usage_minutes"] == 3
     assert payload["cost_reconciliation_summary"]["actual_charge_total_usd"] == 1.5
+
+
+def test_terminal_job_still_completes_when_cost_signal_refresh_fails(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.job_runtime.refresh_cost_ops_signals",
+        lambda: (_ for _ in ()).throw(RuntimeError("cost ops unavailable")),
+    )
+
+    created = client.post(
+        "/v1/jobs",
+        headers=fake_auth_header("cost-signal-failure-user", tier="pro"),
+        json=valid_job_request(estimated_duration_seconds=90, fidelity_tier="Restore"),
+    ).json()
+
+    run_all_jobs()
+    response = client.get(
+        f"/v1/jobs/{created['job_id']}",
+        headers=fake_auth_header("cost-signal-failure-user", tier="pro"),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "completed"
+    assert payload["cost_reconciliation_summary"]["estimator_version"] == "packet4e-v1"

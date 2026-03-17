@@ -36,5 +36,35 @@ def reset_phase2_state(monkeypatch: pytest.MonkeyPatch) -> None:
             subscription_price_id="price_subscription",
             overage_price_id="price_overage",
             overage_rate_usd_per_minute=0.75,
+            subscription_price_usd=120.0,
+            subscription_price_ids_by_tier={
+                "hobbyist": "",
+                "pro": "price_subscription",
+                "museum": "price_subscription",
+            },
+            subscription_prices_usd_by_tier={
+                "hobbyist": 0.0,
+                "pro": 120.0,
+                "museum": 120.0,
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        "app.services.cost_ops.resolve_billing_pricing_metadata",
+        lambda: BillingPricingMetadata(
+            subscription_price_id="price_subscription",
+            overage_price_id="price_overage",
+            overage_rate_usd_per_minute=0.75,
+            subscription_price_usd=120.0,
+            subscription_price_ids_by_tier={
+                "hobbyist": "",
+                "pro": "price_subscription",
+                "museum": "price_subscription",
+            },
+            subscription_prices_usd_by_tier={
+                "hobbyist": 0.0,
+                "pro": 120.0,
+                "museum": 120.0,
+            },
         ),
     )
