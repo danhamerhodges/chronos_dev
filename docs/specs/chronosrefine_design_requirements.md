@@ -15,6 +15,7 @@
 5. DS-002 keyboard shortcuts made safe: Cmd/Ctrl+Shift combos to avoid browser/OS collisions
 6. Accessibility phases made referential: note added to align with Implementation Plan
 7. Color palette made explicit: primary/semantic colors enumerated here; neutral token details must stay aligned with repo-local design-token implementation until this file expands them further
+8. Phase 4 accessibility journey aligned to the implemented upload/configuration/launch/progress/export surfaces; preview-review obligations remain with Phase 5 `FR-006`
 
 ---
 
@@ -144,7 +145,9 @@ Design tokens are defined in this canonical design requirements document, includ
 
 ### DS-002: Keyboard Navigation
 
-**Description:** All interactive elements in the ChronosRefine web UI must be fully operable via keyboard without requiring a mouse.
+**Description:** All interactive elements in the implemented Phase 4 ChronosRefine web UI must be fully operable via keyboard without requiring a mouse.
+
+**Phase 4 scope note:** Preview-review keyboard obligations remain attached to Phase 5 `FR-006`; Phase 4 evidence is limited to the implemented upload, detection, configuration, launch review, processing/progress, and export/delivery journey.
 
 **Acceptance Criteria:**
 - AC-DS-002-01: All interactive elements (buttons, links, form fields, dropdowns, modals) are reachable via Tab key
@@ -154,11 +157,11 @@ Design tokens are defined in this canonical design requirements document, includ
 - AC-DS-002-05: Escape key closes modals and dropdowns
 - AC-DS-002-06: Arrow keys navigate within dropdowns and radio button groups
 - AC-DS-002-07: Space key toggles checkboxes and activates buttons
-- AC-DS-002-08: 100% of user journey steps (Upload → Detection → Preview → Launch → Audit → Export) completable via keyboard only
+- AC-DS-002-08: 100% of the implemented Phase 4 journey (Upload → Detection → Configure → Launch Review → Processing/Progress → Export/Delivery) completable via keyboard only
 - AC-DS-002-09: No keyboard traps (user can always navigate away from any element)
 - AC-DS-002-10: Skip navigation link provided to bypass repetitive navigation elements
 - AC-DS-002-11: Keyboard shortcuts documented in Help > Keyboard Shortcuts
-- AC-DS-002-12: Keyboard shortcuts MUST NOT override standard browser/OS shortcuts; conflicts resolved by using Cmd/Ctrl+Shift combos and providing customization in Settings.
+- AC-DS-002-12: Keyboard shortcuts MUST NOT override standard browser/OS shortcuts; conflicts are resolved by using Cmd/Ctrl+Shift combos and documenting them in Help > Keyboard Shortcuts.
 
 **Keyboard Shortcuts:**
 
@@ -170,22 +173,22 @@ Design tokens are defined in this canonical design requirements document, includ
 | **Escape** | Close modal, dropdown, or cancel action | Modals, dropdowns |
 | **Space** | Toggle checkbox or activate button | Checkboxes, buttons |
 | **Arrow Up/Down** | Navigate dropdown options or radio buttons | Dropdowns, radio groups |
-| **Cmd/Ctrl + Shift + U** | Open upload modal | Global |
-| **Cmd/Ctrl + Shift + P** | Generate preview keyframes | After upload |
-| **Cmd/Ctrl + Shift + L** | Launch processing job | After preview |
-| **Cmd/Ctrl + Shift + E** | Export results | After job completion |
+| **Cmd/Ctrl + Shift + U** | Focus the file-selection control | Global |
+| **Cmd/Ctrl + Shift + S** | Focus the save-configuration action | After upload + detection |
+| **Cmd/Ctrl + Shift + L** | Focus the launch-cost review action | After saved configuration |
+| **Cmd/Ctrl + Shift + E** | Jump to the primary delivery/export action | After job completion |
 
 **Definition of Done:**
 - DoD-DS-002-01: All 50+ interactive elements tested with keyboard-only navigation (100% reachable, 0 keyboard traps)
-- DoD-DS-002-02: Tab order verified for all 7 pages (Upload, Detection, Preview, Configure, Launch, Audit, Export) with logical flow (left-to-right, top-to-bottom)
+- DoD-DS-002-02: Tab order verified across the implemented Phase 4 sections (Upload, Detection, Configure, Launch Review, Processing/Progress, Export/Delivery) with logical flow (left-to-right, top-to-bottom)
 - DoD-DS-002-03: Focus indicators visible with 2px outline and meet 3:1 contrast ratio (verified with axe-core, 100% pass rate on 50+ elements)
-- DoD-DS-002-04: All 10 keyboard shortcuts implemented and tested with 30+ scenarios (activation, conflict resolution, documentation)
+- DoD-DS-002-04: The Packet 4G keyboard shortcut set is implemented and tested for activation, conflict avoidance, and Help-surface documentation
 - DoD-DS-002-05: Skip navigation link tested with 8+ scenarios (jumps to main content, visible on focus, works with screen readers)
 - DoD-DS-002-06: No keyboard traps detected in 40+ manual audit scenarios (modals, dropdowns, forms, dynamic content)
-- DoD-DS-002-07: Keyboard shortcuts documentation created in Help section with interactive tutorial (tested with 5+ users)
+- DoD-DS-002-07: Keyboard shortcuts documentation is available in Help > Keyboard Shortcuts and covered by rendered accessibility tests
 - DoD-DS-002-08: Code review approved by 2+ engineers with accessibility checklist (WCAG 2.1 AA, ARIA best practices, focus management)
-- DoD-DS-002-09: Third-party accessibility audit passed (0 critical issues, <5 minor issues, all remediated)
-- DoD-DS-002-10: Code quality: ESLint passes, no focus management bugs (tested with 25+ Playwright scenarios)
+- DoD-DS-002-09: Third-party accessibility audit passed for the implemented Phase 4 journey (0 critical issues, <5 minor issues, all remediated)
+- DoD-DS-002-10: Code quality: ESLint passes, rendered accessibility suites pass, and no focus-management bugs remain in the shared modal, form, and delivery flows
 
 **Verification Method:** UI Validation (Playwright tests + manual keyboard navigation audit)
 
@@ -200,7 +203,9 @@ Design tokens are defined in this canonical design requirements document, includ
 
 ### DS-003: Screen Reader Support
 
-**Description:** All content and functionality in the ChronosRefine web UI must be accessible to users of screen readers (JAWS, NVDA, VoiceOver).
+**Description:** All content and functionality in the implemented Phase 4 ChronosRefine web UI must be accessible to users of screen readers (JAWS, NVDA, VoiceOver).
+
+**Phase 4 scope note:** Preview-review screen-reader obligations remain attached to Phase 5 `FR-006`; Phase 4 screen-reader evidence stops at the shipped launch/progress/export experience.
 
 **Acceptance Criteria:**
 - AC-DS-003-01: All images have descriptive alt text (not "image" or "icon")
@@ -214,7 +219,7 @@ Design tokens are defined in this canonical design requirements document, includ
 - AC-DS-003-09: Screen reader announces all state changes (job started, job completed, error occurred)
 - AC-DS-003-10: Screen reader announces all form validation errors
 - AC-DS-003-11: Screen reader announces all Uncertainty Callouts with full context
-- AC-DS-003-12: Screen reader users can complete full user journey without sighted assistance
+- AC-DS-003-12: Screen reader users can complete the implemented Phase 4 journey without sighted assistance
 
 **ARIA Labels for Key Components:**
 
@@ -223,23 +228,23 @@ Design tokens are defined in this canonical design requirements document, includ
 | **Upload Button** | button | "Upload media files for restoration" |
 | **Era Dropdown** | combobox | "Select media era (currently: 1960s Kodachrome)" |
 | **Fidelity Tier Selector** | radiogroup | "Select restoration intensity: Conserve, Restore, or Enhance" |
-| **Preview Keyframes** | region | "Preview keyframes: 10 representative frames from your video" |
-| **Launch Button** | button | "Launch restoration job (estimated cost: $12.50, 25 minutes)" |
+| **Launch Review Button** | button | "Review cost and start processing" |
+| **Launch Cost Modal** | dialog | "Launch cost review with estimate, overage approval, and start processing actions" |
 | **Progress Bar** | progressbar | "Processing: 45% complete (9 of 20 segments)" |
 | **Uncertainty Callout** | alert | "Low confidence warning: Frame 145 - Historical uniform color ambiguous" |
-| **Export Button** | button | "Download restored media and transformation manifest (ZIP, 2.3 GB)" |
+| **Export Button** | button | "Download AV1 package for the completed job" |
 
 **Definition of Done:**
 - DoD-DS-003-01: All 100+ images have descriptive alt text (manual audit, 0 generic alt text like "image" or "icon")
 - DoD-DS-003-02: All 30+ form fields have associated labels (automated test with axe-core, 100% pass rate)
 - DoD-DS-003-03: All 40+ buttons have descriptive text or aria-label (automated test, 100% pass rate)
 - DoD-DS-003-04: All 25+ ARIA roles implemented correctly (automated test with axe-core, 100% pass rate)
-- DoD-DS-003-05: All 8+ aria-live regions tested with JAWS, NVDA, VoiceOver (manual audit, 100% announcement accuracy)
-- DoD-DS-003-06: All 15+ error messages announced correctly with full context (manual audit with 3 screen readers)
-- DoD-DS-003-07: Full user journey tested with screen reader (Upload → Detection → Preview → Configure → Launch → Audit → Export) with 3 screen readers (JAWS, NVDA, VoiceOver), 100% task completion
+- DoD-DS-003-05: All implemented aria-live regions tested with JAWS, NVDA, and VoiceOver (manual audit, 100% announcement accuracy)
+- DoD-DS-003-06: All current Phase 4 form and delivery error messages announced correctly with full context (manual audit with 3 screen readers)
+- DoD-DS-003-07: Full implemented Phase 4 journey tested with screen reader (Upload → Detection → Configure → Launch Review → Processing/Progress → Export/Delivery) with 3 screen readers (JAWS, NVDA, VoiceOver), 100% task completion
 - DoD-DS-003-08: Code review approved by 2+ engineers with ARIA best practices checklist (semantic HTML, ARIA roles, live regions, labels)
-- DoD-DS-003-09: Third-party accessibility audit passed (0 critical issues, <3 minor issues, all remediated)
-- DoD-DS-003-10: Code quality: ESLint passes, no ARIA misuse (validated with axe-core), semantic HTML verified
+- DoD-DS-003-09: Third-party accessibility audit passed for the implemented Phase 4 journey (0 critical issues, <3 minor issues, all remediated)
+- DoD-DS-003-10: Code quality: ESLint passes, rendered accessibility suites pass, no ARIA misuse remains, and semantic HTML is verified
 
 **Verification Method:** UI Validation (automated tests with axe-core + manual screen reader audit)
 
@@ -284,10 +289,10 @@ All color pairs used in product UI **must be verified** to meet WCAG 2.1 AA befo
 - DoD-DS-004-03: All 15+ button states verified (default, hover, active, disabled, focus) with 3:1 minimum contrast (75+ combinations tested)
 - DoD-DS-004-04: All 12+ form field borders verified with 3:1 contrast ratio (default, focus, error, success states)
 - DoD-DS-004-05: All 50+ focus indicators verified with 2px outline and 3:1 contrast ratio (automated test with axe-core)
-- DoD-DS-004-06: Color contrast documentation created in design system with contrast ratio matrix (9 colors × 9 colors = 81 combinations)
+- DoD-DS-004-06: Color contrast documentation created in the design system with contrast ratio matrix (9 colors × 9 colors = 81 combinations)
 - DoD-DS-004-07: Code review approved by 2+ engineers with WCAG 2.1 AA checklist (contrast ratios, color independence, visual clarity)
 - DoD-DS-004-08: Third-party accessibility audit passed (0 contrast violations)
-- DoD-DS-004-09: Code quality: All CSS color values documented with contrast ratios, no hardcoded colors (use CSS variables)
+- DoD-DS-004-09: Code quality: all CSS color values remain documented with contrast ratios, status/error states include non-color-only cues, and shared CSS variables stay the source of truth
 
 **Verification Method:** Automated (axe-core contrast checker) + Manual (visual audit)
 
@@ -304,29 +309,31 @@ All color pairs used in product UI **must be verified** to meet WCAG 2.1 AA befo
 
 **Description:** Focus must be managed appropriately during navigation and dynamic content updates to ensure keyboard and screen reader users maintain context.
 
+**Phase 4 scope note:** Preview-review focus obligations remain attached to Phase 5 `FR-006`; Phase 4 focus verification stops at the shipped launch/progress/export surfaces.
+
 **Acceptance Criteria:**
 - AC-DS-005-01: Focus moves to modal when opened
 - AC-DS-005-02: Focus returns to trigger element when modal closed
 - AC-DS-005-03: Focus moves to first error field when form validation fails
-- AC-DS-005-04: Focus moves to success message when job completes
+- AC-DS-005-04: Focus moves to terminal success, failure, or delivery-error messages when those updates require immediate user attention
 - AC-DS-005-05: Focus does not jump unexpectedly during page updates
-- AC-DS-005-06: Opening upload modal moves focus to "Select Files" button
-- AC-DS-005-07: Closing modal returns focus to "Upload" button that triggered it
+- AC-DS-005-06: Opening the era-override, launch-cost-review, or keyboard-shortcuts modal moves focus to the first actionable control inside the dialog
+- AC-DS-005-07: Closing a modal returns focus to the control that opened it
 - AC-DS-005-08: Form validation error moves focus to first invalid field with error message announced
-- AC-DS-005-09: Job completion notification receives focus with "Job completed successfully" announced
-- AC-DS-005-10: Preview keyframe generation does not steal focus from current element
+- AC-DS-005-09: Terminal completion and delivery retry states can receive focus with the current outcome announced
+- AC-DS-005-10: Processing progress, cost-estimate refreshes, and delivery updates do not steal focus from the current element
 - AC-DS-005-11: All focus indicators are visible with 2px outline and 3:1 contrast ratio
 
 **Definition of Done:**
-- DoD-DS-005-01: Focus management tested for all 8 modals (upload, era override, cost estimate, export, uncertainty callout, error, success, help) with 40+ scenarios
-- DoD-DS-005-02: Focus return tested when closing modals with 20+ scenarios (returns to trigger element, handles deleted elements, handles navigation away)
-- DoD-DS-005-03: Focus movement tested for form validation errors with 15+ scenarios (single error, multiple errors, async validation)
-- DoD-DS-005-04: Focus movement tested for job completion notifications with 10+ scenarios (success, partial success, failure)
-- DoD-DS-005-05: Focus stability tested during 20+ dynamic content updates (preview generation, progress updates, keyframe loading, metric calculations)
-- DoD-DS-005-06: Focus indicators visible with 2px outline and meet 3:1 contrast ratio on all 50+ interactive elements (verified with axe-core, 100% pass rate)
-- DoD-DS-005-07: Code review approved by 2+ engineers with focus management checklist (modal focus, focus return, focus stability, focus indicators)
-- DoD-DS-005-08: Third-party accessibility audit passed (0 focus management issues)
-- DoD-DS-005-09: Code quality: No focus jumps (tested with 30+ Playwright scenarios), focus trap implemented correctly in modals
+- DoD-DS-005-01: Focus management tested for the implemented Phase 4 modals (era override, launch cost review, keyboard shortcuts) with rendered and manual keyboard coverage
+- DoD-DS-005-02: Focus return tested when closing modals (returns to trigger element, handles repeated opens, handles trigger disablement)
+- DoD-DS-005-03: Focus movement tested for form validation errors covering missing file, missing persona, missing tier/configuration, and retry states
+- DoD-DS-005-04: Focus movement tested for terminal notifications and delivery errors covering success, partial, retryable delivery errors, and blocking alerts
+- DoD-DS-005-05: Focus stability tested during processing progress, cost-estimate refresh, and delivery-status updates with no unexpected focus jumps
+- DoD-DS-005-06: Focus indicators visible with 2px outline and meet 3:1 contrast ratio on all shared interactive elements (verified by automated contrast coverage)
+- DoD-DS-005-07: Code review approved by 2+ engineers with focus-management checklist (modal focus, focus return, focus stability, focus indicators)
+- DoD-DS-005-08: Third-party accessibility audit passed for the implemented Phase 4 journey (0 focus-management issues)
+- DoD-DS-005-09: Code quality: no focus-jump regressions in shared modal, form, progress, and delivery flows, and focus trap behavior is verified across the current Phase 4 dialogs
 
 **Verification Method:** UI Validation (Playwright tests + manual keyboard navigation audit)
 

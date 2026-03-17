@@ -4,6 +4,8 @@ type ModalProps = React.PropsWithChildren<{
   open: boolean;
   onClose: () => void;
   labelledBy?: string;
+  describedBy?: string;
+  initialFocusSelector?: string;
 }>;
 
 function focusableElements(container: HTMLElement): HTMLElement[] {
@@ -14,7 +16,7 @@ function focusableElements(container: HTMLElement): HTMLElement[] {
   ).filter((element) => !element.hasAttribute("hidden") && element.getAttribute("aria-hidden") !== "true");
 }
 
-export function Modal({ open, onClose, labelledBy, children }: ModalProps) {
+export function Modal({ open, onClose, labelledBy, describedBy, initialFocusSelector, children }: ModalProps) {
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const lastFocusedElementRef = useRef<HTMLElement | null>(null);
   const onCloseRef = useRef(onClose);
@@ -29,8 +31,10 @@ export function Modal({ open, onClose, labelledBy, children }: ModalProps) {
     }
     lastFocusedElementRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const dialog = dialogRef.current;
+    const initialTarget =
+      (dialog?.querySelector<HTMLElement>(initialFocusSelector ?? '[data-autofocus="true"]') ?? null);
     const focusables = dialog ? focusableElements(dialog) : [];
-    (focusables[0] ?? dialog)?.focus();
+    (initialTarget ?? focusables[0] ?? dialog)?.focus();
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -64,7 +68,7 @@ export function Modal({ open, onClose, labelledBy, children }: ModalProps) {
       document.removeEventListener("keydown", handleKeyDown);
       lastFocusedElementRef.current?.focus();
     };
-  }, [open]);
+  }, [initialFocusSelector, open]);
 
   if (!open) return null;
   return (
@@ -72,24 +76,14 @@ export function Modal({ open, onClose, labelledBy, children }: ModalProps) {
       role="dialog"
       aria-modal="true"
       aria-labelledby={labelledBy}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0, 0, 0, 0.4)",
-        display: "grid",
-        placeItems: "center",
-      }}
+      aria-describedby={describedBy}
+      className="chronos-dialog-overlay"
       onClick={onClose}
     >
       <div
+        className="chronos-dialog"
         ref={dialogRef}
         tabIndex={-1}
-        style={{
-          minWidth: 320,
-          background: "white",
-          borderRadius: "var(--radius-md)",
-          padding: "var(--spacing-lg)",
-        }}
         onClick={(e) => e.stopPropagation()}
       >
         {children}

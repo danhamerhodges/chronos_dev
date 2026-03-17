@@ -7,6 +7,7 @@ type FidelityTierSelectorProps = {
   selectedTier: FidelityTier | null;
   onSelect: (tier: FidelityTier) => void;
   disabled?: boolean;
+  describedBy?: string;
 };
 
 export function FidelityTierSelector({
@@ -14,27 +15,25 @@ export function FidelityTierSelector({
   selectedTier,
   onSelect,
   disabled = false,
+  describedBy,
 }: FidelityTierSelectorProps) {
   return (
-    <div aria-label="Select restoration intensity: Conserve, Restore, or Enhance" role="radiogroup">
+    <div aria-describedby={describedBy} aria-label="Select restoration intensity: Conserve, Restore, or Enhance" role="radiogroup">
       <div style={{ display: "grid", gap: "var(--spacing-sm)", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
         {tiers.map((tier) => {
           const checked = tier.tier === selectedTier;
           const inputId = `fidelity-tier-${tier.tier.toLowerCase()}`;
           return (
             <label
+              className={[
+                "chronos-radio-card",
+                checked ? "chronos-radio-card--selected" : "",
+                disabled ? "chronos-radio-card--disabled" : "",
+              ]
+                .filter(Boolean)
+                .join(" ")}
               htmlFor={inputId}
               key={tier.tier}
-              style={{
-                display: "grid",
-                gap: "var(--spacing-xs)",
-                border: checked ? "2px solid var(--color-brand-primary)" : "1px solid #c9d4e0",
-                borderRadius: "var(--radius-md)",
-                padding: "var(--spacing-md)",
-                background: checked ? "#edf5fb" : "white",
-                cursor: disabled ? "not-allowed" : "pointer",
-                opacity: disabled ? 0.7 : 1,
-              }}
             >
               <span style={{ display: "flex", alignItems: "center", gap: "var(--spacing-xs)" }}>
                 <input

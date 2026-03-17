@@ -537,7 +537,7 @@ describe("Packet 4B App flow", () => {
 
     await user.click(screen.getByRole("button", { name: "Save Configuration" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Select a persona before saving the Packet 4B configuration.",
+      "Select a persona before saving the Packet 4G configuration.",
     );
   });
 
