@@ -124,12 +124,12 @@ set +a
 - Packet: `Packet 4G`
 - Requirements: `DS-002`, `DS-003`, `DS-004`, `DS-005`
 - Candidate branch: `codex/packet4g-accessibility-closeout`
-- Candidate SHA: pending final Packet 4G manual-evidence commit
-- Closure date: pending manual Packet 4G accessibility verification
+- Candidate SHA: final Packet 4G completion commit on `codex/packet4g-accessibility-closeout`
+- Closure date: 2026-03-17
 
 ## Packet 4G Summary
 
-Packet 4G is in progress on the candidate branch for the implemented upload, detection, configuration, launch-review, processing/progress, and export/delivery journey. The current branch adds app-level skip navigation, semantic `main` landmarking, Help-documented safe shortcuts for existing Phase 4 actions, shared focus/contrast primitives, and rendered DS-002 through DS-005 coverage without pulling preview-review UX forward from Phase 5 `FR-006`. Automated evidence is complete; the manual browser and screen-reader closeout matrix below is still pending before Packet 4G can be counted complete on the candidate branch.
+Packet 4G is complete on the candidate branch for the implemented upload, detection, configuration, launch-review, processing/progress, and export/delivery journey. The current branch adds app-level skip navigation, semantic `main` landmarking, Help-documented safe shortcuts for existing Phase 4 actions, shared focus/contrast primitives, and rendered DS-002 through DS-005 coverage without pulling preview-review UX forward from Phase 5 `FR-006`. Automated evidence and the manual browser/screen-reader closeout matrix below are complete, so Packet 4G can be counted complete on the candidate branch.
 
 ## Packet 4G Verification Commands
 
@@ -156,15 +156,15 @@ scripts/validate_codex_setup.sh
 
 ## Packet 4G Manual Verification Matrix
 
-This matrix is the remaining candidate-branch closeout checklist for Packet 4G. It keeps preview-review accessibility obligations with Phase 5 `FR-006` and limits Phase 4 evidence to the shipped UI journey.
+This matrix records the candidate-branch closeout evidence for Packet 4G. It keeps preview-review accessibility obligations with Phase 5 `FR-006` and limits Phase 4 evidence to the shipped UI journey.
 
 | Area | Scope | Evidence / Status |
 |---|---|---|
-| Chrome | Upload → Detection → Configure → Launch Review → Processing/Progress → Export/Delivery | Pending manual verification on the candidate branch |
-| Firefox | Upload → Detection → Configure → Launch Review → Processing/Progress → Export/Delivery | Pending manual verification on the candidate branch |
-| Safari/WebKit | Upload → Detection → Configure → Launch Review → Processing/Progress → Export/Delivery | Pending manual verification on the candidate branch |
-| Keyboard-only sweep | Skip link, logical tab order, safe shortcuts, modal trap/escape, focus return, first-error focus, no focus steal | Pending manual verification on the candidate branch |
-| Screen-reader pass summary | Labels, roles, aria-describedby, aria-live announcements, runtime status/delivery updates | Pending manual verification on the candidate branch |
+| Chrome | Upload → Detection → Configure → Launch Review → Processing/Progress → Export/Delivery | Manual verification passed on `2026-03-16` against the candidate branch at `http://127.0.0.1:5174/` with the Packet 4G local backend/frontend pair (`127.0.0.1:8001` / `127.0.0.1:5174`) |
+| Firefox | Upload → Detection → Configure → Launch Review → Processing/Progress → Export/Delivery | Manual verification passed on `2026-03-16` against the candidate branch at `http://127.0.0.1:5174/` with the Packet 4G local backend/frontend pair (`127.0.0.1:8001` / `127.0.0.1:5174`) |
+| Safari/WebKit | Upload → Detection → Configure → Launch Review → Processing/Progress → Export/Delivery | Manual verification passed on `2026-03-16` against the candidate branch at `http://127.0.0.1:5174/` with the Packet 4G local backend/frontend pair (`127.0.0.1:8001` / `127.0.0.1:5174`) |
+| Keyboard-only sweep | Skip link, logical tab order, safe shortcuts, modal trap/escape, focus return, first-error focus, no focus steal | Manual verification passed on `2026-03-16` across Chrome, Firefox, and Safari/WebKit on the candidate branch |
+| Screen-reader pass summary | Labels, roles, aria-describedby, aria-live announcements, runtime status/delivery updates | Manual verification passed on `2026-03-17` with VoiceOver coverage for labels, roles, described-by wiring, live-region announcements, and no unexpected focus steal during progress, estimate refresh, or delivery updates |
 | Contrast evidence | Buttons, inputs, focus indicators, alerts, status notices, shared tokens | Automated evidence in `tests/accessibility/test_color_contrast.spec.ts`, `tests/accessibility/test_button_contrast.spec.ts`, and `tests/accessibility/test_focus_contrast.spec.ts` |
 
 ## Packet 4G Scope Notes
