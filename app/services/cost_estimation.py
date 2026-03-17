@@ -45,7 +45,7 @@ def calculate_operational_cost_summary(
     }
 
 
-def _operational_breakdown(
+def calculate_operational_cost_breakdown(
     *,
     gpu_seconds: int,
     storage_operations: int,
@@ -130,7 +130,7 @@ class CostEstimationService:
             access_token=access_token,
         )
         segment_count = max(ceil(max(estimated_duration_seconds, 1) / SEGMENT_DURATION_SECONDS), 1)
-        operational_breakdown = _operational_breakdown(
+        operational_breakdown = calculate_operational_cost_breakdown(
             gpu_seconds=estimated_duration_seconds,
             storage_operations=segment_count + 1,
             api_calls=segment_count,
@@ -213,5 +213,7 @@ class CostEstimationService:
             estimator_version=summary["estimator_version"],
             delta_percent=summary["delta_percent"],
             outlier=summary["outlier_flagged"],
+            actual_total_cost_usd=actual_total,
+            actual_charge_total_usd=summary["actual_charge_total_usd"],
         )
         return summary

@@ -741,6 +741,10 @@ class _MemoryJobRepository:
         rows = [dict(record) for record in _STORE.jobs.values() if record["owner_user_id"] == owner_user_id]
         return sorted(rows, key=lambda item: item["created_at"], reverse=True)
 
+    def list_all_jobs(self) -> list[dict[str, Any]]:
+        rows = [dict(record) for record in _STORE.jobs.values()]
+        return sorted(rows, key=lambda item: item["created_at"], reverse=True)
+
     def list_segments(self, job_id: str, *, owner_user_id: str | None = None, access_token: str | None = None) -> list[dict[str, Any]]:
         del access_token
         job = _STORE.jobs.get(job_id)
@@ -2468,6 +2472,12 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
             rows = cur.fetchall()
         return [self._job_from_row(row) for row in rows]
 
+    def list_all_jobs(self) -> list[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("select * from public.media_jobs order by created_at desc")
+            rows = cur.fetchall()
+        return [self._job_from_row(row) for row in rows]
+
     def list_segments(self, job_id: str, *, owner_user_id: str | None = None, access_token: str | None = None) -> list[dict[str, Any]]:
         if access_token:
             headers = self._client.user_scoped_headers(access_token)
@@ -3443,6 +3453,9 @@ class JobRepository:
 
     def list_jobs(self, *, owner_user_id: str, access_token: str | None = None) -> list[dict[str, Any]]:
         return self._backend.list_jobs(owner_user_id=owner_user_id, access_token=access_token)
+
+    def list_all_jobs(self) -> list[dict[str, Any]]:
+        return self._backend.list_all_jobs()
 
     def list_segments(
         self,
