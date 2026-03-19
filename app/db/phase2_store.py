@@ -66,6 +66,24 @@ def _preview_configuration_cache_fingerprint(job_payload_preview: dict[str, Any]
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
+def _parse_job_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _cost_ops_job_anchor(job: dict[str, Any]) -> datetime | None:
+    reconciliation_summary = job.get("cost_reconciliation_summary") or {}
+    for candidate in (
+        reconciliation_summary.get("reconciled_at"),
+        job.get("completed_at"),
+    ):
+        parsed = _parse_job_timestamp(str(candidate or ""))
+        if parsed is not None:
+            return parsed
+    return None
+
+
 _SUPABASE_JOB_JSON_FIELDS = {
     "failed_segments",
     "warnings",
@@ -744,6 +762,19 @@ class _MemoryJobRepository:
     def list_all_jobs(self) -> list[dict[str, Any]]:
         rows = [dict(record) for record in _STORE.jobs.values()]
         return sorted(rows, key=lambda item: item["created_at"], reverse=True)
+
+    def list_cost_ops_jobs_since(self, *, earliest_timestamp: datetime) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for record in _STORE.jobs.values():
+            if record.get("status") != JobStatus.COMPLETED.value:
+                continue
+            if not record.get("cost_reconciliation_summary"):
+                continue
+            anchor = _cost_ops_job_anchor(record)
+            if anchor is None or anchor < earliest_timestamp:
+                continue
+            rows.append(dict(record))
+        return sorted(rows, key=lambda item: _cost_ops_job_anchor(item) or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
 
     def list_segments(self, job_id: str, *, owner_user_id: str | None = None, access_token: str | None = None) -> list[dict[str, Any]]:
         del access_token
@@ -2478,6 +2509,28 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
             rows = cur.fetchall()
         return [self._job_from_row(row) for row in rows]
 
+    def list_cost_ops_jobs_since(self, *, earliest_timestamp: datetime) -> list[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                select *
+                from public.media_jobs
+                where status = %s
+                  and cost_reconciliation_summary is not null
+                  and coalesce(
+                        nullif(cost_reconciliation_summary->>'reconciled_at', '')::timestamptz,
+                        completed_at
+                  ) >= %s
+                order by coalesce(
+                        nullif(cost_reconciliation_summary->>'reconciled_at', '')::timestamptz,
+                        completed_at
+                ) desc
+                """,
+                (JobStatus.COMPLETED.value, earliest_timestamp),
+            )
+            rows = cur.fetchall()
+        return [self._job_from_row(row) for row in rows]
+
     def list_segments(self, job_id: str, *, owner_user_id: str | None = None, access_token: str | None = None) -> list[dict[str, Any]]:
         if access_token:
             headers = self._client.user_scoped_headers(access_token)
@@ -3456,6 +3509,9 @@ class JobRepository:
 
     def list_all_jobs(self) -> list[dict[str, Any]]:
         return self._backend.list_all_jobs()
+
+    def list_cost_ops_jobs_since(self, *, earliest_timestamp: datetime) -> list[dict[str, Any]]:
+        return self._backend.list_cost_ops_jobs_since(earliest_timestamp=earliest_timestamp)
 
     def list_segments(
         self,

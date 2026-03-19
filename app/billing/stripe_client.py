@@ -36,7 +36,9 @@ class BillingPricingMetadata:
     def subscription_price_id_for_tier(self, plan_tier: str) -> str:
         normalized_tier = plan_tier.strip().lower()
         tier_mapping = self.subscription_price_ids_by_tier or {}
-        return str(tier_mapping.get(normalized_tier) or self.subscription_price_id)
+        if normalized_tier in tier_mapping:
+            return str(tier_mapping[normalized_tier])
+        return str(self.subscription_price_id)
 
     def subscription_price_usd_for_tier(self, plan_tier: str) -> float:
         normalized_tier = plan_tier.strip().lower()

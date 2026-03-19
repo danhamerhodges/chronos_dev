@@ -4,6 +4,7 @@ import os
 
 import pytest
 
+from app.config import Settings
 from app.billing.stripe_client import (
     StripeConfig,
     create_billing_portal_session,
@@ -89,11 +90,20 @@ def test_resolve_billing_pricing_metadata_supports_shared_price_fallback(monkeyp
 
     metadata = resolve_billing_pricing_metadata(cache_ttl_seconds=1)
 
+    assert metadata.subscription_price_id_for_tier("hobbyist") == ""
     assert metadata.subscription_price_id_for_tier("pro") == "price_shared"
     assert metadata.subscription_price_id_for_tier("museum") == "price_shared"
     assert metadata.subscription_price_usd_for_tier("pro") == 29.0
     assert metadata.subscription_price_usd_for_tier("museum") == 29.0
     assert metadata.subscription_price_usd_for_tier("hobbyist") == 0.0
+
+
+def test_settings_reject_duplicate_dedicated_paid_tier_price_ids() -> None:
+    with pytest.raises(ValueError, match="STRIPE_PRO_PRICE_ID and STRIPE_MUSEUM_PRICE_ID must differ"):
+        Settings(
+            stripe_pro_price_id="price_duplicate",
+            stripe_museum_price_id="price_duplicate",
+        )
 
 
 @pytest.mark.skipif(

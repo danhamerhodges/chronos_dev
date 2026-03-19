@@ -48,8 +48,12 @@ def _parse_timestamp(value: str | None) -> datetime | None:
 
 
 def _job_terminal_timestamp(job: dict[str, Any]) -> datetime | None:
-    for key in ("completed_at", "updated_at", "created_at"):
-        parsed = _parse_timestamp(str(job.get(key) or ""))
+    reconciliation_summary = job.get("cost_reconciliation_summary") or {}
+    for candidate in (
+        reconciliation_summary.get("reconciled_at"),
+        job.get("completed_at"),
+    ):
+        parsed = _parse_timestamp(str(candidate or ""))
         if parsed is not None:
             return parsed
     return None
@@ -63,16 +67,21 @@ def _operational_cost_breakdown(job: dict[str, Any]) -> dict[str, float]:
     return {"gpu": gpu, "storage": storage, "api": api}
 
 
-def _included_minutes(job: dict[str, Any], reconciliation_summary: dict[str, Any]) -> int:
-    usage_snapshot = (job.get("cost_estimate_summary") or {}).get("usage_snapshot") or {}
+def _job_overage_rate_usd_per_minute(job: dict[str, Any], *, pricing_metadata: BillingPricingMetadata) -> float:
+    billing_breakdown = (job.get("cost_estimate_summary") or {}).get("billing_breakdown_usd") or {}
+    stored_rate = float(billing_breakdown.get("overage_rate_usd_per_minute", 0.0) or 0.0)
+    return stored_rate if stored_rate > 0 else pricing_metadata.overage_rate_usd_per_minute
+
+
+def _included_minutes(job: dict[str, Any], reconciliation_summary: dict[str, Any], *, pricing_metadata: BillingPricingMetadata) -> int:
     actual_usage_minutes = int(reconciliation_summary.get("actual_usage_minutes", 0) or 0)
-    monthly_limit = int(
-        usage_snapshot.get("monthly_limit_minutes")
-        or monthly_limit_for_tier(str(job.get("plan_tier", "hobbyist")))
-    )
-    used_before_job = int(usage_snapshot.get("used_minutes", 0) or 0)
-    remaining_included = max(monthly_limit - used_before_job, 0)
-    return max(min(actual_usage_minutes, remaining_included), 0)
+    actual_charge_total_usd = float(reconciliation_summary.get("actual_charge_total_usd", 0.0) or 0.0)
+    overage_rate = _job_overage_rate_usd_per_minute(job, pricing_metadata=pricing_metadata)
+    actual_overage_minutes = 0
+    if overage_rate > 0 and actual_charge_total_usd > 0:
+        actual_overage_minutes = int(round(actual_charge_total_usd / overage_rate))
+    actual_overage_minutes = max(min(actual_overage_minutes, actual_usage_minutes), 0)
+    return max(actual_usage_minutes - actual_overage_minutes, 0)
 
 
 def _job_financials(
@@ -85,7 +94,11 @@ def _job_financials(
     actual_charge_total_usd = round(float(reconciliation_summary.get("actual_charge_total_usd", 0.0) or 0.0), 4)
     plan_tier = str(job.get("plan_tier", "hobbyist"))
     monthly_limit = max(monthly_limit_for_tier(plan_tier), 1)
-    included_minutes = _included_minutes(job, reconciliation_summary)
+    included_minutes = _included_minutes(
+        job,
+        reconciliation_summary,
+        pricing_metadata=pricing_metadata,
+    )
     subscription_price_usd = pricing_metadata.subscription_price_usd_for_tier(plan_tier)
     included_revenue_usd = round((subscription_price_usd / monthly_limit) * included_minutes, 4)
     revenue_total_usd = round(included_revenue_usd + actual_charge_total_usd, 4)
@@ -135,7 +148,10 @@ def _anomaly_types(
 ) -> list[str]:
     reconciliation_summary = job.get("cost_reconciliation_summary") or {}
     anomaly_types: list[str] = []
-    if float(reconciliation_summary.get("delta_percent", 0.0) or 0.0) > ESTIMATE_OUTLIER_THRESHOLD_PERCENT:
+    delta_usd = float(reconciliation_summary.get("delta_usd", 0.0) or 0.0)
+    delta_percent = float(reconciliation_summary.get("delta_percent", 0.0) or 0.0)
+    # Packet 4H only promotes positive cost overruns, not under-runs, to anomalies.
+    if delta_usd > 0 and delta_percent > ESTIMATE_OUTLIER_THRESHOLD_PERCENT:
         anomaly_types.append("cost_delta")
     if gross_margin_percent < GROSS_MARGIN_TARGET_PERCENT:
         anomaly_types.append("gross_margin")
@@ -252,22 +268,19 @@ def _recommendations(
 
 
 def _windowed_jobs(quarterly_start: datetime) -> list[dict[str, Any]]:
-    jobs = JobRepository().list_all_jobs()
+    jobs = JobRepository().list_cost_ops_jobs_since(earliest_timestamp=quarterly_start)
     completed_jobs: list[dict[str, Any]] = []
     for job in jobs:
         timestamp = _job_terminal_timestamp(job)
-        if timestamp is None or timestamp < quarterly_start:
-            continue
-        if not job.get("cost_reconciliation_summary"):
+        if timestamp is None:
             continue
         completed_jobs.append({**job, "_terminal_timestamp": timestamp})
     return completed_jobs
 
 
-def _build_cost_ops_snapshot(
+def _evaluate_cost_ops_snapshot(
     *,
     pricing_metadata: BillingPricingMetadata,
-    emit_signals: bool,
 ) -> dict[str, Any]:
     now = _utc_now()
     summary_start = now - timedelta(days=SUMMARY_WINDOW_DAYS)
@@ -309,8 +322,6 @@ def _build_cost_ops_snapshot(
             )
 
     anomalies = sorted(anomalies, key=lambda item: item["detected_at"], reverse=True)
-    if emit_signals:
-        _emit_anomaly_incidents(anomalies)
     gross_margin_percent = (
         round(((revenue_total_usd - cost_total_usd) / revenue_total_usd) * 100, 2)
         if revenue_total_usd > 0
@@ -321,13 +332,6 @@ def _build_cost_ops_snapshot(
         "cache_hit_rate_percent": _cache_hit_rate_percent(summary_jobs),
         "autoscaler_idle_scale_down_healthy": autoscaler_idle_scale_down_healthy(runtime_snapshot),
     }
-    if emit_signals:
-        record_cost_ops_snapshot(
-            gpu_utilization_percent=operational_efficiency["gpu_utilization_percent"],
-            cache_hit_rate_percent=operational_efficiency["cache_hit_rate_percent"],
-            gross_margin_percent=gross_margin_percent,
-            anomaly_count=len(anomalies),
-        )
     return {
         "generated_at": _isoformat(now),
         "summary_window_start": _isoformat(summary_start),
@@ -350,7 +354,25 @@ def _build_cost_ops_snapshot(
             anomaly_count=len(anomalies),
             gross_margin_percent=gross_margin_percent,
         ),
+        "_all_anomalies": anomalies,
     }
+
+
+def _build_cost_ops_snapshot(
+    *,
+    pricing_metadata: BillingPricingMetadata,
+    emit_signals: bool,
+) -> dict[str, Any]:
+    snapshot = _evaluate_cost_ops_snapshot(pricing_metadata=pricing_metadata)
+    if emit_signals:
+        _emit_anomaly_incidents(snapshot["_all_anomalies"])
+        record_cost_ops_snapshot(
+            gpu_utilization_percent=snapshot["operational_efficiency"]["gpu_utilization_percent"],
+            cache_hit_rate_percent=snapshot["operational_efficiency"]["cache_hit_rate_percent"],
+            gross_margin_percent=snapshot["gross_margin_summary"]["gross_margin_percent"],
+            anomaly_count=len(snapshot["_all_anomalies"]),
+        )
+    return {key: value for key, value in snapshot.items() if not key.startswith("_")}
 
 
 def _resolve_pricing_metadata() -> BillingPricingMetadata:
@@ -372,5 +394,5 @@ def refresh_cost_ops_signals() -> dict[str, Any]:
 def current_cost_ops_snapshot() -> dict[str, Any]:
     return _build_cost_ops_snapshot(
         pricing_metadata=_resolve_pricing_metadata(),
-        emit_signals=True,
+        emit_signals=False,
     )

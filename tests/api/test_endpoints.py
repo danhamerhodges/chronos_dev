@@ -81,6 +81,10 @@ def test_admin_cost_ops_snapshot_requires_ops_permission() -> None:
     assert "cost_totals_usd" in payload
     assert "recommendations" in payload
 
+    forbidden = client.get("/v1/ops/costs", headers=fake_auth_header("ops-member", role="member"))
+    assert forbidden.status_code == 403
+    assert forbidden.json()["title"] == "Forbidden"
+
 
 def test_request_validation_errors_use_problem_details_shape() -> None:
     response = client.post(
