@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from app.billing.stripe_client import BillingPricingMetadata
 from app.main import app
+from app.services.cost_ops import _gpu_utilization_percent
 from tests.helpers.auth import fake_auth_header
 
 client = TestClient(app)
@@ -105,3 +106,35 @@ def test_cost_snapshot_flags_idle_timeout_violation(monkeypatch) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["operational_efficiency"]["autoscaler_idle_scale_down_healthy"] is False
+
+
+def test_gpu_utilization_percent_preserves_zero_samples() -> None:
+    runtime_snapshot = {"utilization_percent": 75.0}
+    jobs = [
+        {"gpu_summary": {"utilization_percent": 0.0}},
+        {"gpu_summary": {"utilization_percent": 0.0}},
+    ]
+
+    assert _gpu_utilization_percent(jobs, runtime_snapshot) == 0.0
+
+
+def test_gpu_utilization_percent_averages_mixed_zero_and_non_zero_samples() -> None:
+    runtime_snapshot = {"utilization_percent": 75.0}
+    jobs = [
+        {"gpu_summary": {"utilization_percent": 0.0}},
+        {"gpu_summary": {"utilization_percent": 50.0}},
+        {"gpu_summary": {"utilization_percent": 100.0}},
+    ]
+
+    assert _gpu_utilization_percent(jobs, runtime_snapshot) == 50.0
+
+
+def test_gpu_utilization_percent_falls_back_to_runtime_only_without_samples() -> None:
+    runtime_snapshot = {"utilization_percent": 75.0}
+    jobs = [
+        {"gpu_summary": {"utilization_percent": None}},
+        {"gpu_summary": {}},
+        {},
+    ]
+
+    assert _gpu_utilization_percent(jobs, runtime_snapshot) == 75.0

@@ -138,9 +138,8 @@ def _gpu_utilization_percent(jobs: list[dict[str, Any]], runtime_snapshot: dict[
         for job in jobs
         if (job.get("gpu_summary") or {}).get("utilization_percent") is not None
     ]
-    positive_samples = [sample for sample in samples if sample > 0]
-    if positive_samples:
-        return round(sum(positive_samples) / len(positive_samples), 2)
+    if samples:
+        return round(sum(samples) / len(samples), 2)
     return round(float(runtime_snapshot.get("utilization_percent", 0.0) or 0.0), 2)
 
 
