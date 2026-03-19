@@ -44,7 +44,10 @@ def _isoformat(value: datetime) -> str:
 def _parse_timestamp(value: str | None) -> datetime | None:
     if not value:
         return None
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _job_terminal_timestamp(job: dict[str, Any]) -> datetime | None:
@@ -332,6 +335,19 @@ def _evaluate_cost_ops_snapshot(
         "cache_hit_rate_percent": _cache_hit_rate_percent(summary_jobs),
         "autoscaler_idle_scale_down_healthy": autoscaler_idle_scale_down_healthy(runtime_snapshot),
     }
+    quarterly_anomaly_count = sum(
+        1
+        for job in completed_jobs
+        if _anomaly_types(
+            job,
+            gross_margin_percent=_job_financials(job, pricing_metadata=pricing_metadata)["gross_margin_percent"],
+        )
+    )
+    quarterly_operational_efficiency = {
+        "gpu_utilization_percent": _gpu_utilization_percent(completed_jobs, runtime_snapshot),
+        "cache_hit_rate_percent": _cache_hit_rate_percent(completed_jobs),
+        "autoscaler_idle_scale_down_healthy": operational_efficiency["autoscaler_idle_scale_down_healthy"],
+    }
     return {
         "generated_at": _isoformat(now),
         "summary_window_start": _isoformat(summary_start),
@@ -349,12 +365,14 @@ def _evaluate_cost_ops_snapshot(
         "operational_efficiency": operational_efficiency,
         "recent_anomalies": anomalies[:10],
         "recommendations": _recommendations(
-            gpu_utilization_percent=operational_efficiency["gpu_utilization_percent"],
-            cache_hit_rate_percent=operational_efficiency["cache_hit_rate_percent"],
-            anomaly_count=len(anomalies),
+            gpu_utilization_percent=quarterly_operational_efficiency["gpu_utilization_percent"],
+            cache_hit_rate_percent=quarterly_operational_efficiency["cache_hit_rate_percent"],
+            anomaly_count=quarterly_anomaly_count,
             gross_margin_percent=gross_margin_percent,
         ),
         "_all_anomalies": anomalies,
+        "_quarterly_anomaly_count": quarterly_anomaly_count,
+        "_quarterly_operational_efficiency": quarterly_operational_efficiency,
     }
 
 
@@ -367,10 +385,10 @@ def _build_cost_ops_snapshot(
     if emit_signals:
         _emit_anomaly_incidents(snapshot["_all_anomalies"])
         record_cost_ops_snapshot(
-            gpu_utilization_percent=snapshot["operational_efficiency"]["gpu_utilization_percent"],
-            cache_hit_rate_percent=snapshot["operational_efficiency"]["cache_hit_rate_percent"],
+            gpu_utilization_percent=snapshot["_quarterly_operational_efficiency"]["gpu_utilization_percent"],
+            cache_hit_rate_percent=snapshot["_quarterly_operational_efficiency"]["cache_hit_rate_percent"],
             gross_margin_percent=snapshot["gross_margin_summary"]["gross_margin_percent"],
-            anomaly_count=len(snapshot["_all_anomalies"]),
+            anomaly_count=snapshot["_quarterly_anomaly_count"],
         )
     return {key: value for key, value in snapshot.items() if not key.startswith("_")}
 

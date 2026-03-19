@@ -109,11 +109,13 @@ def record_cost_reconciliation(
         _COST_RECONCILIATION_OUTLIER_COUNTS[estimator_version] += 1
     _RUNTIME_GAUGES[f"cost_reconciliation_delta_percent:{estimator_version}"] = float(delta_percent)
     if actual_total_cost_usd is not None:
-        _COST_ACTUAL_TOTAL_SUMS_USD[estimator_version] += float(actual_total_cost_usd)
-        _RUNTIME_GAUGES[f"cost_actual_total_usd_latest:{estimator_version}"] = float(actual_total_cost_usd)
+        total_cost = max(float(actual_total_cost_usd), 0.0)
+        _COST_ACTUAL_TOTAL_SUMS_USD[estimator_version] += total_cost
+        _RUNTIME_GAUGES[f"cost_actual_total_usd_latest:{estimator_version}"] = total_cost
     if actual_charge_total_usd is not None:
-        _COST_ACTUAL_CHARGE_SUMS_USD[estimator_version] += float(actual_charge_total_usd)
-        _RUNTIME_GAUGES[f"cost_actual_charge_total_usd_latest:{estimator_version}"] = float(actual_charge_total_usd)
+        charge_total = max(float(actual_charge_total_usd), 0.0)
+        _COST_ACTUAL_CHARGE_SUMS_USD[estimator_version] += charge_total
+        _RUNTIME_GAUGES[f"cost_actual_charge_total_usd_latest:{estimator_version}"] = charge_total
 
 
 def record_cost_margin_breach(*, estimator_version: str) -> None:

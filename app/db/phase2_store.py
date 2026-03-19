@@ -69,7 +69,10 @@ def _preview_configuration_cache_fingerprint(job_payload_preview: dict[str, Any]
 def _parse_job_timestamp(value: str | None) -> datetime | None:
     if not value:
         return None
-    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _cost_ops_job_anchor(job: dict[str, Any]) -> datetime | None:
