@@ -28,6 +28,7 @@ from app.services.job_pipeline import build_pipeline_variant_fingerprint
 _MEMORY_SEGMENT_CACHE: dict[str, dict[str, Any]] = {}
 _SLO_HISTORY: list[dict[str, Any]] = []
 _ALERT_HISTORY: list[dict[str, Any]] = []
+AUTOSCALER_IDLE_CLEANUP_GRACE_SECONDS = 30
 
 
 def _utc_now() -> str:
@@ -442,7 +443,11 @@ def autoscaler_idle_scale_down_healthy(snapshot: dict[str, Any] | None = None) -
     extra_idle = sorted_idle[: len(sorted_idle) - min_warm]
     for lease in extra_idle:
         expires_at = _parse_iso8601(str(lease.get("expires_at") or ""))
-        if expires_at is None or expires_at <= now:
+        if expires_at is None:
+            return False
+        if expires_at > now:
+            continue
+        if now >= expires_at + timedelta(seconds=AUTOSCALER_IDLE_CLEANUP_GRACE_SECONDS):
             return False
     return True
 

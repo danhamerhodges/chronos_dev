@@ -106,6 +106,30 @@ def test_settings_reject_duplicate_dedicated_paid_tier_price_ids() -> None:
         )
 
 
+def test_settings_reject_effective_paid_tier_price_id_collisions_via_shared_fallback() -> None:
+    with pytest.raises(
+        ValueError,
+        match="Effective STRIPE_PRO_PRICE_ID and STRIPE_MUSEUM_PRICE_ID must differ after shared fallback",
+    ):
+        Settings(
+            stripe_price_id="price_pro",
+            stripe_pro_price_id="price_pro",
+            stripe_museum_price_id="",
+        )
+
+
+def test_settings_allow_distinct_effective_paid_tier_price_ids_with_shared_fallback() -> None:
+    settings = Settings(
+        stripe_price_id="price_museum",
+        stripe_pro_price_id="price_pro",
+        stripe_museum_price_id="",
+    )
+
+    assert settings.stripe_price_id == "price_museum"
+    assert settings.stripe_pro_price_id == "price_pro"
+    assert settings.stripe_museum_price_id == ""
+
+
 @pytest.mark.skipif(
     os.getenv("CHRONOS_RUN_STRIPE_INTEGRATION") != "1",
     reason="Stripe integration tests disabled",

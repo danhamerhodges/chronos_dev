@@ -116,12 +116,24 @@ class Settings:
     museum_processing_sla_enabled: bool = _as_bool(os.getenv("MUSEUM_PROCESSING_SLA_ENABLED", "true"), default=True)
 
     def __post_init__(self) -> None:
+        effective_pro_price_id = self.stripe_pro_price_id or self.stripe_price_id
+        effective_museum_price_id = self.stripe_museum_price_id or self.stripe_price_id
         if (
             self.stripe_pro_price_id
             and self.stripe_museum_price_id
             and self.stripe_pro_price_id == self.stripe_museum_price_id
         ):
             raise ValueError("STRIPE_PRO_PRICE_ID and STRIPE_MUSEUM_PRICE_ID must differ for tier-aware pricing.")
+        if (
+            self.stripe_price_id
+            and (self.stripe_pro_price_id or self.stripe_museum_price_id)
+            and effective_pro_price_id
+            and effective_museum_price_id
+            and effective_pro_price_id == effective_museum_price_id
+        ):
+            raise ValueError(
+                "Effective STRIPE_PRO_PRICE_ID and STRIPE_MUSEUM_PRICE_ID must differ after shared fallback."
+            )
         if self.output_delivery_signing_secret:
             return
         if self.environment == "test":
