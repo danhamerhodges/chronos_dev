@@ -111,8 +111,8 @@ def test_cost_snapshot_flags_idle_timeout_violation(monkeypatch) -> None:
 def test_gpu_utilization_percent_preserves_zero_samples() -> None:
     runtime_snapshot = {"utilization_percent": 75.0}
     jobs = [
-        {"gpu_summary": {"utilization_percent": 0.0}},
-        {"gpu_summary": {"utilization_percent": 0.0}},
+        {"gpu_summary": {"historical_utilization_percent": 0.0, "utilization_percent": 88.0}},
+        {"gpu_summary": {"historical_utilization_percent": 0.0, "utilization_percent": 92.0}},
     ]
 
     assert _gpu_utilization_percent(jobs, runtime_snapshot) == 0.0
@@ -121,9 +121,9 @@ def test_gpu_utilization_percent_preserves_zero_samples() -> None:
 def test_gpu_utilization_percent_averages_mixed_zero_and_non_zero_samples() -> None:
     runtime_snapshot = {"utilization_percent": 75.0}
     jobs = [
-        {"gpu_summary": {"utilization_percent": 0.0}},
-        {"gpu_summary": {"utilization_percent": 50.0}},
-        {"gpu_summary": {"utilization_percent": 100.0}},
+        {"gpu_summary": {"historical_utilization_percent": 0.0, "utilization_percent": 88.0}},
+        {"gpu_summary": {"historical_utilization_percent": 50.0, "utilization_percent": 92.0}},
+        {"gpu_summary": {"historical_utilization_percent": 100.0, "utilization_percent": 96.0}},
     ]
 
     assert _gpu_utilization_percent(jobs, runtime_snapshot) == 50.0
@@ -132,6 +132,7 @@ def test_gpu_utilization_percent_averages_mixed_zero_and_non_zero_samples() -> N
 def test_gpu_utilization_percent_falls_back_to_runtime_only_without_samples() -> None:
     runtime_snapshot = {"utilization_percent": 75.0}
     jobs = [
+        {"gpu_summary": {"utilization_percent": 0.0}},
         {"gpu_summary": {"utilization_percent": None}},
         {"gpu_summary": {}},
         {},

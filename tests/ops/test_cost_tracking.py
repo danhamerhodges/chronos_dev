@@ -97,6 +97,17 @@ def test_cost_snapshot_reports_totals_and_margin(monkeypatch) -> None:
     assert payload["operational_efficiency"]["gpu_utilization_percent"] == 72.5
 
 
+def test_cost_snapshot_ignores_terminal_pool_gpu_snapshot_without_historical_samples() -> None:
+    runtime_snapshot = {"utilization_percent": 72.5}
+    jobs = [
+        {"gpu_summary": {"utilization_percent": 0.0}},
+    ]
+
+    from app.services.cost_ops import _gpu_utilization_percent
+
+    assert _gpu_utilization_percent(jobs, runtime_snapshot) == 72.5
+
+
 def test_cost_snapshot_flags_margin_breach_and_incident(monkeypatch) -> None:
     monkeypatch.setattr(
         "app.services.cost_ops.resolve_billing_pricing_metadata",

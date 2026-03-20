@@ -134,9 +134,9 @@ def _cache_hit_rate_percent(jobs: list[dict[str, Any]]) -> float:
 
 def _gpu_utilization_percent(jobs: list[dict[str, Any]], runtime_snapshot: dict[str, Any]) -> float:
     samples = [
-        float((job.get("gpu_summary") or {}).get("utilization_percent", 0.0) or 0.0)
+        float((job.get("gpu_summary") or {}).get("historical_utilization_percent", 0.0) or 0.0)
         for job in jobs
-        if (job.get("gpu_summary") or {}).get("utilization_percent") is not None
+        if (job.get("gpu_summary") or {}).get("historical_utilization_percent") is not None
     ]
     if samples:
         return round(sum(samples) / len(samples), 2)

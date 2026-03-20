@@ -172,7 +172,10 @@ def test_cost_snapshot_uses_quarterly_window_for_recommendations(monkeypatch) ->
         patch={
             "completed_at": quarterly_timestamp,
             "cache_summary": {"hits": 10, "misses": 0, "bypassed": 0},
-            "gpu_summary": {"utilization_percent": 95.0},
+            "gpu_summary": {
+                "historical_utilization_percent": 95.0,
+                "utilization_percent": 0.0,
+            },
             "cost_reconciliation_summary": reconciliation_summary,
         },
     )
