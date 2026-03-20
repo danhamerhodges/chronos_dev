@@ -41,6 +41,10 @@ def test_monitoring_terraform_resources_declared() -> None:
     assert "custom.googleapis.com" in monitoring_tf
     assert "google_monitoring_alert_policy" in alerts_tf
     assert "notification_channels" in alerts_tf
+    assert "Gross Margin Percent" in monitoring_tf
+    assert "Recent Cost Anomalies" in monitoring_tf
+    assert "cost_margin_breach" in alerts_tf
+    assert "cost_anomaly_high" in alerts_tf
     assert "placeholder" not in monitoring_tf.lower()
     assert "placeholder" not in alerts_tf.lower()
 

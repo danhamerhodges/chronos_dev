@@ -78,3 +78,57 @@ resource "google_monitoring_alert_policy" "gpu_pool_exhaustion" {
     content   = "GPU pool saturation detected. Reconcile warm pool capacity and inspect dispatch backlog."
   }
 }
+
+resource "google_monitoring_alert_policy" "cost_margin_breach" {
+  display_name = "ChronosRefine - Cost Margin Breach"
+  combiner     = "OR"
+
+  conditions {
+    display_name = "Gross margin percent below 60"
+    condition_threshold {
+      filter          = "metric.type=\"custom.googleapis.com/${var.metrics_namespace}/runtime_gauge\" metric.labels.name=\"cost_ops_gross_margin_percent\""
+      duration        = "300s"
+      comparison      = "COMPARISON_LT"
+      threshold_value = 60
+
+      aggregations {
+        alignment_period   = "60s"
+        per_series_aligner = "ALIGN_MEAN"
+      }
+    }
+  }
+
+  notification_channels = var.notification_channels
+
+  documentation {
+    mime_type = "text/markdown"
+    content   = "Gross margin dropped below target. Review `/v1/ops/costs`, recent anomalies, and cost optimization recommendations."
+  }
+}
+
+resource "google_monitoring_alert_policy" "cost_anomaly_high" {
+  display_name = "ChronosRefine - Cost Anomaly High"
+  combiner     = "OR"
+
+  conditions {
+    display_name = "Recent cost anomaly count above zero"
+    condition_threshold {
+      filter          = "metric.type=\"custom.googleapis.com/${var.metrics_namespace}/runtime_gauge\" metric.labels.name=\"cost_ops_recent_anomaly_count\""
+      duration        = "300s"
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0
+
+      aggregations {
+        alignment_period   = "60s"
+        per_series_aligner = "ALIGN_MAX"
+      }
+    }
+  }
+
+  notification_channels = var.notification_channels
+
+  documentation {
+    mime_type = "text/markdown"
+    content   = "Cost anomaly detected. Review `/v1/ops/costs`, reconciliation deltas, and gross-margin incidents."
+  }
+}

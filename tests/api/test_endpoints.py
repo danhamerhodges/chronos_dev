@@ -74,6 +74,18 @@ def test_admin_runtime_ops_snapshot_requires_ops_permission() -> None:
     assert "alert_routes" in payload
 
 
+def test_admin_cost_ops_snapshot_requires_ops_permission() -> None:
+    response = client.get("/v1/ops/costs", headers=fake_auth_header("ops-admin", role="admin"))
+    assert response.status_code == 200
+    payload = response.json()
+    assert "cost_totals_usd" in payload
+    assert "recommendations" in payload
+
+    forbidden = client.get("/v1/ops/costs", headers=fake_auth_header("ops-member", role="member"))
+    assert forbidden.status_code == 403
+    assert forbidden.json()["title"] == "Forbidden"
+
+
 def test_request_validation_errors_use_problem_details_shape() -> None:
     response = client.post(
         "/v1/detect-era",
@@ -112,3 +124,6 @@ def test_tracked_openapi_spec_covers_phase2_subset() -> None:
     assert "/v1/deletion-proofs/{proof_id}:" in openapi_spec
     assert "/v1/manifests/{job_id}:" in openapi_spec
     assert "/v1/ops/runtime:" in openapi_spec
+    assert "/v1/ops/costs:" in openapi_spec
+    assert "CostOpsSnapshotResponse:" in openapi_spec
+    assert "Cost monitoring snapshot" in openapi_spec

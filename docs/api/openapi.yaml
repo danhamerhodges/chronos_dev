@@ -814,6 +814,31 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetail"
+  /v1/ops/costs:
+    get:
+      tags: [ops]
+      summary: Cost monitoring snapshot
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Cost monitoring snapshot
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostOpsSnapshotResponse"
+        "403":
+          description: Missing ops permission
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "503":
+          description: Billing pricing metadata is temporarily unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
   /v1/users/me/usage:
     get:
       tags: [users]
@@ -1838,6 +1863,115 @@ components:
           type: object
           additionalProperties:
             type: string
+    CostTotalsResponse:
+      type: object
+      properties:
+        gpu:
+          type: number
+        storage:
+          type: number
+        api:
+          type: number
+        actual_charge_total:
+          type: number
+    GrossMarginSummaryResponse:
+      type: object
+      properties:
+        revenue_total_usd:
+          type: number
+        cost_total_usd:
+          type: number
+        gross_margin_percent:
+          type: number
+        target_margin_percent:
+          type: number
+        below_target:
+          type: boolean
+    OperationalEfficiencyResponse:
+      type: object
+      properties:
+        gpu_utilization_percent:
+          type: number
+        cache_hit_rate_percent:
+          type: number
+        autoscaler_idle_scale_down_healthy:
+          type: boolean
+    CostAnomalyResponse:
+      type: object
+      required: [job_id, detected_at, anomaly_types, delta_percent, gross_margin_percent, actual_cost_total_usd, actual_charge_total_usd]
+      properties:
+        job_id:
+          type: string
+        detected_at:
+          type: string
+        anomaly_types:
+          type: array
+          items:
+            type: string
+        delta_percent:
+          type: number
+        gross_margin_percent:
+          type: number
+        actual_cost_total_usd:
+          type: number
+        actual_charge_total_usd:
+          type: number
+    CostRecommendationResponse:
+      type: object
+      required: [category, priority, action_required, summary, evidence]
+      properties:
+        category:
+          type: string
+        priority:
+          type: string
+          enum: [none, low, medium, high]
+        action_required:
+          type: boolean
+        summary:
+          type: string
+        evidence:
+          type: object
+          additionalProperties: true
+    CostOpsSnapshotResponse:
+      type: object
+      required:
+        [
+          generated_at,
+          summary_window_start,
+          summary_window_end,
+          quarterly_window_start,
+          quarterly_window_end,
+          cost_totals_usd,
+          gross_margin_summary,
+          operational_efficiency,
+          recent_anomalies,
+          recommendations,
+        ]
+      properties:
+        generated_at:
+          type: string
+        summary_window_start:
+          type: string
+        summary_window_end:
+          type: string
+        quarterly_window_start:
+          type: string
+        quarterly_window_end:
+          type: string
+        cost_totals_usd:
+          $ref: "#/components/schemas/CostTotalsResponse"
+        gross_margin_summary:
+          $ref: "#/components/schemas/GrossMarginSummaryResponse"
+        operational_efficiency:
+          $ref: "#/components/schemas/OperationalEfficiencyResponse"
+        recent_anomalies:
+          type: array
+          items:
+            $ref: "#/components/schemas/CostAnomalyResponse"
+        recommendations:
+          type: array
+          items:
+            $ref: "#/components/schemas/CostRecommendationResponse"
     JobListResponse:
       type: object
       required: [jobs]

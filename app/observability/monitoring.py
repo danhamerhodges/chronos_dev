@@ -24,6 +24,10 @@ _GPU_EVENT_COUNTS: dict[str, int] = defaultdict(int)
 _GPU_ALLOCATION_LATENCY_SUMS_MS: dict[str, int] = defaultdict(int)
 _COST_RECONCILIATION_COUNTS: dict[str, int] = defaultdict(int)
 _COST_RECONCILIATION_OUTLIER_COUNTS: dict[str, int] = defaultdict(int)
+_COST_ACTUAL_TOTAL_SUMS_USD: dict[str, float] = defaultdict(float)
+_COST_ACTUAL_CHARGE_SUMS_USD: dict[str, float] = defaultdict(float)
+_COST_MARGIN_BREACH_COUNTS: dict[str, int] = defaultdict(int)
+_COST_ANOMALY_COUNTS: dict[str, int] = defaultdict(int)
 _PREVIEW_GENERATION_COUNTS: dict[str, int] = defaultdict(int)
 _PREVIEW_SELECTION_MODE_COUNTS: dict[str, int] = defaultdict(int)
 _ALERT_DELIVERY_COUNTS: dict[str, int] = defaultdict(int)
@@ -92,11 +96,47 @@ def record_gpu_allocation(*, gpu_type: str, warm: bool, latency_ms: int) -> None
     _GPU_ALLOCATION_LATENCY_SUMS_MS[f"{gpu_type}:{mode}"] += int(latency_ms)
 
 
-def record_cost_reconciliation(*, estimator_version: str, delta_percent: float, outlier: bool) -> None:
+def record_cost_reconciliation(
+    *,
+    estimator_version: str,
+    delta_percent: float,
+    outlier: bool,
+    actual_total_cost_usd: float | None = None,
+    actual_charge_total_usd: float | None = None,
+) -> None:
     _COST_RECONCILIATION_COUNTS[estimator_version] += 1
     if outlier:
         _COST_RECONCILIATION_OUTLIER_COUNTS[estimator_version] += 1
     _RUNTIME_GAUGES[f"cost_reconciliation_delta_percent:{estimator_version}"] = float(delta_percent)
+    if actual_total_cost_usd is not None:
+        total_cost = max(float(actual_total_cost_usd), 0.0)
+        _COST_ACTUAL_TOTAL_SUMS_USD[estimator_version] += total_cost
+        _RUNTIME_GAUGES[f"cost_actual_total_usd_latest:{estimator_version}"] = total_cost
+    if actual_charge_total_usd is not None:
+        charge_total = max(float(actual_charge_total_usd), 0.0)
+        _COST_ACTUAL_CHARGE_SUMS_USD[estimator_version] += charge_total
+        _RUNTIME_GAUGES[f"cost_actual_charge_total_usd_latest:{estimator_version}"] = charge_total
+
+
+def record_cost_margin_breach(*, estimator_version: str) -> None:
+    _COST_MARGIN_BREACH_COUNTS[estimator_version] += 1
+
+
+def record_cost_anomaly(*, category: str) -> None:
+    _COST_ANOMALY_COUNTS[category] += 1
+
+
+def record_cost_ops_snapshot(
+    *,
+    gpu_utilization_percent: float,
+    cache_hit_rate_percent: float,
+    gross_margin_percent: float,
+    anomaly_count: int,
+) -> None:
+    _RUNTIME_GAUGES["cost_ops_gpu_utilization_percent"] = float(gpu_utilization_percent)
+    _RUNTIME_GAUGES["cost_ops_cache_hit_rate_percent"] = float(cache_hit_rate_percent)
+    _RUNTIME_GAUGES["cost_ops_gross_margin_percent"] = float(gross_margin_percent)
+    _RUNTIME_GAUGES["cost_ops_recent_anomaly_count"] = float(anomaly_count)
 
 
 def record_preview_generation(
@@ -279,6 +319,44 @@ def metrics_payload(namespace: str) -> str:
         )
     lines.extend(
         [
+            f"# HELP {namespace}_cost_actual_total_usd_sum Total reconciled operational cost in USD by estimator version.",
+            f"# TYPE {namespace}_cost_actual_total_usd_sum counter",
+        ]
+    )
+    for estimator_version, amount in sorted(_COST_ACTUAL_TOTAL_SUMS_USD.items()):
+        lines.append(
+            f"{namespace}_cost_actual_total_usd_sum{{estimator_version=\"{estimator_version}\"}} {amount:.4f}"
+        )
+    lines.extend(
+        [
+            f"# HELP {namespace}_cost_actual_charge_total_usd_sum Total reconciled billed revenue in USD by estimator version.",
+            f"# TYPE {namespace}_cost_actual_charge_total_usd_sum counter",
+        ]
+    )
+    for estimator_version, amount in sorted(_COST_ACTUAL_CHARGE_SUMS_USD.items()):
+        lines.append(
+            f"{namespace}_cost_actual_charge_total_usd_sum{{estimator_version=\"{estimator_version}\"}} {amount:.4f}"
+        )
+    lines.extend(
+        [
+            f"# HELP {namespace}_cost_margin_breaches_total Total completed jobs whose gross margin fell below target.",
+            f"# TYPE {namespace}_cost_margin_breaches_total counter",
+        ]
+    )
+    for estimator_version, count in sorted(_COST_MARGIN_BREACH_COUNTS.items()):
+        lines.append(
+            f"{namespace}_cost_margin_breaches_total{{estimator_version=\"{estimator_version}\"}} {count}"
+        )
+    lines.extend(
+        [
+            f"# HELP {namespace}_cost_anomalies_total Total cost anomalies by category.",
+            f"# TYPE {namespace}_cost_anomalies_total counter",
+        ]
+    )
+    for category, count in sorted(_COST_ANOMALY_COUNTS.items()):
+        lines.append(f"{namespace}_cost_anomalies_total{{category=\"{category}\"}} {count}")
+    lines.extend(
+        [
             f"# HELP {namespace}_preview_generation_total Total preview generation events by outcome.",
             f"# TYPE {namespace}_preview_generation_total counter",
         ]
@@ -357,6 +435,10 @@ def reset_monitoring_state() -> None:
     _PREVIEW_SELECTION_MODE_COUNTS.clear()
     _COST_RECONCILIATION_COUNTS.clear()
     _COST_RECONCILIATION_OUTLIER_COUNTS.clear()
+    _COST_ACTUAL_TOTAL_SUMS_USD.clear()
+    _COST_ACTUAL_CHARGE_SUMS_USD.clear()
+    _COST_MARGIN_BREACH_COUNTS.clear()
+    _COST_ANOMALY_COUNTS.clear()
     _ALERT_DELIVERY_COUNTS.clear()
     _INCIDENT_COUNTS.clear()
     _RUNTIME_GAUGES.clear()

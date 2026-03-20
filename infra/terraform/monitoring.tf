@@ -99,6 +99,86 @@ resource "google_monitoring_dashboard" "chronos_phase1" {
               }
             }
           }
+        },
+        {
+          xPos   = 0
+          yPos   = 8
+          width  = 3
+          height = 4
+          widget = {
+            title = "Gross Margin Percent"
+            scorecard = {
+              timeSeriesQuery = {
+                timeSeriesFilter = {
+                  filter = "metric.type=\"custom.googleapis.com/${var.metrics_namespace}/runtime_gauge\" metric.labels.name=\"cost_ops_gross_margin_percent\""
+                }
+              }
+              gaugeView = {
+                lowerBound = 0
+                upperBound = 100
+              }
+            }
+          }
+        },
+        {
+          xPos   = 3
+          yPos   = 8
+          width  = 3
+          height = 4
+          widget = {
+            title = "Recent Cost Anomalies"
+            scorecard = {
+              timeSeriesQuery = {
+                timeSeriesFilter = {
+                  filter = "metric.type=\"custom.googleapis.com/${var.metrics_namespace}/runtime_gauge\" metric.labels.name=\"cost_ops_recent_anomaly_count\""
+                }
+              }
+              gaugeView = {
+                lowerBound = 0
+                upperBound = 25
+              }
+            }
+          }
+        },
+        {
+          xPos   = 6
+          yPos   = 8
+          width  = 3
+          height = 4
+          widget = {
+            title = "GPU Utilization Percent"
+            scorecard = {
+              timeSeriesQuery = {
+                timeSeriesFilter = {
+                  filter = "metric.type=\"custom.googleapis.com/${var.metrics_namespace}/runtime_gauge\" metric.labels.name=\"cost_ops_gpu_utilization_percent\""
+                }
+              }
+              gaugeView = {
+                lowerBound = 0
+                upperBound = 100
+              }
+            }
+          }
+        },
+        {
+          xPos   = 9
+          yPos   = 8
+          width  = 3
+          height = 4
+          widget = {
+            title = "Cache Hit Rate Percent"
+            scorecard = {
+              timeSeriesQuery = {
+                timeSeriesFilter = {
+                  filter = "metric.type=\"custom.googleapis.com/${var.metrics_namespace}/runtime_gauge\" metric.labels.name=\"cost_ops_cache_hit_rate_percent\""
+                }
+              }
+              gaugeView = {
+                lowerBound = 0
+                upperBound = 100
+              }
+            }
+          }
         }
       ]
     }

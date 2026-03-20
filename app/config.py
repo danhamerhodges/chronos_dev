@@ -49,6 +49,9 @@ class Settings:
     stripe_webhook_secret: str = os.getenv("STRIPE_WEBHOOK_SECRET", "")
     stripe_product_id: str = _env_with_fallback("STRIPE_PRODUCT_ID", "STRIPE_SUBSCRIPTION_PRODUCT_ID")
     stripe_price_id: str = _env_with_fallback("STRIPE_PRICE_ID", "STRIPE_SUBSCRIPTION_PRICE_ID")
+    stripe_hobbyist_price_id: str = _env_with_fallback("STRIPE_HOBBYIST_PRICE_ID")
+    stripe_pro_price_id: str = _env_with_fallback("STRIPE_PRO_PRICE_ID")
+    stripe_museum_price_id: str = _env_with_fallback("STRIPE_MUSEUM_PRICE_ID")
     stripe_overage_product_id: str = _env_with_fallback(
         "STRIPE_OVERAGE_PRODUCT_ID",
         default=_env_with_fallback("STRIPE_PRODUCT_ID", "STRIPE_SUBSCRIPTION_PRODUCT_ID"),
@@ -113,6 +116,24 @@ class Settings:
     museum_processing_sla_enabled: bool = _as_bool(os.getenv("MUSEUM_PROCESSING_SLA_ENABLED", "true"), default=True)
 
     def __post_init__(self) -> None:
+        effective_pro_price_id = self.stripe_pro_price_id or self.stripe_price_id
+        effective_museum_price_id = self.stripe_museum_price_id or self.stripe_price_id
+        if (
+            self.stripe_pro_price_id
+            and self.stripe_museum_price_id
+            and self.stripe_pro_price_id == self.stripe_museum_price_id
+        ):
+            raise ValueError("STRIPE_PRO_PRICE_ID and STRIPE_MUSEUM_PRICE_ID must differ for tier-aware pricing.")
+        if (
+            self.stripe_price_id
+            and (self.stripe_pro_price_id or self.stripe_museum_price_id)
+            and effective_pro_price_id
+            and effective_museum_price_id
+            and effective_pro_price_id == effective_museum_price_id
+        ):
+            raise ValueError(
+                "Effective STRIPE_PRO_PRICE_ID and STRIPE_MUSEUM_PRICE_ID must differ after shared fallback."
+            )
         if self.output_delivery_signing_secret:
             return
         if self.environment == "test":

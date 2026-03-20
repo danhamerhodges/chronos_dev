@@ -725,3 +725,55 @@ class RuntimeOpsSnapshotResponse(StrictModel):
     incidents: list[IncidentResponse] = Field(default_factory=list)
     alerts: list[dict[str, Any]] = Field(default_factory=list)
     training_calendar_url: str | None = None
+
+
+class CostTotalsResponse(StrictModel):
+    gpu: float = 0.0
+    storage: float = 0.0
+    api: float = 0.0
+    actual_charge_total: float = 0.0
+
+
+class GrossMarginSummaryResponse(StrictModel):
+    revenue_total_usd: float = 0.0
+    cost_total_usd: float = 0.0
+    gross_margin_percent: float = 0.0
+    target_margin_percent: float = 60.0
+    below_target: bool = False
+
+
+class OperationalEfficiencyResponse(StrictModel):
+    gpu_utilization_percent: float = 0.0
+    cache_hit_rate_percent: float = 0.0
+    autoscaler_idle_scale_down_healthy: bool = True
+
+
+class CostAnomalyResponse(StrictModel):
+    job_id: str
+    detected_at: str
+    anomaly_types: list[str] = Field(default_factory=list)
+    delta_percent: float = 0.0
+    gross_margin_percent: float = 0.0
+    actual_cost_total_usd: float = 0.0
+    actual_charge_total_usd: float = 0.0
+
+
+class CostRecommendationResponse(StrictModel):
+    category: str
+    priority: Literal["none", "low", "medium", "high"] = "none"
+    action_required: bool = False
+    summary: str
+    evidence: dict[str, Any] = Field(default_factory=dict)
+
+
+class CostOpsSnapshotResponse(StrictModel):
+    generated_at: str
+    summary_window_start: str
+    summary_window_end: str
+    quarterly_window_start: str
+    quarterly_window_end: str
+    cost_totals_usd: CostTotalsResponse
+    gross_margin_summary: GrossMarginSummaryResponse
+    operational_efficiency: OperationalEfficiencyResponse
+    recent_anomalies: list[CostAnomalyResponse] = Field(default_factory=list)
+    recommendations: list[CostRecommendationResponse] = Field(default_factory=list)
