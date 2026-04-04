@@ -11,6 +11,7 @@ from typing import Any
 
 
 REQUIRED_SECRET_REFS = {
+    "REDIS_URL": "REDIS_URL",
     "SUPABASE_URL": "SUPABASE_URL_DEV",
     "SUPABASE_ANON_KEY": "SUPABASE_ANON_KEY_DEV",
     "SUPABASE_SERVICE_ROLE_KEY": "SUPABASE_SERVICE_ROLE_KEY",
@@ -20,6 +21,7 @@ REQUIRED_SECRET_REFS = {
     "SUPABASE_DB_USER": "SUPABASE_DB_USER",
     "SUPABASE_DB_PASSWORD": "SUPABASE_DB_PASSWORD",
     "JOB_WORKER_TRUSTED_TOKEN": "JOB_WORKER_TRUSTED_TOKEN",
+    "OUTPUT_DELIVERY_SIGNING_SECRET": "OUTPUT_DELIVERY_SIGNING_SECRET",
 }
 
 REQUIRED_PLAIN_ENVS = {
@@ -32,7 +34,6 @@ REQUIRED_PLAIN_ENVS = {
 REQUIRED_NONEMPTY_ENVS = {
     "BUILD_SHA",
     "BUILD_TIME",
-    "REDIS_URL",
 }
 
 FORBIDDEN_LITERAL_VALUES = {
@@ -77,6 +78,12 @@ def _env_map(service: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return {entry["name"]: entry for entry in env_entries}
 
 
+def _secret_ref_name(entry: dict[str, Any] | None) -> str:
+    secret_ref = ((entry or {}).get("valueFrom") or {}).get("secretKeyRef") or {}
+    name = secret_ref.get("name")
+    return name if isinstance(name, str) else ""
+
+
 def _check_secret_refs(env_map: dict[str, dict[str, Any]]) -> list[str]:
     failures: list[str] = []
     for env_name, secret_name in REQUIRED_SECRET_REFS.items():
@@ -84,9 +91,20 @@ def _check_secret_refs(env_map: dict[str, dict[str, Any]]) -> list[str]:
         if entry is None:
             failures.append(f"Missing runtime setting: {env_name}")
             continue
-        secret_ref = ((entry.get("valueFrom") or {}).get("secretKeyRef")) or {}
-        if secret_ref.get("name") != secret_name:
+        if _secret_ref_name(entry) != secret_name:
             failures.append(f"{env_name} must reference Secret Manager secret {secret_name}")
+    return failures
+
+
+def _check_dedicated_secret_refs(env_map: dict[str, dict[str, Any]]) -> list[str]:
+    failures: list[str] = []
+    worker_secret = _secret_ref_name(env_map.get("JOB_WORKER_TRUSTED_TOKEN"))
+    signing_secret = _secret_ref_name(env_map.get("OUTPUT_DELIVERY_SIGNING_SECRET"))
+    if worker_secret and signing_secret and worker_secret == signing_secret:
+        failures.append(
+            "OUTPUT_DELIVERY_SIGNING_SECRET must reference a dedicated Secret Manager secret, "
+            "not JOB_WORKER_TRUSTED_TOKEN"
+        )
     return failures
 
 
@@ -133,9 +151,6 @@ def _check_env_formats(env_map: dict[str, dict[str, Any]]) -> list[str]:
         normalized = build_sha.removesuffix("-dirty")
         if len(normalized) < 7 or any(ch not in "0123456789abcdef" for ch in normalized.lower()):
             failures.append("BUILD_SHA must look like a git commit SHA")
-    redis_url = (env_map.get("REDIS_URL") or {}).get("value", "")
-    if isinstance(redis_url, str) and not redis_url.startswith("redis://"):
-        failures.append("REDIS_URL must use the redis:// scheme")
     return failures
 
 
@@ -146,6 +161,7 @@ def main() -> int:
 
     failures = []
     failures.extend(_check_secret_refs(env_map))
+    failures.extend(_check_dedicated_secret_refs(env_map))
     failures.extend(_check_plain_envs(env_map))
     failures.extend(_check_required_nonempty_envs(env_map))
     failures.extend(_check_forbidden_literals(env_map))

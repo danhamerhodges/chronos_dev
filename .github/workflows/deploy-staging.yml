@@ -8,7 +8,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: chronos_dev
+    environment: chronos_dev # Shared hosted staging / pre-prod environment.
     permissions:
       contents: read
       id-token: write
@@ -37,6 +37,25 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
+      - name: Validate required hosted Secret Manager secrets
+        run: |
+          for secret in \
+            REDIS_URL \
+            SUPABASE_URL_DEV \
+            SUPABASE_ANON_KEY_DEV \
+            SUPABASE_SERVICE_ROLE_KEY \
+            SUPABASE_DB_HOST \
+            SUPABASE_DB_PORT \
+            SUPABASE_DB_NAME \
+            SUPABASE_DB_USER \
+            SUPABASE_DB_PASSWORD \
+            JOB_WORKER_TRUSTED_TOKEN \
+            OUTPUT_DELIVERY_SIGNING_SECRET; do
+            gcloud secrets describe "${secret}" --project "${GCP_PROJECT_ID}" >/dev/null || {
+              echo "Missing required Secret Manager secret for chronos_dev: ${secret}"
+              exit 1
+            }
+          done
       - name: Deploy to Cloud Run staging
         run: |
           BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -45,8 +64,8 @@ jobs:
             --region "${GCP_REGION:-us-central1}" \
             --source . \
             --allow-unauthenticated \
-            --set-env-vars "ENVIRONMENT=staging,BUILD_SHA=${GITHUB_SHA},BUILD_TIME=${BUILD_TIME},JOB_DISPATCH_MODE=pubsub,JOB_PROGRESS_MODE=supabase,JOB_PUBSUB_TOPIC=projects/${GCP_PROJECT_ID}/topics/chronos-async-jobs-smoke,SEGMENT_CACHE_MODE=redis,REDIS_URL=redis://10.32.25.35:6379/0,GCS_BUCKET_NAME=${GCS_BUCKET_NAME}" \
-            --set-secrets "SUPABASE_URL=SUPABASE_URL_DEV:latest,SUPABASE_ANON_KEY=SUPABASE_ANON_KEY_DEV:latest,SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest,SUPABASE_DB_HOST=SUPABASE_DB_HOST:latest,SUPABASE_DB_PORT=SUPABASE_DB_PORT:latest,SUPABASE_DB_NAME=SUPABASE_DB_NAME:latest,SUPABASE_DB_USER=SUPABASE_DB_USER:latest,SUPABASE_DB_PASSWORD=SUPABASE_DB_PASSWORD:latest,JOB_WORKER_TRUSTED_TOKEN=JOB_WORKER_TRUSTED_TOKEN:latest,OUTPUT_DELIVERY_SIGNING_SECRET=JOB_WORKER_TRUSTED_TOKEN:latest" \
+            --set-env-vars "ENVIRONMENT=staging,BUILD_SHA=${GITHUB_SHA},BUILD_TIME=${BUILD_TIME},JOB_DISPATCH_MODE=pubsub,JOB_PROGRESS_MODE=supabase,JOB_PUBSUB_TOPIC=projects/${GCP_PROJECT_ID}/topics/chronos-async-jobs-smoke,SEGMENT_CACHE_MODE=redis,GCS_BUCKET_NAME=${GCS_BUCKET_NAME}" \
+            --set-secrets "REDIS_URL=REDIS_URL:latest,SUPABASE_URL=SUPABASE_URL_DEV:latest,SUPABASE_ANON_KEY=SUPABASE_ANON_KEY_DEV:latest,SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest,SUPABASE_DB_HOST=SUPABASE_DB_HOST:latest,SUPABASE_DB_PORT=SUPABASE_DB_PORT:latest,SUPABASE_DB_NAME=SUPABASE_DB_NAME:latest,SUPABASE_DB_USER=SUPABASE_DB_USER:latest,SUPABASE_DB_PASSWORD=SUPABASE_DB_PASSWORD:latest,JOB_WORKER_TRUSTED_TOKEN=JOB_WORKER_TRUSTED_TOKEN:latest,OUTPUT_DELIVERY_SIGNING_SECRET=OUTPUT_DELIVERY_SIGNING_SECRET:latest" \
             --quiet
       - name: Verify Cloud Run runtime hardening
         run: |
