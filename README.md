@@ -1,16 +1,24 @@
 # ChronosRefine
 
-This repository contains the current ChronosRefine codebase plus the canonical requirements set under `docs/specs/`.
+This repository contains the active ChronosRefine codebase plus the canonical requirements and runbooks under `docs/specs/`.
 
-Current `main` includes the Phase 1 baseline plus merged Phase 2 and Phase 3 backend work. Phase 4 remains planning-only and should be kicked off from the canonical documents, not historical status notes.
+Use the canonical docs, coverage matrix, and implementation plan under `docs/specs/` as the source of truth for current phase and packet status.
 
 ## Current Repo State
 
 - Canonical source of truth lives under `docs/specs/` in the ordering defined by `AGENTS.md`.
-- Phase 2 backend closeout is merged on `main`.
-- Phase 3 Packets 3A, 3B, and 3C are merged on `main`.
 - The checked-in API contract lives at `docs/api/openapi.yaml`.
-- Phase 3 closeout notes and the PRD are context-only and do not override canon.
+- The environment model is documented in `docs/specs/chronos_environment_strategy_runbook.md`.
+- The environment variable contract is documented in `docs/specs/ENVIRONMENT_VARIABLES.md`.
+
+## Environment Model
+
+- `local` is the default contributor environment.
+- `chronos_dev` is the only shared hosted environment and is treated operationally as staging / pre-prod.
+- `production` is deferred and not implemented yet.
+- Local Supabase is optional and not required for baseline local development.
+
+See `docs/specs/chronos_environment_strategy_runbook.md` for the governing model and `docs/specs/ENVIRONMENT_VARIABLES.md` for the current env-var contract.
 
 ## Historical Phase 1 Scope
 
@@ -23,9 +31,10 @@ Current `main` includes the Phase 1 baseline plus merged Phase 2 and Phase 3 bac
 
 ## Quickstart
 
-1. Copy `.env.example` to `.env` and fill values.
-2. Copy `.env.test.example` to `.env.test` for test-only values.
-3. Run the verification commands below or the phase-specific commands referenced from the canonical docs.
+1. Copy `.env.example` to `.env` for local app defaults and optional hosted integration values.
+2. Copy `.env.test.example` to `.env.test` for unit-only test mode; local Supabase is not required.
+3. Uncomment hosted integration values only when you intentionally want to target the shared `chronos_dev` environment.
+4. Run the verification commands below or the phase-specific commands referenced from the canonical docs.
 
 ## Common Verification Commands
 
@@ -62,20 +71,9 @@ Policy file:
 
 The GitHub Actions `integration` job runs only on `push` to `main` and only when required secrets are present.
 
-Required `chronos_dev` environment secrets:
+`chronos_dev` is the shared hosted staging / pre-prod GitHub environment for this repository. The authoritative deploy/runtime contract lives in `docs/specs/ENVIRONMENT_VARIABLES.md`.
 
-- `SUPABASE_URL_DEV`
-- `SUPABASE_ANON_KEY_DEV`
-- `STRIPE_SECRET_KEY`
-- `STRIPE_SUBSCRIPTION_PRODUCT_ID`
-- `STRIPE_SUBSCRIPTION_PRICE_ID`
-
-Optional (enables deeper integration assertions):
-
-- `CHRONOS_TEST_EMAIL`
-- `CHRONOS_TEST_PASSWORD`
-- `CHRONOS_TEST_STRIPE_CUSTOMER_ID`
-- `STRIPE_WEBHOOK_SECRET`
+Legacy `*_DEV` secret names are retained as compatibility-only names in this pass; they are documented rather than renamed.
 
 Additional agent-oriented workflows:
 
