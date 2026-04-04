@@ -445,6 +445,14 @@ This implementation plan is organized into a logical execution sequence designed
 
 **Rationale:** This phase converts a functional product into a launch-ready system by hardening security, compliance, reliability, and pricing/i18n controls before production readiness gates.
 
+**Approved Kickoff Packet: Packet 5A (2026-04-03)**
+
+**Requirement Focus:** `FR-006`
+
+**Kickoff Packet:** `docs/specs/chronosrefine_phase5_packet5a_kickoff.md`
+
+**Reason for kickoff choice:** `FR-006` is the smallest Phase 5 requirement that turns the merged Packet 4F preview substrate into the canonical preview-review gate without pulling pricing enforcement, GDPR delivery work, or the rest of Phase 5 hardening forward. The kickoff packet remains anchored to merged `main`; local workspace-only preview-review code does not count until it is merged and rollout evidence is recorded.
+
 ### Phase 6: Production Readiness & Launch
 
 **Objective:** Prepare the application for production launch through rigorous testing, security hardening, and documentation.
