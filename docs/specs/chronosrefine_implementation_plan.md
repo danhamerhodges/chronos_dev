@@ -412,10 +412,10 @@ This implementation plan is organized into a logical execution sequence designed
 
 **Entry Criteria:**
 - [x] Phase 4 complete: User-facing features operational → **See:** `docs/specs/chronosrefine_implementation_plan.md#phase-4-user-facing-features--application-logic`
-- [ ] Pricing tiers finalized with feature allocation and recorded in merged canon → **Req:** **NFR-006**, **NFR-012**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-006-pricing-model`, `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-012-payment-provider-selection`, `docs/specs/chronosrefine_prd_v9.md#pricing--business-model`
-- [ ] Legal review complete for GDPR and data-handling controls and recorded in merged canon → **Req:** **SEC-006**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-006-gdpr-compliance`
+- [x] Pricing tiers finalized with feature allocation and recorded in merged canon → **Req:** **NFR-006**, **NFR-012**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-006-pricing-model`, `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-012-payment-provider-selection`, `docs/specs/chronosrefine_prd_v9.md#pricing--business-model`, `docs/specs/chronosrefine_phase5_pricing_clearance.md`
+- [x] Legal review complete for GDPR and data-handling controls and recorded in merged canon → **Req:** **SEC-006**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-006-gdpr-compliance`, `docs/specs/chronosrefine_phase5_gdpr_legal_clearance.md`, `docs/specs/chronosrefine_phase5_dpa_status.md`
 
-**Current Gate Status Note:** Phase 5 is paused at the merged-repo baseline. Local workspace-only pricing-alignment, preview-review, and compliance artifacts are not counted here until they are merged to `main` and any required rollout evidence is recorded. No Phase 5 requirement should be treated as implemented from this tracker until that happens.
+**Current Gate Status Note:** Phase 5 entry criteria are now satisfied in merged canon via the recorded pricing and legal/DPA gate notes. Phase 5 remains `0/11` and no Phase 5 requirement is implemented on `main` yet. Local workspace-only preview-review, pricing, and compliance code still does not count until it is merged and any required rollout evidence is recorded.
 
 **Deliverables:**
 -   Preview generation system hardened for production usage → **Req:** **FR-006**, **Test:** `tests/processing/test_preview_generation.py`, `tests/processing/test_scene_detection.py`, `tests/ui/test_preview_modal.spec.ts`, `tests/load/test_preview_performance.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-006-preview-generation`
