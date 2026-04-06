@@ -4,7 +4,7 @@
 **Phase:** Phase 5 - Advanced Features & UX Refinement
 **Packet:** Packet 5A
 **Requirement Focus:** `FR-006`
-**Status:** Approved kickoff planning artifact; no Phase 5 requirement is implemented on `main` yet
+**Status:** Hosted-complete Packet 5A kickoff and scope record; hosted closeout evidence is recorded in `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md`
 **Source of truth:** `docs/specs/*` canonical ordering in `AGENTS.md`
 
 ---
@@ -60,7 +60,7 @@ Packet 5A is the merged-main kickoff packet for `FR-006`. It should implement th
 3. Enforce the preview approval gate on the backend:
    - preview launch succeeds only from an approved, current, owner-scoped preview
    - stale or expired previews cannot launch
-   - direct job launch attempts that bypass the current preview gate must return a deterministic `409` until an approved current preview exists for the saved configuration
+   - Packet 5A gates preview-launch and the first-party UI only; generic `POST /v1/jobs` preview-approval enforcement remains deferred
 4. Reuse the existing Packet 4 preview substrate and Packet 4 job-launch logic rather than replacing them.
 5. Add any required persistence changes for preview review state, including migration work if the persisted preview-session model needs new fields.
 
@@ -72,7 +72,8 @@ Packet 5A is the merged-main kickoff packet for `FR-006`. It should implement th
    - show preview cost and processing-time estimate
    - expose explicit approve / reject actions
 2. Change the primary launch path so users review the preview before full processing starts.
-3. Keep the Packet 4E launch-cost review path as a downstream step or reuse target rather than deleting it in Packet 5A.
+3. Keep the Packet 4E launch-cost review path as a downstream integration target rather than deleting it in Packet 5A.
+4. Canonical NFR numbering and ownership follow `docs/specs/chronosrefine_nonfunctional_requirements.md`; Packet 5A may reference `NFR-008` as a quality bar only, and formal `NFR-008` completion remains Phase 6 work.
 
 ### 3.3 Documentation / Test Scope
 
@@ -96,6 +97,7 @@ Packet 5A must not absorb the rest of Phase 5.
 - `NFR-009` i18n foundations
 - production rollout, canary, or Phase 6 launch-readiness tasks
 - any assumption that local preview-review routes, modal code, tests, or migrations are already merged
+- claiming global `FR-006` closeout from Packet 5A alone
 
 ## 5) Required Extension Surfaces
 
@@ -147,6 +149,7 @@ Packet 5A should not be counted as merged progress until all of the following ar
 6. The preview UI renders the 10-keyframe grid, supports full-size inspection, and displays cost/time estimate data.
 7. Packet 5A accessibility coverage exists for any new preview-review modal or equivalent interaction surface.
 8. OpenAPI is updated for the new preview-review API shape.
+9. Packet 5A is recorded as an `FR-006` slice only; global `FR-006` closeout is not yet claimed.
 9. Preview generation remains under the canonical `<6s p95` Phase 5 guardrail.
 
 ## 8) Planned Test Mapping
@@ -165,7 +168,7 @@ Packet 5A should not be counted as merged progress until all of the following ar
 - `tests/ui/test_preview_modal.spec.ts`
 - preview-review accessibility coverage for the new modal or review surface
 
-## 9) Rollout Evidence Required Before Counting Progress
+## 9) Rollout Evidence
 
 Local and CI proof:
 
@@ -183,6 +186,8 @@ Hosted proof in `chronos_dev`:
    - launch from the approved preview succeeds
 3. Capture preview latency evidence against the hosted runtime and confirm the canonical p95 guardrail remains satisfied.
 4. If Packet 5A adds persistent review-state columns, dry-run and apply the required migration against the hosted database before counting the packet complete.
+
+Hosted closeout for the delivered packet is recorded in `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md`.
 
 ## 10) Risks And Mitigations
 

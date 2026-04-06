@@ -1,4 +1,4 @@
-"""Maps to: ENG-002, ENG-010, ENG-011, SEC-009, FR-001, FR-003, DS-001"""
+"""Maps to: ENG-002, ENG-010, ENG-011, SEC-009, FR-001, FR-003, FR-006, DS-001"""
 
 from pathlib import Path
 
@@ -101,6 +101,7 @@ def test_request_validation_errors_use_problem_details_shape() -> None:
 def test_tracked_openapi_spec_covers_phase2_subset() -> None:
     root = Path(__file__).resolve().parents[2]
     openapi_spec = (root / "docs" / "api" / "openapi.yaml").read_text(encoding="utf-8")
+    jobs_section = openapi_spec.split("/v1/jobs:", 1)[1].split("/v1/jobs/estimate:", 1)[0]
 
     assert "/v1/upload:" in openapi_spec
     assert "/v1/upload/{upload_id}:" in openapi_spec
@@ -115,10 +116,22 @@ def test_tracked_openapi_spec_covers_phase2_subset() -> None:
     assert 'description: Billing pricing metadata is temporarily unavailable' in openapi_spec
     assert "/v1/previews:" in openapi_spec
     assert "/v1/previews/{preview_id}:" in openapi_spec
+    assert "/v1/previews/{preview_id}/review:" in openapi_spec
+    assert "/v1/previews/{preview_id}/launch:" in openapi_spec
     assert "PreviewStatus:" in openapi_spec
     assert "enum: [ready]" in openapi_spec
+    assert "PreviewReviewStatus:" in openapi_spec
+    assert "PreviewLaunchStatus:" in openapi_spec
     assert "enum: [ready, failed]" not in openapi_spec
     assert "Preview storage/signing is temporarily unavailable" in openapi_spec
+    assert "/problems/preview_approval_required" in openapi_spec
+    assert "/problems/preview_stale" in openapi_spec
+    assert "/problems/preview_expired" in openapi_spec
+    assert "/problems/preview_already_launched" in openapi_spec
+    assert "/problems/launch_dispatch_failed" in openapi_spec
+    assert "configuration_fingerprint:" in openapi_spec
+    assert "/problems/preview_approval_required" not in jobs_section
+    assert "/problems/preview_stale" not in jobs_section
     assert "/v1/jobs/{job_id}/export:" in openapi_spec
     assert "/v1/jobs/{job_id}/uncertainty-callouts:" in openapi_spec
     assert "/v1/deletion-proofs/{proof_id}:" in openapi_spec

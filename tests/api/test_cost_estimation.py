@@ -28,6 +28,7 @@ def test_estimate_route_returns_full_breakdown_for_valid_launch_payload() -> Non
     assert payload["usage_snapshot"]["estimated_next_job_minutes"] == 5
     assert payload["launch_blocker"] == "none"
     assert payload["estimator_version"] == "packet4e-v1"
+    assert len(payload["configuration_fingerprint"]) == 64
 
 
 def test_estimate_route_returns_overage_blocker_instead_of_403() -> None:

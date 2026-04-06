@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from time import perf_counter
 from typing import Any
 from urllib.parse import quote
 
+from app.api.contracts import PreviewLaunchStatus, PreviewReviewStatus
 from app.api.problem_details import ProblemException
 from app.config import settings
 from app.db.phase2_store import (
@@ -20,19 +21,31 @@ from app.db.phase2_store import (
     _stable_uuid,
 )
 from app.models.status import UploadStatus
-from app.observability.monitoring import record_preview_generation
+from app.observability.monitoring import (
+    record_job_runtime_event,
+    record_preview_generation,
+    record_runtime_snapshot,
+)
+from app.services.configuration_fingerprint import canonical_json, configuration_fingerprint, preview_launch_external_job_id, sha256_hex
 from app.services.cost_estimation import BillingPricingUnavailableError, CostEstimationService
+from app.services.job_dispatcher import publish_job
+from app.services.job_service import JobService
 
 _TARGET_KEYFRAME_COUNT = 10
 _PREVIEW_URL_TTL_HOURS = 1
 _PREVIEW_RETENTION_HOURS = 24
+_LAUNCH_PENDING_STUCK_SECONDS = 300
+_PROBLEM_PREVIEW_APPROVAL_REQUIRED = "/problems/preview_approval_required"
+_PROBLEM_PREVIEW_STALE = "/problems/preview_stale"
+_PROBLEM_PREVIEW_EXPIRED = "/problems/preview_expired"
+_PROBLEM_PREVIEW_ALREADY_LAUNCHED = "/problems/preview_already_launched"
+_PROBLEM_LAUNCH_DISPATCH_FAILED = "/problems/launch_dispatch_failed"
+_LOGGER = logging.getLogger("chronos.preview")
 
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 def _isoformat(value: datetime) -> str: return value.isoformat()
-def _canonical_json(payload: dict[str, Any]) -> str: return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
-def _sha256(value: str) -> str: return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
 def _preview_id_for_snapshot(*, upload_id: str, configured_at_snapshot: str) -> str:
@@ -55,10 +68,12 @@ class PreviewGenerationService:
         uploads: UploadRepository | None = None,
         previews: PreviewSessionRepository | None = None,
         estimator: CostEstimationService | None = None,
+        jobs: JobService | None = None,
     ) -> None:
         self._uploads = uploads or UploadRepository()
         self._previews = previews or PreviewSessionRepository()
         self._estimator = estimator or CostEstimationService()
+        self._jobs = jobs or JobService()
 
     def create_preview(
         self,
@@ -170,13 +185,194 @@ class PreviewGenerationService:
                 title="Preview Expired",
                 detail="The preview session has expired and its artifacts were deleted. Generate a fresh preview from the saved configuration.",
                 status_code=410,
+                type=_PROBLEM_PREVIEW_EXPIRED,
             )
         current_session = self._uploads.get_session(
             str(preview["upload_id"]),
             owner_user_id=owner_user_id,
             access_token=access_token,
         )
+        self._record_launch_pending_health(
+            preview=preview,
+            owner_user_id=owner_user_id,
+            access_token=access_token,
+        )
         return self._response_payload(preview, current_session=current_session)
+
+    def review_preview(
+        self,
+        preview_id: str,
+        *,
+        owner_user_id: str,
+        access_token: str,
+        review_status: str,
+    ) -> dict[str, Any]:
+        preview, current_session, _ = self._load_mutable_preview(
+            preview_id,
+            owner_user_id=owner_user_id,
+            access_token=access_token,
+        )
+        if preview.get("launch_status") != PreviewLaunchStatus.NOT_LAUNCHED.value:
+            raise self._preview_already_launched_problem()
+        if str(preview.get("review_status") or PreviewReviewStatus.PENDING.value) == review_status:
+            return self._response_payload(preview, current_session=current_session)
+        updated = self._previews.update_preview(
+            preview_id,
+            owner_user_id=owner_user_id,
+            patch={
+                "review_status": review_status,
+                "reviewed_at": _isoformat(_utc_now()),
+            },
+            access_token=access_token,
+        )
+        if updated is None:
+            raise ProblemException(
+                title="Preview Review Failed",
+                detail="The preview review state could not be updated.",
+                status_code=500,
+            )
+        return self._response_payload(updated, current_session=current_session)
+
+    def launch_preview(
+        self,
+        preview_id: str,
+        *,
+        owner_user_id: str,
+        org_id: str,
+        plan_tier: str,
+        access_token: str,
+        configuration_fingerprint_value: str,
+    ) -> dict[str, Any]:
+        preview, _, snapshot = self._load_mutable_preview(
+            preview_id,
+            owner_user_id=owner_user_id,
+            access_token=access_token,
+            request_configuration_fingerprint=configuration_fingerprint_value,
+        )
+        bound_external_job_id = str(preview.get("launched_external_job_id") or "")
+        if not bound_external_job_id:
+            bound_external_job_id = preview_launch_external_job_id(
+                preview_id=preview_id,
+                configuration_fingerprint_value=snapshot["configuration_fingerprint"],
+            )
+        if preview.get("launch_status") == PreviewLaunchStatus.LAUNCHED.value:
+            return self._jobs.get_job_create_response(
+                bound_external_job_id,
+                owner_user_id=owner_user_id,
+                access_token=access_token,
+            )
+        if str(preview.get("review_status") or PreviewReviewStatus.PENDING.value) != PreviewReviewStatus.APPROVED.value:
+            raise ProblemException(
+                title="Preview Approval Required",
+                detail="Approve the current preview before launching processing.",
+                status_code=409,
+                type=_PROBLEM_PREVIEW_APPROVAL_REQUIRED,
+            )
+
+        claim_won = False
+        if preview.get("launch_status") == PreviewLaunchStatus.NOT_LAUNCHED.value:
+            claimed = self._previews.claim_launch(
+                preview_id,
+                owner_user_id=owner_user_id,
+                launched_external_job_id=bound_external_job_id,
+                access_token=access_token,
+            )
+            if claimed is not None:
+                preview = claimed
+                claim_won = True
+            else:
+                preview, _, snapshot = self._load_mutable_preview(
+                    preview_id,
+                    owner_user_id=owner_user_id,
+                    access_token=access_token,
+                    request_configuration_fingerprint=configuration_fingerprint_value,
+                )
+                if preview.get("launch_status") == PreviewLaunchStatus.LAUNCHED.value:
+                    return self._jobs.get_job_create_response(
+                        bound_external_job_id,
+                        owner_user_id=owner_user_id,
+                        access_token=access_token,
+                    )
+
+        try:
+            created_job = self._jobs.create_job(
+                user_id=owner_user_id,
+                plan_tier=plan_tier,
+                org_id=org_id,
+                payload=snapshot["job_payload_preview"],
+                access_token=access_token,
+                job_id_override=bound_external_job_id,
+                publish_immediately=False,
+                publish_source="preview_launch",
+            )
+        except ProblemException:
+            if claim_won:
+                self._previews.update_preview(
+                    preview_id,
+                    owner_user_id=owner_user_id,
+                    patch={
+                        "launch_status": PreviewLaunchStatus.NOT_LAUNCHED.value,
+                        "launched_job_id": None,
+                        "launched_external_job_id": None,
+                        "launched_at": None,
+                    },
+                    access_token=access_token,
+                )
+            raise
+
+        launched_job_internal_id = _stable_uuid(bound_external_job_id)
+        persisted_pending = self._previews.update_preview(
+            preview_id,
+            owner_user_id=owner_user_id,
+            patch={
+                "launch_status": PreviewLaunchStatus.LAUNCH_PENDING.value,
+                "launched_job_id": launched_job_internal_id,
+                "launched_external_job_id": bound_external_job_id,
+            },
+            access_token=access_token,
+        )
+        if persisted_pending is None:
+            raise ProblemException(
+                title="Preview Launch Failed",
+                detail="The preview launch binding could not be persisted.",
+                status_code=500,
+            )
+        try:
+            publish_job(bound_external_job_id, plan_tier=plan_tier, source="preview_launch")
+        except Exception as exc:
+            self._record_launch_pending_health(
+                preview=persisted_pending,
+                owner_user_id=owner_user_id,
+                access_token=access_token,
+            )
+            raise ProblemException(
+                title="Launch Dispatch Failed",
+                detail="Preview launch was claimed, but dispatch did not complete. Retry the same preview launch to reuse the existing job binding.",
+                status_code=503,
+                type=_PROBLEM_LAUNCH_DISPATCH_FAILED,
+            ) from exc
+        launched = self._previews.update_preview(
+            preview_id,
+            owner_user_id=owner_user_id,
+            patch={
+                "launch_status": PreviewLaunchStatus.LAUNCHED.value,
+                "launched_job_id": launched_job_internal_id,
+                "launched_external_job_id": bound_external_job_id,
+                "launched_at": created_job["queued_at"],
+            },
+            access_token=access_token,
+        )
+        if launched is None:
+            raise ProblemException(
+                title="Preview Launch Failed",
+                detail="The preview launch status could not be finalized.",
+                status_code=500,
+            )
+        return self._jobs.get_job_create_response(
+            bound_external_job_id,
+            owner_user_id=owner_user_id,
+            access_token=access_token,
+        )
 
     def _require_preview_ready_upload(self, session: dict[str, Any] | None) -> dict[str, Any]:
         if session is None:
@@ -211,8 +407,9 @@ class PreviewGenerationService:
                 status_code=409,
             )
         configured_at_snapshot = str(configured_at)
-        configuration_fingerprint = _sha256(
-            _canonical_json({"configured_at": configured_at_snapshot, "job_payload_preview": job_payload_preview})
+        configuration_fingerprint_value = configuration_fingerprint(
+            configured_at=configured_at_snapshot,
+            job_payload_preview=job_payload_preview,
         )
         configuration_cache_fingerprint = _preview_configuration_cache_fingerprint(job_payload_preview)
         if configuration_cache_fingerprint is None:
@@ -221,8 +418,8 @@ class PreviewGenerationService:
                 detail="Preview generation requires a saved launch payload from the latest configuration.",
                 status_code=409,
             )
-        cache_key = _sha256(
-            _canonical_json(
+        cache_key = sha256_hex(
+            canonical_json(
                 {
                     "upload_id": session["upload_id"],
                     "configured_at_snapshot": configured_at_snapshot,
@@ -238,7 +435,7 @@ class PreviewGenerationService:
                 upload_id=str(session["upload_id"]),
                 configured_at_snapshot=configured_at_snapshot,
             ),
-            "configuration_fingerprint": configuration_fingerprint,
+            "configuration_fingerprint": configuration_fingerprint_value,
             "configuration_cache_fingerprint": configuration_cache_fingerprint,
             "cache_key": cache_key,
         }
@@ -279,6 +476,12 @@ class PreviewGenerationService:
             "configured_at_snapshot": snapshot["configured_at_snapshot"],
             "configuration_fingerprint": snapshot["configuration_fingerprint"],
             "configuration_cache_fingerprint": snapshot["configuration_cache_fingerprint"],
+            "review_status": PreviewReviewStatus.PENDING.value,
+            "reviewed_at": None,
+            "launch_status": PreviewLaunchStatus.NOT_LAUNCHED.value,
+            "launched_job_id": None,
+            "launched_external_job_id": None,
+            "launched_at": None,
             "source_asset_checksum": snapshot["source_asset_checksum"],
             "cache_key": snapshot["cache_key"],
             "job_payload_preview": snapshot["job_payload_preview"],
@@ -464,6 +667,11 @@ class PreviewGenerationService:
             "upload_id": preview["upload_id"],
             "status": preview["status"],
             "configuration_fingerprint": preview["configuration_fingerprint"],
+            "review_status": preview.get("review_status", PreviewReviewStatus.PENDING.value),
+            "reviewed_at": preview.get("reviewed_at"),
+            "launch_status": preview.get("launch_status", PreviewLaunchStatus.NOT_LAUNCHED.value),
+            "launched_job_id": preview.get("launched_external_job_id"),
+            "launched_at": preview.get("launched_at"),
             "stale": current_fingerprint is not None and current_fingerprint != preview["configuration_fingerprint"],
             "expires_at": preview["expires_at"],
             "selection_mode": preview["selection_mode"],
@@ -516,6 +724,112 @@ class PreviewGenerationService:
         if not expires_at_raw:
             return False
         return datetime.fromisoformat(str(expires_at_raw)) > _utc_now()
+
+    def _load_mutable_preview(
+        self,
+        preview_id: str,
+        *,
+        owner_user_id: str,
+        access_token: str,
+        request_configuration_fingerprint: str | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+        preview = self._previews.get_preview(preview_id, owner_user_id=owner_user_id, access_token=access_token)
+        if preview is None:
+            raise ProblemException(
+                title="Not Found",
+                detail="Preview session not found for the current user.",
+                status_code=404,
+            )
+        preview = self._expire_if_needed(preview, owner_user_id=owner_user_id, access_token=access_token)
+        if preview.get("deleted_at"):
+            raise ProblemException(
+                title="Preview Expired",
+                detail="The preview session has expired and its artifacts were deleted. Generate a fresh preview from the saved configuration.",
+                status_code=410,
+                type=_PROBLEM_PREVIEW_EXPIRED,
+            )
+        current_session = self._uploads.get_session(
+            str(preview["upload_id"]),
+            owner_user_id=owner_user_id,
+            access_token=access_token,
+        )
+        if current_session is None:
+            raise ProblemException(
+                title="Preview Stale",
+                detail="The preview no longer matches the latest saved configuration. Regenerate the preview and retry.",
+                status_code=409,
+                type=_PROBLEM_PREVIEW_STALE,
+            )
+        try:
+            snapshot = self._saved_launch_snapshot(current_session)
+        except ProblemException as exc:
+            raise ProblemException(
+                title="Preview Stale",
+                detail="The preview no longer matches the latest saved configuration. Regenerate the preview and retry.",
+                status_code=409,
+                type=_PROBLEM_PREVIEW_STALE,
+            ) from exc
+        if str(snapshot["configuration_fingerprint"]) != str(preview.get("configuration_fingerprint")):
+            raise ProblemException(
+                title="Preview Stale",
+                detail="The preview no longer matches the latest saved configuration. Regenerate the preview and retry.",
+                status_code=409,
+                type=_PROBLEM_PREVIEW_STALE,
+            )
+        if (
+            request_configuration_fingerprint is not None
+            and request_configuration_fingerprint != str(preview.get("configuration_fingerprint"))
+        ):
+            raise ProblemException(
+                title="Preview Stale",
+                detail="The preview launch request does not match the latest saved configuration fingerprint.",
+                status_code=409,
+                type=_PROBLEM_PREVIEW_STALE,
+            )
+        self._record_launch_pending_health(
+            preview=preview,
+            owner_user_id=owner_user_id,
+            access_token=access_token,
+        )
+        return preview, current_session, snapshot
+
+    def _record_launch_pending_health(
+        self,
+        *,
+        preview: dict[str, Any],
+        owner_user_id: str,
+        access_token: str,
+    ) -> None:
+        snapshot = self._previews.launch_pending_snapshot(
+            owner_user_id=owner_user_id,
+            access_token=access_token,
+        )
+        record_runtime_snapshot(
+            {
+                "preview_launch_pending_count": snapshot["count"],
+                "preview_launch_pending_oldest_age_seconds": snapshot["oldest_age_seconds"],
+            }
+        )
+        if (
+            preview.get("launch_status") == PreviewLaunchStatus.LAUNCH_PENDING.value
+            and snapshot["oldest_age_seconds"] >= _LAUNCH_PENDING_STUCK_SECONDS
+        ):
+            record_job_runtime_event("preview_launch_pending_stale")
+            _LOGGER.warning(
+                "preview_launch_pending_stale preview_id=%s launched_external_job_id=%s configuration_fingerprint=%s age_seconds=%.3f",
+                preview.get("preview_id"),
+                preview.get("launched_external_job_id"),
+                preview.get("configuration_fingerprint"),
+                snapshot["oldest_age_seconds"],
+            )
+
+    def _preview_already_launched_problem(self) -> ProblemException:
+        return ProblemException(
+            title="Preview Already Launched",
+            detail="This preview has already been launched and cannot be reviewed again.",
+            status_code=409,
+            type=_PROBLEM_PREVIEW_ALREADY_LAUNCHED,
+        )
 
     def _estimated_processing_time_seconds(self, duration_seconds: int) -> int:
         return max(2, min(6, int(round(max(duration_seconds, 1) / 90.0)) + 1))

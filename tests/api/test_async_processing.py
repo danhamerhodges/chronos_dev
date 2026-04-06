@@ -1,12 +1,20 @@
 """Maps to: ENG-011"""
 
+from uuid import uuid4
+
 from fastapi.testclient import TestClient
 
+from app.db.phase2_store import reset_phase2_store
 from app.main import app
+from app.services.job_service import JobService
 from tests.helpers.auth import fake_auth_header
 from tests.helpers.jobs import valid_job_request
 
 client = TestClient(app)
+
+
+def setup_function() -> None:
+    reset_phase2_store()
 
 
 def test_job_submission_returns_queued_job_id_immediately() -> None:
@@ -54,3 +62,21 @@ def test_list_jobs_returns_only_current_user_jobs() -> None:
     payload = response.json()
     assert len(payload["jobs"]) == 1
     assert payload["jobs"][0]["original_filename"] == "sample.mov"
+
+
+def test_job_service_accepts_string_fidelity_tier_from_preview_payload() -> None:
+    service = JobService()
+    job_id = str(uuid4())
+
+    created = service.create_job(
+        user_id="job-user-string-tier",
+        plan_tier="pro",
+        org_id="org-default",
+        payload=valid_job_request(),
+        access_token="test-token-for-job-user-string-tier",
+        job_id_override=job_id,
+        publish_immediately=False,
+    )
+
+    assert created["job_id"] == job_id
+    assert created["effective_fidelity_tier"] == "Restore"

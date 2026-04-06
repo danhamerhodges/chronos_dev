@@ -609,12 +609,156 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetail"
+              example:
+                type: /problems/preview_expired
+                title: Preview Expired
+                status: 410
+                detail: The preview session has expired and its artifacts were deleted. Generate a fresh preview from the saved configuration.
         "503":
           description: Preview storage/signing is temporarily unavailable
           content:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetail"
+  /v1/previews/{preview_id}/review:
+    post:
+      tags: [previews]
+      summary: Approve or reject the current owner-scoped preview before launch
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: preview_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PreviewReviewRequest"
+      responses:
+        "200":
+          description: Preview review state updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PreviewSessionResponse"
+        "404":
+          description: Preview session not found for the current user
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "409":
+          description: Preview is stale or already launched
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+              examples:
+                preview_stale:
+                  value:
+                    type: /problems/preview_stale
+                    title: Preview Stale
+                    status: 409
+                    detail: The preview no longer matches the latest saved configuration. Regenerate the preview and retry.
+                preview_already_launched:
+                  value:
+                    type: /problems/preview_already_launched
+                    title: Preview Already Launched
+                    status: 409
+                    detail: This preview has already been launched and cannot be reviewed again.
+        "410":
+          description: Preview session expired and its artifacts were deleted
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+              example:
+                type: /problems/preview_expired
+                title: Preview Expired
+                status: 410
+                detail: The preview session has expired and its artifacts were deleted. Generate a fresh preview from the saved configuration.
+  /v1/previews/{preview_id}/launch:
+    post:
+      tags: [previews]
+      summary: Launch processing from the approved current preview
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: preview_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PreviewLaunchRequest"
+      responses:
+        "202":
+          description: Preview launch accepted and bound to a deterministic job id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobCreateResponse"
+        "404":
+          description: Preview session not found for the current user
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "409":
+          description: Preview is not approved, is stale, or was already launched
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+              examples:
+                preview_approval_required:
+                  value:
+                    type: /problems/preview_approval_required
+                    title: Preview Approval Required
+                    status: 409
+                    detail: Approve the current preview before launching processing.
+                preview_stale:
+                  value:
+                    type: /problems/preview_stale
+                    title: Preview Stale
+                    status: 409
+                    detail: The preview no longer matches the latest saved configuration. Regenerate the preview and retry.
+                preview_already_launched:
+                  value:
+                    type: /problems/preview_already_launched
+                    title: Preview Already Launched
+                    status: 409
+                    detail: This preview has already been launched and cannot be reviewed again.
+        "410":
+          description: Preview session expired and its artifacts were deleted
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+              example:
+                type: /problems/preview_expired
+                title: Preview Expired
+                status: 410
+                detail: The preview session has expired and its artifacts were deleted. Generate a fresh preview from the saved configuration.
+        "503":
+          description: Launch claim persisted, but dispatch did not complete
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+              example:
+                type: /problems/launch_dispatch_failed
+                title: Launch Dispatch Failed
+                status: 503
+                detail: Preview launch was claimed, but dispatch did not complete. Retry the same preview launch to reuse the existing job binding.
   /v1/jobs/{job_id}:
     get:
       tags: [jobs]
@@ -1607,7 +1751,7 @@ components:
     UploadConfigurationResponse:
       type: object
       required:
-        [upload_id, status, persona, fidelity_tier, grain_preset, detection_snapshot, resolved_fidelity_profile, relative_cost_multiplier, relative_processing_time_band, job_payload_preview, configured_at]
+        [upload_id, status, persona, fidelity_tier, grain_preset, detection_snapshot, resolved_fidelity_profile, relative_cost_multiplier, relative_processing_time_band, job_payload_preview, configured_at, configuration_fingerprint]
       properties:
         upload_id:
           type: string
@@ -1633,6 +1777,8 @@ components:
         job_payload_preview:
           $ref: "#/components/schemas/JobCreateRequest"
         configured_at:
+          type: string
+        configuration_fingerprint:
           type: string
         era_profile:
           $ref: "#/components/schemas/EraProfileInput"
@@ -1766,15 +1912,39 @@ components:
     JobEstimateResponse:
       allOf:
         - $ref: "#/components/schemas/CostEstimateSummaryResponse"
+        - type: object
+          required: [configuration_fingerprint]
+          properties:
+            configuration_fingerprint:
+              type: string
     PreviewCreateRequest:
       type: object
       required: [upload_id]
       properties:
         upload_id:
           type: string
+    PreviewReviewRequest:
+      type: object
+      required: [review_status]
+      properties:
+        review_status:
+          type: string
+          enum: [approved, rejected]
+    PreviewLaunchRequest:
+      type: object
+      required: [configuration_fingerprint]
+      properties:
+        configuration_fingerprint:
+          type: string
     PreviewStatus:
       type: string
       enum: [ready]
+    PreviewReviewStatus:
+      type: string
+      enum: [pending, approved, rejected]
+    PreviewLaunchStatus:
+      type: string
+      enum: [not_launched, launch_pending, launched]
     PreviewSelectionMode:
       type: string
       enum: [scene_aware, uniform_fallback]
@@ -1797,7 +1967,7 @@ components:
     PreviewSessionResponse:
       type: object
       required:
-        [preview_id, upload_id, status, configuration_fingerprint, stale, expires_at, selection_mode, scene_diversity, keyframe_count, estimated_cost_summary, estimated_processing_time_seconds, keyframes]
+        [preview_id, upload_id, status, configuration_fingerprint, review_status, launch_status, stale, expires_at, selection_mode, scene_diversity, keyframe_count, estimated_cost_summary, estimated_processing_time_seconds, keyframes]
       properties:
         preview_id:
           type: string
@@ -1807,6 +1977,19 @@ components:
           $ref: "#/components/schemas/PreviewStatus"
         configuration_fingerprint:
           type: string
+        review_status:
+          $ref: "#/components/schemas/PreviewReviewStatus"
+        reviewed_at:
+          type: string
+          nullable: true
+        launch_status:
+          $ref: "#/components/schemas/PreviewLaunchStatus"
+        launched_job_id:
+          type: string
+          nullable: true
+        launched_at:
+          type: string
+          nullable: true
         stale:
           type: boolean
         expires_at:

@@ -40,6 +40,8 @@ def _request_patch(payload: dict[str, Any], *, nullable_keys: set[str] | None = 
 
 def _preview_configuration_cache_payload(job_payload_preview: dict[str, Any]) -> dict[str, Any]:
     config = dict(job_payload_preview.get("config") or {})
+    # Artifact reuse should ignore the save-version anchor and key off the payload content only.
+    config.pop("configured_at", None)
     detection_snapshot = config.get("detection_snapshot")
     if isinstance(detection_snapshot, dict):
         config["detection_snapshot"] = {
@@ -85,6 +87,21 @@ def _cost_ops_job_anchor(job: dict[str, Any]) -> datetime | None:
         if parsed is not None:
             return parsed
     return None
+
+
+def _preview_launch_pending_metrics(previews: list[dict[str, Any]]) -> dict[str, float]:
+    pending = [item for item in previews if item.get("launch_status") == "launch_pending"]
+    oldest_age_seconds = 0.0
+    now = datetime.now(timezone.utc)
+    for preview in pending:
+        updated_at = _parse_job_timestamp(str(preview.get("updated_at") or ""))
+        if updated_at is None:
+            continue
+        oldest_age_seconds = max(oldest_age_seconds, max((now - updated_at).total_seconds(), 0.0))
+    return {
+        "count": float(len(pending)),
+        "oldest_age_seconds": float(oldest_age_seconds),
+    }
 
 
 _SUPABASE_JOB_JSON_FIELDS = {
@@ -444,10 +461,17 @@ class _MemoryPreviewSessionRepository:
     ) -> dict[str, Any]:
         del access_token
         record = dict(payload)
+        record.setdefault("review_status", "pending")
+        record.setdefault("reviewed_at", None)
+        record.setdefault("launch_status", "not_launched")
+        record.setdefault("launched_job_id", None)
+        record.setdefault("launched_external_job_id", None)
+        record.setdefault("launched_at", None)
         record.setdefault("created_at", _utc_now())
         record["updated_at"] = _utc_now()
-        _STORE.preview_sessions[record["preview_id"]] = record
-        return dict(record)
+        with _UPLOAD_STORE_LOCK:
+            _STORE.preview_sessions[record["preview_id"]] = record
+            return dict(record)
 
     def get_preview(
         self,
@@ -457,12 +481,13 @@ class _MemoryPreviewSessionRepository:
         access_token: str | None = None,
     ) -> dict[str, Any] | None:
         del access_token
-        record = _STORE.preview_sessions.get(preview_id)
-        if record is None:
-            return None
-        if owner_user_id and record["owner_user_id"] != owner_user_id:
-            return None
-        return dict(record)
+        with _UPLOAD_STORE_LOCK:
+            record = _STORE.preview_sessions.get(preview_id)
+            if record is None:
+                return None
+            if owner_user_id and record["owner_user_id"] != owner_user_id:
+                return None
+            return dict(record)
 
     def get_reusable_preview(
         self,
@@ -473,14 +498,15 @@ class _MemoryPreviewSessionRepository:
         access_token: str | None = None,
     ) -> dict[str, Any] | None:
         del access_token
-        candidates = [
-            dict(record)
-            for record in _STORE.preview_sessions.values()
-            if record["owner_user_id"] == owner_user_id
-            and record["source_asset_checksum"] == source_asset_checksum
-            and record.get("deleted_at") is None
-            and record.get("status") == "ready"
-        ]
+        with _UPLOAD_STORE_LOCK:
+            candidates = [
+                dict(record)
+                for record in _STORE.preview_sessions.values()
+                if record["owner_user_id"] == owner_user_id
+                and record["source_asset_checksum"] == source_asset_checksum
+                and record.get("deleted_at") is None
+                and record.get("status") == "ready"
+            ]
         if not candidates:
             return None
         candidates.sort(key=lambda item: item["created_at"], reverse=True)
@@ -502,14 +528,57 @@ class _MemoryPreviewSessionRepository:
         access_token: str | None = None,
     ) -> dict[str, Any] | None:
         del access_token
-        record = _STORE.preview_sessions.get(preview_id)
-        if record is None or record["owner_user_id"] != owner_user_id:
-            return None
-        updated = dict(record)
-        updated.update(_request_patch(patch, nullable_keys={"deleted_at"}))
-        updated["updated_at"] = _utc_now()
-        _STORE.preview_sessions[preview_id] = updated
-        return dict(updated)
+        with _UPLOAD_STORE_LOCK:
+            record = _STORE.preview_sessions.get(preview_id)
+            if record is None or record["owner_user_id"] != owner_user_id:
+                return None
+            updated = dict(record)
+            updated.update(
+                _request_patch(
+                    patch,
+                    nullable_keys={"deleted_at", "reviewed_at", "launched_job_id", "launched_external_job_id", "launched_at"},
+                )
+            )
+            updated["updated_at"] = _utc_now()
+            _STORE.preview_sessions[preview_id] = updated
+            return dict(updated)
+
+    def claim_launch(
+        self,
+        preview_id: str,
+        *,
+        owner_user_id: str,
+        launched_external_job_id: str,
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        del access_token
+        with _UPLOAD_STORE_LOCK:
+            record = _STORE.preview_sessions.get(preview_id)
+            if record is None or record["owner_user_id"] != owner_user_id:
+                return None
+            if record.get("launch_status") != "not_launched":
+                return None
+            updated = dict(record)
+            updated["launch_status"] = "launch_pending"
+            updated["launched_external_job_id"] = launched_external_job_id
+            updated["updated_at"] = _utc_now()
+            _STORE.preview_sessions[preview_id] = updated
+            return dict(updated)
+
+    def launch_pending_snapshot(
+        self,
+        *,
+        owner_user_id: str | None = None,
+        access_token: str | None = None,
+    ) -> dict[str, float]:
+        del access_token
+        with _UPLOAD_STORE_LOCK:
+            previews = [
+                dict(record)
+                for record in _STORE.preview_sessions.values()
+                if owner_user_id is None or record["owner_user_id"] == owner_user_id
+            ]
+        return _preview_launch_pending_metrics(previews)
 
 
 class _MemoryEraDetectionRepository:
@@ -1474,6 +1543,12 @@ class _SupabasePreviewSessionRepository(_SupabaseRepositoryBase):
                 row.get("configuration_cache_fingerprint")
                 or _preview_configuration_cache_fingerprint(job_payload_preview)
             ),
+            "review_status": row.get("review_status", "pending"),
+            "reviewed_at": row.get("reviewed_at"),
+            "launch_status": row.get("launch_status", "not_launched"),
+            "launched_job_id": str(row["launched_job_id"]) if row.get("launched_job_id") else None,
+            "launched_external_job_id": row.get("launched_external_job_id"),
+            "launched_at": row.get("launched_at"),
             "source_asset_checksum": row["source_asset_checksum"],
             "cache_key": row["cache_key"],
             "job_payload_preview": job_payload_preview,
@@ -1511,6 +1586,12 @@ class _SupabasePreviewSessionRepository(_SupabaseRepositoryBase):
                 "configured_at_snapshot": payload.get("configured_at_snapshot"),
                 "configuration_fingerprint": payload["configuration_fingerprint"],
                 "configuration_cache_fingerprint": payload.get("configuration_cache_fingerprint"),
+                "review_status": payload.get("review_status", "pending"),
+                "reviewed_at": payload.get("reviewed_at"),
+                "launch_status": payload.get("launch_status", "not_launched"),
+                "launched_job_id": payload.get("launched_job_id"),
+                "launched_external_job_id": payload.get("launched_external_job_id"),
+                "launched_at": payload.get("launched_at"),
                 "source_asset_checksum": payload["source_asset_checksum"],
                 "cache_key": payload["cache_key"],
                 "job_payload_preview": payload.get("job_payload_preview") or {},
@@ -1593,10 +1674,16 @@ class _SupabasePreviewSessionRepository(_SupabaseRepositoryBase):
             {
                 "status": patch.get("status"),
                 "expires_at": patch.get("expires_at"),
+                "review_status": patch.get("review_status"),
+                "reviewed_at": patch.get("reviewed_at"),
+                "launch_status": patch.get("launch_status"),
+                "launched_job_id": patch.get("launched_job_id"),
+                "launched_external_job_id": patch.get("launched_external_job_id"),
+                "launched_at": patch.get("launched_at"),
                 "deleted_at": patch.get("deleted_at"),
                 "updated_at": _utc_now(),
             },
-            nullable_keys={"deleted_at"},
+            nullable_keys={"deleted_at", "reviewed_at", "launched_job_id", "launched_external_job_id", "launched_at"},
         )
         rows = self._client.rest_update(
             "preview_sessions",
@@ -1611,6 +1698,51 @@ class _SupabasePreviewSessionRepository(_SupabaseRepositoryBase):
         if not rows:
             return None
         return self._preview_from_row(rows[0])
+
+    def claim_launch(
+        self,
+        preview_id: str,
+        *,
+        owner_user_id: str,
+        launched_external_job_id: str,
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        rows = self._client.rest_update(
+            "preview_sessions",
+            payload={
+                "launch_status": "launch_pending",
+                "launched_external_job_id": launched_external_job_id,
+                "updated_at": _utc_now(),
+            },
+            params={
+                "external_preview_id": f"eq.{preview_id}",
+                "external_user_id": f"eq.{owner_user_id}",
+                "launch_status": "eq.not_launched",
+                "select": "*",
+            },
+            headers=self._client.user_scoped_headers(self._require_access_token(access_token)),
+        )
+        if not rows:
+            return None
+        return self._preview_from_row(rows[0])
+
+    def launch_pending_snapshot(
+        self,
+        *,
+        owner_user_id: str | None = None,
+        access_token: str | None = None,
+    ) -> dict[str, float]:
+        params = {
+            "select": "launch_status,updated_at",
+        }
+        if owner_user_id:
+            params["external_user_id"] = f"eq.{owner_user_id}"
+        rows = self._client.rest_select(
+            "preview_sessions",
+            params=params,
+            headers=self._client.user_scoped_headers(self._require_access_token(access_token)),
+        )
+        return _preview_launch_pending_metrics(rows)
 
 
 class _SupabaseEraDetectionRepository(_SupabaseRepositoryBase):
@@ -3398,6 +3530,32 @@ class PreviewSessionRepository:
             preview_id,
             owner_user_id=owner_user_id,
             patch=patch,
+            access_token=access_token,
+        )
+
+    def claim_launch(
+        self,
+        preview_id: str,
+        *,
+        owner_user_id: str,
+        launched_external_job_id: str,
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        return self._backend.claim_launch(
+            preview_id,
+            owner_user_id=owner_user_id,
+            launched_external_job_id=launched_external_job_id,
+            access_token=access_token,
+        )
+
+    def launch_pending_snapshot(
+        self,
+        *,
+        owner_user_id: str | None = None,
+        access_token: str | None = None,
+    ) -> dict[str, float]:
+        return self._backend.launch_pending_snapshot(
+            owner_user_id=owner_user_id,
             access_token=access_token,
         )
 

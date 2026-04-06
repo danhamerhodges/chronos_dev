@@ -17,6 +17,8 @@ const {
   saveUploadConfiguration,
   executeUploadFlow,
   fetchJobEstimate,
+  createPreview,
+  reviewPreview,
   approveSingleJobOverage,
   startProcessing,
   fetchJobDetail,
@@ -32,6 +34,8 @@ const {
   saveUploadConfiguration: vi.fn(),
   executeUploadFlow: vi.fn(),
   fetchJobEstimate: vi.fn(),
+  createPreview: vi.fn(),
+  reviewPreview: vi.fn(),
   approveSingleJobOverage: vi.fn(),
   startProcessing: vi.fn(),
   fetchJobDetail: vi.fn(),
@@ -48,6 +52,13 @@ vi.mock("../../web/src/lib/costEstimateHelpers", async () => {
     "../../web/src/lib/costEstimateHelpers",
   );
   return { ...actual, fetchJobEstimate, approveSingleJobOverage };
+});
+
+vi.mock("../../web/src/lib/previewHelpers", async () => {
+  const actual = await vi.importActual<typeof import("../../web/src/lib/previewHelpers")>(
+    "../../web/src/lib/previewHelpers",
+  );
+  return { ...actual, createPreview, reviewPreview, launchApprovedPreview: startProcessing };
 });
 
 vi.mock("../../web/src/lib/configurationHelpers", async () => {
@@ -86,6 +97,7 @@ import { App } from "../../web/src/App";
 
 function buildEstimate() {
   return {
+    configuration_fingerprint: "fingerprint-2026-03-13T00:05:00+00:00",
     estimated_usage_minutes: 5,
     operational_cost_breakdown_usd: { gpu_time: 2.16, storage: 0.04, api_calls: 0.0, total: 2.2 },
     billing_breakdown_usd: {
@@ -118,6 +130,35 @@ function buildEstimate() {
   };
 }
 
+function buildPreview(reviewStatus: "pending" | "approved" | "rejected" = "pending") {
+  return {
+    preview_id: "preview-sr-1",
+    upload_id: "upload-1",
+    status: "ready" as const,
+    configuration_fingerprint: "fingerprint-2026-03-13T00:05:00+00:00",
+    review_status: reviewStatus,
+    reviewed_at: reviewStatus === "pending" ? null : "2026-03-13T00:05:30+00:00",
+    launch_status: "not_launched" as const,
+    launched_job_id: null,
+    launched_at: null,
+    stale: false,
+    expires_at: "2026-03-14T00:05:00+00:00",
+    selection_mode: "scene_aware" as const,
+    scene_diversity: 0.88,
+    keyframe_count: 10,
+    estimated_cost_summary: buildEstimate(),
+    estimated_processing_time_seconds: 3,
+    keyframes: Array.from({ length: 10 }, (_, index) => ({
+      index,
+      timestamp_seconds: index * 9 + 4,
+      scene_number: index + 1,
+      confidence_score: 0.85,
+      thumbnail_url: `https://example.invalid/thumb-${index}.jpg`,
+      frame_url: `https://example.invalid/frame-${index}.jpg`,
+    })),
+  };
+}
+
 async function renderCompletedDelivery(user: ReturnType<typeof userEvent.setup>): Promise<void> {
   render(React.createElement(App));
   const file = new File(["12345"], "archive.mov", { type: "video/quicktime" });
@@ -126,15 +167,22 @@ async function renderCompletedDelivery(user: ReturnType<typeof userEvent.setup>)
   await waitFor(() => expect(fetchFidelityCatalog).toHaveBeenCalled());
   await user.click(await screen.findByRole("button", { name: "Detect Era" }));
   await user.click(screen.getByRole("button", { name: "Save Configuration" }));
-  await user.click(screen.getByRole("button", { name: "Review Cost & Start" }));
+  await user.click(screen.getByRole("button", { name: "Review Preview & Start" }));
+  await waitFor(() => expect(createPreview).toHaveBeenCalled());
   await waitFor(() => expect(fetchJobEstimate).toHaveBeenCalled());
+  await user.click(screen.getByRole("button", { name: "Approve Preview" }));
+  await waitFor(() => expect(reviewPreview).toHaveBeenCalled());
   await user.click(screen.getByRole("button", { name: "Start Processing" }));
   await waitFor(() => expect(screen.getByRole("heading", { name: "Packet 4D Delivery" })).toBeInTheDocument());
 }
 
 describe("Packet 4D screen reader support", () => {
   beforeEach(() => {
+    createPreview.mockReset();
+    reviewPreview.mockReset();
     fetchJobEstimate.mockResolvedValue(buildEstimate());
+    createPreview.mockResolvedValue(buildPreview());
+    reviewPreview.mockResolvedValue(buildPreview("approved"));
     approveSingleJobOverage.mockResolvedValue({
       user_id: "sr-user",
       approval_scope: "single_job",
@@ -210,6 +258,8 @@ describe("Packet 4D screen reader support", () => {
       prompt_version: "v1",
       estimated_usage_minutes: 3,
     });
+    const configuredAt = "2026-03-13T00:05:00+00:00";
+    const configurationFingerprint = `fingerprint-${configuredAt}`;
     saveUploadConfiguration.mockResolvedValue({
       upload_id: "upload-1",
       status: "completed",
@@ -245,9 +295,10 @@ describe("Packet 4D screen reader support", () => {
         reproducibility_mode: "perceptual_equivalence",
         processing_mode: "balanced",
         era_profile: {},
-        config: {},
+        config: { configured_at: configuredAt },
       },
-      configured_at: "2026-03-13T00:05:00+00:00",
+      configured_at: configuredAt,
+      configuration_fingerprint: configurationFingerprint,
     });
     executeUploadFlow.mockImplementation(async ({ handlers }) => {
       handlers.setStatus("completed");

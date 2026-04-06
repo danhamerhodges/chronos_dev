@@ -1,5 +1,6 @@
 """
 Maps to:
+- FR-006
 - ENG-014
 """
 
@@ -60,6 +61,23 @@ def test_resaving_configuration_marks_existing_preview_stale_and_requires_new_pr
     assert refreshed.status_code == 200
     assert refreshed.json()["stale"] is False
     assert refreshed.json()["preview_id"] != first_preview_id
+
+    stale_review = client.post(
+        f"/v1/previews/{first_preview_id}/review",
+        headers=headers,
+        json={"review_status": "approved"},
+    )
+    stale_launch = client.post(
+        f"/v1/previews/{first_preview_id}/launch",
+        headers=headers,
+        json={"configuration_fingerprint": first.json()["configuration_fingerprint"]},
+    )
+
+    assert stale_review.status_code == 409
+    assert stale_review.json()["type"] == "/problems/preview_stale"
+    assert stale_launch.status_code == 409
+    assert stale_launch.json()["type"] == "/problems/preview_stale"
+    assert refreshed.json()["review_status"] == "pending"
 
 
 def test_identical_reupload_reuses_preview_artifacts_but_gets_a_new_preview_session() -> None:

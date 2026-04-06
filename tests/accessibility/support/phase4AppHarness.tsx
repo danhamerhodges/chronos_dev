@@ -17,6 +17,8 @@ const phase4Mocks = vi.hoisted(() => ({
   saveUploadConfiguration: vi.fn(),
   executeUploadFlow: vi.fn(),
   fetchJobEstimate: vi.fn(),
+  createPreview: vi.fn(),
+  reviewPreview: vi.fn(),
   approveSingleJobOverage: vi.fn(),
   startProcessing: vi.fn(),
   fetchJobDetail: vi.fn(),
@@ -33,6 +35,18 @@ vi.mock("../../../web/src/lib/costEstimateHelpers", async () => {
     "../../../web/src/lib/costEstimateHelpers",
   );
   return { ...actual, fetchJobEstimate: phase4Mocks.fetchJobEstimate, approveSingleJobOverage: phase4Mocks.approveSingleJobOverage };
+});
+
+vi.mock("../../../web/src/lib/previewHelpers", async () => {
+  const actual = await vi.importActual<typeof import("../../../web/src/lib/previewHelpers")>(
+    "../../../web/src/lib/previewHelpers",
+  );
+  return {
+    ...actual,
+    createPreview: phase4Mocks.createPreview,
+    reviewPreview: phase4Mocks.reviewPreview,
+    launchApprovedPreview: phase4Mocks.startProcessing,
+  };
 });
 
 vi.mock("../../../web/src/lib/configurationHelpers", async () => {
@@ -94,6 +108,7 @@ type PlanTier = "hobbyist" | "pro" | "museum";
 
 export function buildEstimate(blocker: "none" | "overage_approval_required" = "none", planTier: PlanTier = "museum") {
   return {
+    configuration_fingerprint: "fingerprint-2026-03-13T00:05:00+00:00",
     estimated_usage_minutes: 5,
     operational_cost_breakdown_usd: { gpu_time: 2.16, storage: 0.04, api_calls: 0.0, total: 2.2 },
     billing_breakdown_usd: {
@@ -123,6 +138,35 @@ export function buildEstimate(blocker: "none" | "overage_approval_required" = "n
     launch_blocker: blocker,
     estimator_version: "packet4e-v1",
     generated_at: "2026-03-14T00:05:00+00:00",
+  };
+}
+
+function buildPreview(reviewStatus: "pending" | "approved" | "rejected" = "pending") {
+  return {
+    preview_id: "preview-phase4-1",
+    upload_id: "upload-1",
+    status: "ready" as const,
+    configuration_fingerprint: "fingerprint-2026-03-13T00:05:00+00:00",
+    review_status: reviewStatus,
+    reviewed_at: reviewStatus === "pending" ? null : "2026-03-13T00:05:30+00:00",
+    launch_status: "not_launched" as const,
+    launched_job_id: null,
+    launched_at: null,
+    stale: false,
+    expires_at: "2026-03-14T00:05:00+00:00",
+    selection_mode: "scene_aware" as const,
+    scene_diversity: 0.88,
+    keyframe_count: 10,
+    estimated_cost_summary: buildEstimate(),
+    estimated_processing_time_seconds: 3,
+    keyframes: Array.from({ length: 10 }, (_, index) => ({
+      index,
+      timestamp_seconds: index * 9 + 4,
+      scene_number: index + 1,
+      confidence_score: 0.85,
+      thumbnail_url: `https://example.invalid/thumb-${index}.jpg`,
+      frame_url: `https://example.invalid/frame-${index}.jpg`,
+    })),
   };
 }
 
@@ -161,6 +205,7 @@ export function buildCompletedJob() {
 }
 
 export function buildSavedConfiguration(configuredAt = "2026-03-13T00:05:00+00:00") {
+  const configurationFingerprint = `fingerprint-${configuredAt}`;
   return {
     upload_id: "upload-1",
     status: "completed",
@@ -196,9 +241,10 @@ export function buildSavedConfiguration(configuredAt = "2026-03-13T00:05:00+00:0
       reproducibility_mode: "perceptual_equivalence",
       processing_mode: "balanced",
       era_profile: {},
-      config: {},
+      config: { configured_at: configuredAt },
     },
     configured_at: configuredAt,
+    configuration_fingerprint: configurationFingerprint,
   };
 }
 
@@ -279,6 +325,8 @@ export function resetPhase4AppMocks(options: { planTier?: PlanTier } = {}) {
       completed_at: "2026-03-13T00:00:00+00:00",
     });
   });
+  phase4Mocks.createPreview.mockResolvedValue(buildPreview());
+  phase4Mocks.reviewPreview.mockResolvedValue(buildPreview("approved"));
   phase4Mocks.startProcessing.mockResolvedValue(buildCompletedJob());
   phase4Mocks.fetchJobDetail.mockResolvedValue(buildCompletedJob());
   phase4Mocks.fetchUncertaintyCallouts.mockResolvedValue({ job_id: "job-phase4-1", status: "completed", callouts: [] });
@@ -335,8 +383,11 @@ export async function renderConfiguredPhase4App(user: { upload: Function; click:
 export async function renderCompletedDelivery(user: { upload: Function; click: Function }, options: { planTier?: PlanTier } = {}) {
   resetPhase4AppMocks(options);
   await renderConfiguredPhase4App(user);
-  await user.click(screen.getByRole("button", { name: "Review Cost & Start" }));
+  await user.click(screen.getByRole("button", { name: "Review Preview & Start" }));
+  await waitFor(() => expect(phase4Mocks.createPreview).toHaveBeenCalled());
   await waitFor(() => expect(phase4Mocks.fetchJobEstimate).toHaveBeenCalled());
+  await user.click(screen.getByRole("button", { name: "Approve Preview" }));
+  await waitFor(() => expect(phase4Mocks.reviewPreview).toHaveBeenCalled());
   await user.click(screen.getByRole("button", { name: "Start Processing" }));
   await waitFor(() => expect(screen.getByRole("heading", { name: "Packet 4D Delivery" })).toBeInTheDocument());
 }

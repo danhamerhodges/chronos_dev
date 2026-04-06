@@ -101,14 +101,26 @@ def _cache_bucket(ttl_seconds: int) -> int:
     return int(time.time() // max(ttl_seconds, 1))
 
 
+def _stripe_field(resource: Any, field: str) -> Any:
+    if isinstance(resource, dict):
+        return resource.get(field)
+    value = getattr(resource, field, None)
+    if value is not None:
+        return value
+    try:
+        return resource[field]
+    except Exception:
+        return None
+
+
 @lru_cache(maxsize=16)
 def _cached_overage_rate(secret_key: str, overage_price_id: str, cache_bucket: int) -> float:
     del cache_bucket
     stripe.api_key = secret_key
     price = stripe.Price.retrieve(overage_price_id)
-    raw_amount = price.get("unit_amount_decimal")
+    raw_amount = _stripe_field(price, "unit_amount_decimal")
     if raw_amount is None:
-        raw_amount = price.get("unit_amount")
+        raw_amount = _stripe_field(price, "unit_amount")
     if raw_amount is None:
         raise ValueError("Stripe overage price is missing unit_amount metadata.")
     return float((Decimal(str(raw_amount)) / Decimal("100")).quantize(Decimal("0.0001")))
@@ -119,9 +131,9 @@ def _cached_subscription_price(secret_key: str, subscription_price_id: str, cach
     del cache_bucket
     stripe.api_key = secret_key
     price = stripe.Price.retrieve(subscription_price_id)
-    raw_amount = price.get("unit_amount_decimal")
+    raw_amount = _stripe_field(price, "unit_amount_decimal")
     if raw_amount is None:
-        raw_amount = price.get("unit_amount")
+        raw_amount = _stripe_field(price, "unit_amount")
     if raw_amount is None:
         raise ValueError("Stripe subscription price is missing unit_amount metadata.")
     return float((Decimal(str(raw_amount)) / Decimal("100")).quantize(Decimal("0.0001")))

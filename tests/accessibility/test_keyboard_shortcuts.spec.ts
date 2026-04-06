@@ -57,7 +57,7 @@ describe("Packet 4G keyboard shortcuts", () => {
     expect(screen.getByRole("button", { name: "Save Configuration" })).toHaveFocus();
 
     fireEvent.keyDown(window, { key: "l", ctrlKey: true, shiftKey: true });
-    expect(screen.getByRole("button", { name: "Review Cost & Start" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Review Preview & Start" })).toHaveFocus();
   });
 
   it("focuses the rerun launch action when the completed job state exposes it", async () => {
@@ -68,7 +68,7 @@ describe("Packet 4G keyboard shortcuts", () => {
     await user.click(screen.getByRole("button", { name: "Save Configuration" }));
 
     fireEvent.keyDown(window, { key: "l", ctrlKey: true, shiftKey: true });
-    expect(screen.getByRole("button", { name: "Review Cost & Start Again" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Review Preview & Start Again" })).toHaveFocus();
   });
 
   it("jumps to the primary delivery action once exports are available", async () => {
@@ -95,7 +95,7 @@ describe("Packet 4G keyboard shortcuts", () => {
     const user = userEvent.setup();
     await renderConfiguredPhase4App(user);
 
-    await user.click(screen.getByRole("button", { name: "Review Cost & Start" }));
+    await user.click(screen.getByRole("button", { name: "Review Preview & Start" }));
 
     const closeButton = await screen.findByRole("button", { name: "Close" });
     expect(closeButton).toHaveFocus();
