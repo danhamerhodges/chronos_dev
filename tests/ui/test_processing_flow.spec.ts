@@ -16,8 +16,10 @@ const {
   saveUploadConfiguration,
   executeUploadFlow,
   fetchJobEstimate,
+  createPreview,
+  reviewPreview,
+  launchApprovedPreview,
   approveSingleJobOverage,
-  startProcessing,
   fetchJobDetail,
   fetchUncertaintyCallouts,
   cancelProcessing,
@@ -31,8 +33,10 @@ const {
   saveUploadConfiguration: vi.fn(),
   executeUploadFlow: vi.fn(),
   fetchJobEstimate: vi.fn(),
+  createPreview: vi.fn(),
+  reviewPreview: vi.fn(),
+  launchApprovedPreview: vi.fn(),
   approveSingleJobOverage: vi.fn(),
-  startProcessing: vi.fn(),
   fetchJobDetail: vi.fn(),
   fetchUncertaintyCallouts: vi.fn(),
   cancelProcessing: vi.fn(),
@@ -65,6 +69,18 @@ vi.mock("../../web/src/lib/costEstimateHelpers", async () => {
   };
 });
 
+vi.mock("../../web/src/lib/previewHelpers", async () => {
+  const actual = await vi.importActual<typeof import("../../web/src/lib/previewHelpers")>(
+    "../../web/src/lib/previewHelpers",
+  );
+  return {
+    ...actual,
+    createPreview,
+    reviewPreview,
+    launchApprovedPreview,
+  };
+});
+
 vi.mock("../../web/src/lib/uploadHelpers", async () => {
   const actual = await vi.importActual<typeof import("../../web/src/lib/uploadHelpers")>("../../web/src/lib/uploadHelpers");
   return {
@@ -79,7 +95,6 @@ vi.mock("../../web/src/lib/processingHelpers", async () => {
   );
   return {
     ...actual,
-    startProcessing,
     fetchJobDetail,
     fetchUncertaintyCallouts,
     cancelProcessing,
@@ -199,6 +214,7 @@ function buildDetection() {
 }
 
 function buildSavedConfiguration(configuredAt = "2026-03-13T00:05:00+00:00") {
+  const configurationFingerprint = `fingerprint-${configuredAt}`;
   return {
     upload_id: "upload-1",
     status: "completed",
@@ -237,6 +253,7 @@ function buildSavedConfiguration(configuredAt = "2026-03-13T00:05:00+00:00") {
       config: {
         persona: "filmmaker",
         grain_preset: "Heavy",
+        configured_at: configuredAt,
         detection_snapshot: {
           detection_id: "detect-1",
           era: "1970s Super 8 Film",
@@ -249,6 +266,7 @@ function buildSavedConfiguration(configuredAt = "2026-03-13T00:05:00+00:00") {
       },
     },
     configured_at: configuredAt,
+    configuration_fingerprint: configurationFingerprint,
   };
 }
 
@@ -318,6 +336,7 @@ function buildCallouts(status: "processing" | "completed") {
 
 function buildEstimate(blocker: "none" | "overage_approval_required" = "none") {
   return {
+    configuration_fingerprint: "fingerprint-2026-03-13T00:05:00+00:00",
     estimated_usage_minutes: 5,
     operational_cost_breakdown_usd: { gpu_time: 2.16, storage: 0.04, api_calls: 0.0, total: 2.2 },
     billing_breakdown_usd: {
@@ -347,6 +366,35 @@ function buildEstimate(blocker: "none" | "overage_approval_required" = "none") {
     launch_blocker: blocker,
     estimator_version: "packet4e-v1",
     generated_at: "2026-03-14T00:05:00+00:00",
+  };
+}
+
+function buildPreview(reviewStatus: "pending" | "approved" | "rejected" = "pending") {
+  return {
+    preview_id: "preview-1",
+    upload_id: "upload-1",
+    status: "ready" as const,
+    configuration_fingerprint: "fingerprint-2026-03-13T00:05:00+00:00",
+    review_status: reviewStatus,
+    reviewed_at: reviewStatus === "pending" ? null : "2026-03-13T00:05:30+00:00",
+    launch_status: "not_launched" as const,
+    launched_job_id: null,
+    launched_at: null,
+    stale: false,
+    expires_at: "2026-03-14T00:05:00+00:00",
+    selection_mode: "scene_aware" as const,
+    scene_diversity: 0.88,
+    keyframe_count: 10,
+    estimated_cost_summary: buildEstimate(),
+    estimated_processing_time_seconds: 3,
+    keyframes: Array.from({ length: 10 }, (_, index) => ({
+      index,
+      timestamp_seconds: index * 9 + 4,
+      scene_number: index + 1,
+      confidence_score: 0.85,
+      thumbnail_url: `https://example.invalid/thumb-${index}.jpg`,
+      frame_url: `https://example.invalid/frame-${index}.jpg`,
+    })),
   };
 }
 
@@ -391,8 +439,13 @@ async function completePacket4BConfiguration(user: ReturnType<typeof userEvent.s
 }
 
 async function openLaunchModalAndStart(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(screen.getByRole("button", { name: "Review Cost & Start" }));
+  await user.click(screen.getByRole("button", { name: "Review Preview & Start" }));
+  await waitFor(() => expect(createPreview).toHaveBeenCalled());
   await waitFor(() => expect(fetchJobEstimate).toHaveBeenCalled());
+  if (screen.queryByRole("button", { name: "Approve Preview" })) {
+    await user.click(screen.getByRole("button", { name: "Approve Preview" }));
+    await waitFor(() => expect(reviewPreview).toHaveBeenCalled());
+  }
   await user.click(screen.getByRole("button", { name: "Start Processing" }));
 }
 
@@ -403,8 +456,10 @@ describe("Packet 4C processing flow", () => {
     saveUploadConfiguration.mockReset();
     executeUploadFlow.mockReset();
     fetchJobEstimate.mockReset();
+    createPreview.mockReset();
+    reviewPreview.mockReset();
+    launchApprovedPreview.mockReset();
     approveSingleJobOverage.mockReset();
-    startProcessing.mockReset();
     fetchJobDetail.mockReset();
     fetchUncertaintyCallouts.mockReset();
     cancelProcessing.mockReset();
@@ -413,6 +468,9 @@ describe("Packet 4C processing flow", () => {
     fetchDeletionProof.mockReset();
     fetchTransformationManifest.mockReset();
     fetchJobEstimate.mockResolvedValue(buildEstimate());
+    createPreview.mockResolvedValue(buildPreview());
+    reviewPreview.mockResolvedValue(buildPreview("approved"));
+    launchApprovedPreview.mockResolvedValue(buildJob("queued"));
     approveSingleJobOverage.mockResolvedValue({
       user_id: "flow-user",
       approval_scope: "single_job",
@@ -431,7 +489,7 @@ describe("Packet 4C processing flow", () => {
 
   it("launches processing, polls to a terminal summary, and renders uncertainty callouts", async () => {
     const user = userEvent.setup();
-    startProcessing.mockResolvedValue(buildJob("queued"));
+    launchApprovedPreview.mockResolvedValue(buildJob("queued"));
     fetchJobDetail
       .mockResolvedValueOnce(buildJob("processing"))
       .mockResolvedValueOnce(buildJob("completed"));
@@ -442,7 +500,7 @@ describe("Packet 4C processing flow", () => {
     await completePacket4BConfiguration(user);
     await openLaunchModalAndStart(user);
 
-    await waitFor(() => expect(startProcessing).toHaveBeenCalled());
+    await waitFor(() => expect(launchApprovedPreview).toHaveBeenCalled());
     await waitFor(() => expect(fetchJobDetail).toHaveBeenCalledTimes(1));
     const processingCard = screen.getByRole("heading", { name: "Packet 4C Processing Flow" }).closest("section");
     expect(processingCard).not.toBeNull();
@@ -456,24 +514,27 @@ describe("Packet 4C processing flow", () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/Result URI:/)).toBeInTheDocument();
     expect(screen.getByText("Low-confidence era classification")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Review Cost & Start Again" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Review Preview & Start Again" })).toBeDisabled();
 
     saveUploadConfiguration.mockResolvedValueOnce(buildSavedConfiguration("2026-03-13T00:08:00+00:00"));
     await user.click(screen.getByRole("button", { name: "Save Configuration" }));
     await waitFor(() => expect(saveUploadConfiguration).toHaveBeenCalledTimes(2));
-    expect(screen.getByRole("button", { name: "Review Cost & Start Again" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Review Preview & Start Again" })).toBeEnabled();
   });
 
   it("locks Packet 4B controls while processing launch is pending", async () => {
     const user = userEvent.setup();
     const pendingLaunch = createDeferred<ReturnType<typeof buildJob>>();
-    startProcessing.mockImplementation(() => pendingLaunch.promise);
+    launchApprovedPreview.mockImplementation(() => pendingLaunch.promise);
     fetchJobDetail.mockResolvedValue(buildJob("processing"));
     fetchUncertaintyCallouts.mockResolvedValue(buildCallouts("processing"));
 
     await completePacket4BConfiguration(user);
-    await user.click(screen.getByRole("button", { name: "Review Cost & Start" }));
+    await user.click(screen.getByRole("button", { name: "Review Preview & Start" }));
+    await waitFor(() => expect(createPreview).toHaveBeenCalled());
     await waitFor(() => expect(fetchJobEstimate).toHaveBeenCalled());
+    await user.click(screen.getByRole("button", { name: "Approve Preview" }));
+    await waitFor(() => expect(reviewPreview).toHaveBeenCalled());
     await user.click(screen.getByRole("button", { name: "Start Processing" }));
 
     expect(screen.getByLabelText("Media file")).toBeDisabled();
@@ -485,7 +546,7 @@ describe("Packet 4C processing flow", () => {
     expect(screen.getByRole("button", { name: "Override Era" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Save Configuration" })).toBeDisabled();
     expect(
-      within(screen.getByRole("dialog", { name: "Review Cost & Start" })).getByRole("button", { name: "Starting..." }),
+      within(screen.getByRole("dialog", { name: "Review Preview & Start" })).getByRole("button", { name: "Starting..." }),
     ).toBeDisabled();
 
     pendingLaunch.resolve(buildJob("processing"));
@@ -503,7 +564,7 @@ describe("Packet 4C processing flow", () => {
     const freshDetail = createDeferred<ReturnType<typeof buildJob>>();
     const freshCallouts = createDeferred<ReturnType<typeof buildCallouts>>();
 
-    startProcessing.mockResolvedValue(buildJob("queued"));
+    launchApprovedPreview.mockResolvedValue(buildJob("queued"));
     fetchJobDetail
       .mockImplementationOnce(() => staleDetail.promise)
       .mockImplementationOnce(() => freshDetail.promise);
