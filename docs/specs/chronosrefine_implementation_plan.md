@@ -415,7 +415,7 @@ This implementation plan is organized into a logical execution sequence designed
 - [x] Pricing tiers finalized with feature allocation and recorded in merged canon → **Req:** **NFR-006**, **NFR-012**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-006-pricing-model`, `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-012-payment-provider-selection`, `docs/specs/chronosrefine_prd_v9.md#pricing--business-model`, `docs/specs/chronosrefine_phase5_pricing_clearance.md`
 - [x] Legal review complete for GDPR and data-handling controls and recorded in merged canon → **Req:** **SEC-006**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-006-gdpr-compliance`, `docs/specs/chronosrefine_phase5_gdpr_legal_clearance.md`, `docs/specs/chronosrefine_phase5_dpa_status.md`
 
-**Current Gate Status Note:** Phase 5 entry criteria are now satisfied in merged canon via the recorded pricing and legal/DPA gate notes. Phase 5 remains `0/11` and no Phase 5 requirement is implemented on `main` yet. Local workspace-only preview-review, pricing, and compliance code still does not count until it is merged and any required rollout evidence is recorded.
+**Current Gate Status Note:** Phase 5 entry criteria are now satisfied in merged canon via the recorded pricing and legal/DPA gate notes. Packet 5A now has hosted-closeout evidence recorded in `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md`, including local validation, `chronos_dev` migration proof through `0024`, Secret Manager/IAM unblock evidence for `STRIPE_SECRET_KEY`, hosted smoke, publish-failure retry proof, `/v1/jobs` non-regression, and hosted preview latency `p95=1.8466s`. Packet 5A remains a hosted-complete `FR-006` slice only: generic `/v1/jobs` preview-approval enforcement remains deferred, global `FR-006` closeout is not yet claimed, canonical `NFR-008` ownership remains Phase 6 work, and the Phase 5 full-requirement count therefore remains `0/11` until a later packet closes `FR-006` globally.
 
 **Deliverables:**
 -   Preview generation system hardened for production usage → **Req:** **FR-006**, **Test:** `tests/processing/test_preview_generation.py`, `tests/processing/test_scene_detection.py`, `tests/ui/test_preview_modal.spec.ts`, `tests/load/test_preview_performance.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-006-preview-generation`
@@ -452,6 +452,10 @@ This implementation plan is organized into a logical execution sequence designed
 **Kickoff Packet:** `docs/specs/chronosrefine_phase5_packet5a_kickoff.md`
 
 **Reason for kickoff choice:** `FR-006` is the smallest Phase 5 requirement that turns the merged Packet 4F preview substrate into the canonical preview-review gate without pulling pricing enforcement, GDPR delivery work, or the rest of Phase 5 hardening forward. The kickoff packet remains anchored to merged `main`; local workspace-only preview-review code does not count until it is merged and rollout evidence is recorded.
+
+**Packet 5A scope note:** Packet 5A gates preview-launch and first-party UI only. Generic `/v1/jobs` preview-approval enforcement remains deferred, Packet 5A is an `FR-006` slice rather than global `FR-006` closeout, and canonical NFR numbering/ownership continue to follow `docs/specs/chronosrefine_nonfunctional_requirements.md` with `NFR-008` still tracked in Phase 6.
+
+**Packet 5A hosted closeout note:** `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md`
 
 ### Phase 6: Production Readiness & Launch
 

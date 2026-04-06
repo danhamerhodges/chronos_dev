@@ -4,7 +4,7 @@
 **Phase:** Phase 5 - Advanced Features & UX Refinement
 **Packet:** Packet 5A
 **Requirement Focus:** `FR-006`
-**Status:** Execution-ready packet derived from merged canon; implementation not started in this worktree
+**Status:** Hosted-complete execution record for Packet 5A; closeout evidence is recorded in `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md`
 **Source of truth:** `docs/specs/*` canonical ordering in `AGENTS.md`
 
 ---
@@ -20,8 +20,8 @@
 ## 2) Phase
 
 - Assigned phase: Phase 5
-- Coverage matrix status on `main`: `0/11`, `Ready to Start`
-- Implementation-plan status on `main`: Phase 5 entry criteria are satisfied in merged canon, but no Phase 5 requirement is implemented yet
+- Coverage matrix status before packet closeout: `0/11` full requirements complete, with Packet 5A later closing the first hosted `FR-006` slice
+- Implementation-plan status before packet closeout: Phase 5 entry criteria were satisfied in merged canon, but no Phase 5 requirement had hosted evidence yet
 
 ## 3) Dependencies
 
@@ -57,7 +57,9 @@ Packet 5A should implement the smallest requirement-complete preview-review gate
 4. Keep preview reread, stale-preview handling, and owner scoping intact.
 5. Add a preview-review UI path using the existing saved configuration flow.
 6. Keep the Packet 4E launch-cost review path as an integration point rather than replacing launch semantics wholesale.
-7. Update OpenAPI and tests for the new API shape and preview-review flow.
+7. Packet 5A gates preview-launch and first-party UI only; generic `POST /v1/jobs` preview-approval enforcement remains deferred.
+8. Canonical NFR numbering and ownership follow `docs/specs/chronosrefine_nonfunctional_requirements.md`; Packet 5A references `NFR-008` as a quality bar only, and formal `NFR-008` completion remains Phase 6 work.
+9. Update OpenAPI and tests for the new API shape and preview-review flow.
 
 ### Out of scope
 
@@ -67,6 +69,7 @@ Packet 5A should implement the smallest requirement-complete preview-review gate
 - `NFR-004`, `NFR-005`, `NFR-009`
 - Phase 6 rollout / launch-readiness work
 - any assumption that the dirty local preview-review implementation is already merged
+- claiming global `FR-006` closeout from Packet 5A alone
 
 ## 5) Files To Change
 
@@ -179,16 +182,17 @@ python3 scripts/validate_test_traceability.py
 ./node_modules/.bin/pnpm -C web test -- ../tests/ui/test_preview_modal.spec.ts ../tests/accessibility/test_preview_review_modal_a11y.spec.ts
 ```
 
-### Hosted proof required before counting Packet 5A complete
+### Hosted proof recorded for Packet 5A closeout
 
-1. Deploy the Packet 5A candidate to `chronos_dev`
-2. Verify:
-   - preview creation returns `review_status = pending`
-   - launch without approval returns `409 Preview Approval Required`
-   - preview approval succeeds
-   - launch from approved preview succeeds
-3. Capture preview latency evidence in `chronos_dev`
-4. If a schema migration lands, dry-run and apply it against the hosted database before closeout
+Packet 5A closeout evidence now lives in `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md`, including:
+
+1. local validation gates
+2. `chronos_dev` migration evidence through `0024`
+3. least-privilege Secret Manager / IAM unblock for `STRIPE_SECRET_KEY`
+4. hosted smoke for preview pending/approval/idempotent launch/stale anti-replay/cross-user denial
+5. publish-failure retry proof with stable bound `job_id`
+6. generic `/v1/jobs` non-regression proof
+7. hosted preview latency sample under the canonical `<6s p95` guardrail
 
 ## 9) Risks
 
@@ -254,9 +258,8 @@ These are out of scope for the first Packet 5A implementation pass and should no
 - broader GDPR work:
   - `tests/compliance/test_gdpr_compliance.py`
   - GDPR closeout claims
-- local closeout artifacts that imply implementation is already done:
-  - `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md`
+- local closeout artifacts that imply implementation is already done before hosted proof exists
 
 ## 11) Recommended Next Action
 
-Start Packet 5A implementation on this clean branch by landing the backend contract/persistence slice first, then layer the review/launch route behavior, then UI integration, then hosted rollout evidence.
+Merge Packet 5A to `main`, preserve `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md` as the canonical hosted-closeout record for this packet slice, and continue the remaining `FR-006` follow-on work without claiming global `FR-006` complete yet.

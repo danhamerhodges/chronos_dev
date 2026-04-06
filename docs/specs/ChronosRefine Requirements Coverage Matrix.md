@@ -171,7 +171,7 @@ If an ID/title conflicts with the above, this matrix must be updated immediately
 
 | Req ID | Requirement Name | Dependencies | Test Files | Verification | Risk |
 |---|---|---|---|---|---|
-| **FR-006** | Preview Generation | FR-001, FR-002, ENG-007, ENG-014 | `tests/processing/test_preview_generation.py`, `tests/processing/test_scene_detection.py`, `tests/ui/test_preview_modal.spec.ts`, `tests/load/test_preview_performance.py` | Automated | Medium |
+| **FR-006** | Preview Generation | FR-001, FR-002, ENG-007, ENG-014 | `tests/api/test_preview_sessions.py`, `tests/integration/test_preview_pipeline.py`, `tests/processing/test_preview_generation.py`, `tests/processing/test_scene_detection.py`, `tests/ui/test_preview_modal.spec.ts`, `tests/accessibility/test_preview_review_modal_a11y.spec.ts`, `tests/load/test_preview_performance.py` | Automated | Medium |
 | **SEC-001** | Authentication & Authorization | FR-005, ENG-010 | `tests/security/test_deletion_proof.py` | Automated | High |
 | **SEC-002** | Data Encryption | FR-002, ENG-007 | `tests/quality/test_uncertainty.py` | Automated | Medium |
 | **SEC-003** | Data Classification | ENG-010, SEC-008 | `tests/security/test_manifest_redaction.py` | Automated | Medium |
@@ -278,7 +278,7 @@ After updating the matrix, recalculate:
 
 ---
 
-## Current Progress Snapshot (2026-03-21)
+## Current Progress Snapshot (2026-04-06)
 
 Source evidence:
 - `README.md` (Phase 1 baseline scope)
@@ -289,6 +289,7 @@ Source evidence:
 - `python3 scripts/ops/verify_cloud_run_runtime.py --service chronos-phase1-app --project chronos-dev-489301 --region us-central1`
 - `curl https://chronos-phase1-app-19961431854.us-central1.run.app/v1/version`
 - Packet 4A live-smoke evidence (`memory-live-smoke.json`, `supabase-live-smoke.json`, `staging-latency.json`) summarized in `docs/specs/chronosrefine_phase4_closeout_note.md`
+- Packet 5A hosted-closeout evidence summarized in `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md`
 
 | Phase | Requirements | Status | Notes |
 |---|---:|---|---|
@@ -296,7 +297,7 @@ Source evidence:
 | Phase 2: API Foundation & Data Layer | 6/6 | ✅ Complete (merged via PR #1) | `main` includes merge commit `709687a`; this is the canonical baseline for later phases |
 | Phase 3: Core Processing Pipeline & AI Integration | 11/12 | ✅ Complete for Phase 4 kickoff | PR #2 merged to `main`; `SEC-007` remains deferred to its canonical `GA+3 months` milestone |
 | Phase 4: User-Facing Features & Application Logic | 14/14 on `main` | ✅ Complete (Packet 4H merged on `main`) | Packets 4A through 4H are merged on `main`; `61d51ff3ff289fc881674bd05afe37a8ac94cba0` closes the remaining Phase 4 admin cost-ops slice of `NFR-003` without pulling Phase 5 `FR-006` preview-review UX forward |
-| Phase 5: Advanced Features & UX Refinement | 0/11 | 🟡 Ready to Start (kickoff criteria recorded in merged canon) | Pricing and GDPR kickoff records now live in `docs/specs/chronosrefine_phase5_pricing_clearance.md` and `docs/specs/chronosrefine_phase5_gdpr_legal_clearance.md`. No Phase 5 requirement is implemented on `main` yet, and local workspace-only preview, pricing, and compliance code still does not count until it is merged and required rollout evidence is recorded. |
+| Phase 5: Advanced Features & UX Refinement | 0/11 full requirements complete | 🟡 In Progress (Packet 5A hosted-complete) | Pricing and GDPR kickoff records now live in `docs/specs/chronosrefine_phase5_pricing_clearance.md` and `docs/specs/chronosrefine_phase5_gdpr_legal_clearance.md`. Packet 5A now has hosted-closeout evidence in `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md`: preview-launch and first-party UI are gated, `chronos_dev` migration state is validated through `0024`, the shared staging secret unblock is recorded without weakening secret handling, hosted smoke passed, publish-failure retry re-used the same bound `job_id`, generic `/v1/jobs` remained unchanged, and hosted preview latency remained under `<6s p95`. Packet 5A remains an `FR-006` slice only, generic `/v1/jobs` preview-approval enforcement remains deferred, global `FR-006` closeout is not yet claimed, and canonical `NFR-008` ownership remains in Phase 6. |
 | Phase 6: Production Readiness & Launch | 0/10 | ⏸️ Not Started | Dependent on Phase 5 completion |
 
 ### Phase 1 Progress: Foundation & Core Infrastructure
@@ -383,7 +384,8 @@ Source evidence:
 | Packet 4F merge evidence | `POST /v1/previews` consumes the latest saved Packet 4B `job_payload_preview` by `upload_id`, draft preview sessions are persisted separately from `media_jobs`, rereads stay owner-scoped through `preview_id`, deterministic scene-aware selection emits 10 keyframes with 320x180 thumbnails plus uniform fallback coverage, and preview performance/cache/expiry paths are covered by automated tests; merged to `main` in `aea4809b7cbb111e4273ece0a4fb566e96c63e7b` |
 | Packet 4G merge evidence | Skip-link/main-landmark shell updates, Help-documented safe shortcuts for upload/save/launch/export actions, shared focus and contrast primitives, and rendered DS-002 through DS-005 suites pass; `docs/specs/chronosrefine_phase4_closeout_note.md` records the automated evidence plus the completed Chrome, Firefox, Safari/WebKit, keyboard-only, and screen-reader matrix; merged to `main` in `738e3a8ea0c2424f4425e7a0a0ac55931b6c2c08` |
 | Packet 4H merge evidence | `/v1/ops/costs` aggregates per-job cost/reconciliation data into a gross-margin + anomaly snapshot, `/v1/metrics` emits cost/margin/anomaly signals immediately after terminal reconciliation, Terraform adds cost dashboard panels and alert policies, tier-aware pricing is used for gross-margin reporting, and Packet 4H merged to `main` in `61d51ff3ff289fc881674bd05afe37a8ac94cba0` |
-| Context Note | `docs/specs/chronosrefine_phase4_closeout_note.md` records Packet 4A and Packet 4G historical completion evidence; Phase 4 is complete on `main`, and the Phase 5 kickoff criteria are now recorded in merged canon without counting any Phase 5 requirement as implemented |
+| Packet 5A hosted-closeout evidence | `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md` records local validation, hosted `chronos_dev` migration evidence through `0024`, secret-level IAM unblock for `STRIPE_SECRET_KEY`, hosted smoke for pending/approval/idempotent launch/stale anti-replay/cross-user denial, publish-failure retry with stable `job_id` reuse, generic `/v1/jobs` non-regression, and hosted preview latency `p95=1.8466s` |
+| Context Note | `docs/specs/chronosrefine_phase4_closeout_note.md` records Packet 4A and Packet 4G historical completion evidence, and `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md` records the first hosted-close Packet 5A `FR-006` slice. Phase 4 remains complete on `main`; Phase 5 is now in progress without claiming global `FR-006` complete or advancing the full-requirement count yet. |
 
 ## Progress Tracking Template
 
