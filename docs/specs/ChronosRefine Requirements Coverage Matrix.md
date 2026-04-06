@@ -178,10 +178,10 @@ If an ID/title conflicts with the above, this matrix must be updated immediately
 | **SEC-004** | Access Control | ENG-016 | `tests/security/test_encryption.py` | Automated | High |
 | **SEC-005** | Transformation Manifest Retention | SEC-013 | `tests/security/test_access_control.py` | Automated | Medium |
 | **SEC-006** | GDPR Compliance | OPS-002, SEC-005 | `tests/compliance/test_gdpr_compliance.py`, `tests/compliance/test_gdpr_log_deletion.py`, `tests/api/test_deletion_proof.py` | Automated + Manual | Low |
-| **NFR-004** | Reliability & Availability | FR-003, SEC-013 | `tests/api/test_feature_gating.py` | Automated | Medium |
-| **NFR-005** | Museum SLA & Disaster Recovery | FR-004, OPS-001 | `tests/ops/test_cost_control.py` | Automated | Medium |
-| **NFR-006** | Pricing Model | DS-001, DS-002, DS-003, DS-004, DS-005, DS-006 | User testing | Manual | Low |
-| **NFR-009** | Internationalization (i18n) | OPS-003 | `tests/ops/test_autoscaling.py` | Automated | High |
+| **NFR-004** | Reliability & Availability | ENG-008, ENG-012, ENG-016, OPS-001, OPS-004 | `tests/ops/test_availability_slo.py`, `tests/ops/test_database_performance.py`, `tests/ops/test_job_retry.py`, `tests/load/test_scalability.py` | Automated + Manual | Medium |
+| **NFR-005** | Museum SLA & Disaster Recovery | OPS-001, OPS-003 | `tests/ops/test_availability.py`, `tests/ops/test_failover.py`, `tests/ops/test_disaster_recovery.py` | Automated + Manual | Medium |
+| **NFR-006** | Pricing Model | NFR-001, NFR-003, NFR-007, NFR-012 | `tests/billing/test_pricing_tiers.py`, `tests/billing/test_overage_approval.py`, `tests/billing/test_stripe_integration.py`, `tests/billing/test_usage_tracking.py` | Automated + Manual | Low |
+| **NFR-009** | Internationalization (i18n) | SEC-012, DS-001, DS-002, DS-003, DS-004, DS-005, DS-006 | `tests/i18n/test_utf8_encoding.py`, `tests/i18n/test_ui_translation.py`, `tests/i18n/test_localization.py` | Automated + Manual | High |
 
 **Phase Goal:** Implement advanced features and tier-specific functionality
 
@@ -196,17 +196,19 @@ If an ID/title conflicts with the above, this matrix must be updated immediately
 | Req ID | Requirement Name | Dependencies | Test Files | Verification | Risk |
 |---|---|---|---|---|---|
 | **FR-007** | Human Preference Score (HPS) Validation | FR-002, ENG-003, ENG-005, ENG-007 | `tests/hps/test_evaluation_platform.py`, `tests/hps/test_statistical_analysis.py` | Manual + Automated | High |
-| **NFR-001** | Cost Estimate Display | FR-007 | HPS protocol | Manual | High |
+| **NFR-001** | Cost Estimate Display | ENG-013, NFR-003, FR-006 | `tests/api/test_cost_estimation.py`, `tests/api/test_cost_breakdown.py`, `tests/integration/test_cost_reconciliation.py` | Automated + Manual | High |
 | **SEC-015** | Third-Party Security Audit | All SEC requirements | `tests/security/test_audit_remediation.py`, audit report | Manual | High |
-| **NFR-008** | Usability | SEC-001, SEC-008, SEC-015 | Compliance audit | Manual | High |
-| **NFR-010** | Documentation | All requirements | Documentation review | Manual | Low |
-| **SEC-008** | VPC Service Controls (Post-GA roadmap) | ENG-016, OPS-002 | `tests/security/test_vpc_controls.py`, `tests/security/test_network_isolation.py` | Manual | High |
+| **NFR-008** | Usability | FR-001, FR-002, FR-003, FR-004, FR-005, FR-006, DS-001, DS-002, DS-003, DS-004, DS-005, DS-006 | `tests/ui/test_job_launch_workflow.py`, `tests/ui/test_onboarding.py`, `tests/ui/test_accessibility.py` | Automated + Manual | High |
+| **NFR-010** | Documentation | ENG-002, SEC-006, OPS-003 | `N/A (manual documentation review)` | Manual | Low |
+| **SEC-009** | Log Retention & PII Redaction | SEC-013, OPS-001, OPS-002, ENG-016 | `tests/security/test_log_retention.py`, `tests/security/test_pii_redaction.py`, `tests/compliance/test_gdpr_log_deletion.py` | Automated + Manual | High |
 | **SEC-010** | Deletion Proofs | All requirements | Security scan | Automated | Medium |
 | **SEC-011** | Dataset Provenance | OPS-001, SEC-006 | Runbook review | Manual | Medium |
 | **SEC-012** | Data Residency | ENG-016, OPS-003 | DR drill | Manual | High |
 | **OPS-004** | Performance Monitoring | OPS-001, OPS-002 | Runbook review | Manual | Low |
 
 **Phase Goal:** Validate production readiness through HPS validation, security audit, compliance verification, and operational readiness
+
+**Canonical Note:** Phase 6 launch-readiness rows must keep canonical NFR titles from `docs/specs/chronosrefine_nonfunctional_requirements.md`. Launch gates may re-validate earlier merged surfaces such as `NFR-001` and `SEC-009`, but `NFR-008` remains the usability/accessibility requirement rather than a catch-all legal/compliance bucket.
 
 **High-Risk Requirements:** FR-007, NFR-001, SEC-015, NFR-008, SEC-009, SEC-012 (6 high-risk requirements - GA blockers)
 
@@ -224,7 +226,7 @@ The following requirements form the critical path and must be completed in order
 6. **ENG-007** (Reproducibility Proof) → determinism/auditability baseline
 7. **FR-004** (Processing and Restoration) → end-to-end job orchestration
 8. **ENG-010** (Transformation Manifest Generation) → audit trail needed for SEC features
-9. **NFR-001** (HPS Gate) → GA launch gate
+9. **FR-007** (HPS Validation) → GA launch gate
 
 **Critical Path Duration:** Phases 1-6 (estimated 16-20 weeks)
 
@@ -270,9 +272,9 @@ After updating the matrix, recalculate:
 
 ### Phase 6 (6 High)
 - FR-007 (HPS Validation) - GA gate
-- NFR-001 (Cost Estimate Display) - Launch blocker
+- NFR-001 (Cost Estimate Display) - Launch-cost transparency blocker
 - SEC-015 (Third-Party Security Audit) - Security validation
-- NFR-008 (Usability) - Legal and launch requirement
+- NFR-008 (Usability) - Launch-flow and accessibility requirement
 - SEC-009 (Log Retention & PII Redaction) - Security validation
 - SEC-012 (Data Residency) - Business continuity
 
@@ -297,7 +299,7 @@ Source evidence:
 | Phase 2: API Foundation & Data Layer | 6/6 | ✅ Complete (merged via PR #1) | `main` includes merge commit `709687a`; this is the canonical baseline for later phases |
 | Phase 3: Core Processing Pipeline & AI Integration | 11/12 | ✅ Complete for Phase 4 kickoff | PR #2 merged to `main`; `SEC-007` remains deferred to its canonical `GA+3 months` milestone |
 | Phase 4: User-Facing Features & Application Logic | 14/14 on `main` | ✅ Complete (Packet 4H merged on `main`) | Packets 4A through 4H are merged on `main`; `61d51ff3ff289fc881674bd05afe37a8ac94cba0` closes the remaining Phase 4 admin cost-ops slice of `NFR-003` without pulling Phase 5 `FR-006` preview-review UX forward |
-| Phase 5: Advanced Features & UX Refinement | 0/11 full requirements complete | 🟡 In Progress (Packet 5A hosted-complete) | Pricing and GDPR kickoff records now live in `docs/specs/chronosrefine_phase5_pricing_clearance.md` and `docs/specs/chronosrefine_phase5_gdpr_legal_clearance.md`. Packet 5A now has hosted-closeout evidence in `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md`: preview-launch and first-party UI are gated, `chronos_dev` migration state is validated through `0024`, the shared staging secret unblock is recorded without weakening secret handling, hosted smoke passed, publish-failure retry re-used the same bound `job_id`, generic `/v1/jobs` remained unchanged, and hosted preview latency remained under `<6s p95`. Packet 5A remains an `FR-006` slice only, generic `/v1/jobs` preview-approval enforcement remains deferred, global `FR-006` closeout is not yet claimed, and canonical `NFR-008` ownership remains in Phase 6. |
+| Phase 5: Advanced Features & UX Refinement | 0/11 full requirements complete | 🟡 In Progress (Packet 5A hosted-complete) | Pricing and GDPR kickoff records now live in `docs/specs/chronosrefine_phase5_pricing_clearance.md` and `docs/specs/chronosrefine_phase5_gdpr_legal_clearance.md`. Packet 5A now has hosted-closeout evidence in `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md`: preview-launch and first-party UI are gated, `chronos_dev` migration state is validated through `0024`, the shared staging secret unblock is recorded without weakening secret handling, hosted smoke passed, publish-failure retry re-used the same bound `job_id`, generic `/v1/jobs` remained unchanged, and hosted preview latency remained under `<6s p95`. Packet 5A remains an `FR-006` slice only, generic `/v1/jobs` preview-approval enforcement remains deferred, global `FR-006` closeout is not yet claimed, canonical `NFR-008` ownership remains in Phase 6, and Packet 5B kickoff is recorded in `docs/specs/chronosrefine_phase5_packet5b_kickoff.md` for the remaining global closeout gap. |
 | Phase 6: Production Readiness & Launch | 0/10 | ⏸️ Not Started | Dependent on Phase 5 completion |
 
 ### Phase 1 Progress: Foundation & Core Infrastructure
@@ -385,6 +387,7 @@ Source evidence:
 | Packet 4G merge evidence | Skip-link/main-landmark shell updates, Help-documented safe shortcuts for upload/save/launch/export actions, shared focus and contrast primitives, and rendered DS-002 through DS-005 suites pass; `docs/specs/chronosrefine_phase4_closeout_note.md` records the automated evidence plus the completed Chrome, Firefox, Safari/WebKit, keyboard-only, and screen-reader matrix; merged to `main` in `738e3a8ea0c2424f4425e7a0a0ac55931b6c2c08` |
 | Packet 4H merge evidence | `/v1/ops/costs` aggregates per-job cost/reconciliation data into a gross-margin + anomaly snapshot, `/v1/metrics` emits cost/margin/anomaly signals immediately after terminal reconciliation, Terraform adds cost dashboard panels and alert policies, tier-aware pricing is used for gross-margin reporting, and Packet 4H merged to `main` in `61d51ff3ff289fc881674bd05afe37a8ac94cba0` |
 | Packet 5A hosted-closeout evidence | `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md` records local validation, hosted `chronos_dev` migration evidence through `0024`, secret-level IAM unblock for `STRIPE_SECRET_KEY`, hosted smoke for pending/approval/idempotent launch/stale anti-replay/cross-user denial, publish-failure retry with stable `job_id` reuse, generic `/v1/jobs` non-regression, and hosted preview latency `p95=1.8466s` |
+| Packet 5B kickoff note | `docs/specs/chronosrefine_phase5_packet5b_kickoff.md` records the next planned `FR-006` packet for global preview-approval closeout across remaining launch surfaces, starting with generic `/v1/jobs` |
 | Context Note | `docs/specs/chronosrefine_phase4_closeout_note.md` records Packet 4A and Packet 4G historical completion evidence, and `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md` records the first hosted-close Packet 5A `FR-006` slice. Phase 4 remains complete on `main`; Phase 5 is now in progress without claiming global `FR-006` complete or advancing the full-requirement count yet. |
 
 ## Progress Tracking Template

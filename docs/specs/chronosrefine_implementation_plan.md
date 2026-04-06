@@ -415,7 +415,7 @@ This implementation plan is organized into a logical execution sequence designed
 - [x] Pricing tiers finalized with feature allocation and recorded in merged canon → **Req:** **NFR-006**, **NFR-012**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-006-pricing-model`, `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-012-payment-provider-selection`, `docs/specs/chronosrefine_prd_v9.md#pricing--business-model`, `docs/specs/chronosrefine_phase5_pricing_clearance.md`
 - [x] Legal review complete for GDPR and data-handling controls and recorded in merged canon → **Req:** **SEC-006**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-006-gdpr-compliance`, `docs/specs/chronosrefine_phase5_gdpr_legal_clearance.md`, `docs/specs/chronosrefine_phase5_dpa_status.md`
 
-**Current Gate Status Note:** Phase 5 entry criteria are now satisfied in merged canon via the recorded pricing and legal/DPA gate notes. Packet 5A now has hosted-closeout evidence recorded in `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md`, including local validation, `chronos_dev` migration proof through `0024`, Secret Manager/IAM unblock evidence for `STRIPE_SECRET_KEY`, hosted smoke, publish-failure retry proof, `/v1/jobs` non-regression, and hosted preview latency `p95=1.8466s`. Packet 5A remains a hosted-complete `FR-006` slice only: generic `/v1/jobs` preview-approval enforcement remains deferred, global `FR-006` closeout is not yet claimed, canonical `NFR-008` ownership remains Phase 6 work, and the Phase 5 full-requirement count therefore remains `0/11` until a later packet closes `FR-006` globally.
+**Current Gate Status Note:** Phase 5 entry criteria are now satisfied in merged canon via the recorded pricing and legal/DPA gate notes. Packet 5A now has hosted-closeout evidence recorded in `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md`, including local validation, `chronos_dev` migration proof through `0024`, Secret Manager/IAM unblock evidence for `STRIPE_SECRET_KEY`, hosted smoke, publish-failure retry proof, `/v1/jobs` non-regression, and hosted preview latency `p95=1.8466s`. Packet 5A remains a hosted-complete `FR-006` slice only: generic `/v1/jobs` preview-approval enforcement remains deferred, global `FR-006` closeout is not yet claimed, canonical `NFR-008` ownership remains Phase 6 work, and the Phase 5 full-requirement count therefore remains `0/11` until a later packet closes `FR-006` globally. Packet 5B is the next planned FR-006 packet for that remaining global closeout gap.
 
 **Deliverables:**
 -   Preview generation system hardened for production usage → **Req:** **FR-006**, **Test:** `tests/processing/test_preview_generation.py`, `tests/processing/test_scene_detection.py`, `tests/ui/test_preview_modal.spec.ts`, `tests/load/test_preview_performance.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-006-preview-generation`
@@ -457,6 +457,12 @@ This implementation plan is organized into a logical execution sequence designed
 
 **Packet 5A hosted closeout note:** `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md`
 
+**Next Planned Packet: Packet 5B (FR-006 global closeout)**
+
+**Kickoff Packet:** `docs/specs/chronosrefine_phase5_packet5b_kickoff.md`
+
+**Packet 5B scope note:** Packet 5B is the next planned `FR-006` packet and should close the remaining preview-approval gap beyond the first-party Packet 5A flow, starting with generic `/v1/jobs` and any other remaining public launch surfaces while keeping pricing, GDPR delivery, and Phase 6 launch work out of scope.
+
 ### Phase 6: Production Readiness & Launch
 
 **Objective:** Prepare the application for production launch through rigorous testing, security hardening, and documentation.
@@ -469,7 +475,7 @@ This implementation plan is organized into a logical execution sequence designed
 - [ ] HPS protocol executed with results documented → **Req:** **FR-007**, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-007-human-preference-score-hps-validation`, `docs/specs/chronosrefine_prd_v9.md#beta-exit-criteria-ga-readiness`
 - [ ] Third-party security auditor engaged → **Req:** **SEC-015**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-015-third-party-security-audit`
 
-**Current Gate Status Note:** Phase 6 has not started on the merged repo and remains blocked on Phase 5 completion plus the Beta → GA gate criteria below.
+**Current Gate Status Note:** Phase 6 has not started on the merged repo and remains blocked on Phase 5 completion plus the Beta → GA gate criteria below. Canonical NFR numbering and titles continue to follow `docs/specs/chronosrefine_nonfunctional_requirements.md`: `NFR-008` is the usability/accessibility requirement, while Phase 6 may also re-validate earlier merged launch-readiness surfaces such as `NFR-001` and `SEC-009` without changing their historical merge evidence.
 
 **Deliverables:**
 -   Repository note: launch-artifact directories such as `docs/user_guide/`, `docs/operations/`, `docs/compliance/`, `docs/security/`, and `docs/hps/` are not yet present on `main`; until they exist, rely on the canonical spec references below and treat launch evidence packages as planned artifacts.
@@ -483,10 +489,10 @@ This implementation plan is organized into a logical execution sequence designed
 -   Comprehensive internal and user-facing documentation finalized → **Req:** **NFR-010**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-010-documentation`, `docs/api/`, launch user/ops documentation package (planned artifact)
 -   Performance monitoring dashboards, baselines, and runbooks finalized → **Req:** **OPS-004**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#ops-004-performance-monitoring`, launch operations runbook package (planned artifact)
 -   HPS validation platform and results → **Req:** **FR-007**, **Test:** `tests/hps/test_evaluation_platform.py`, `tests/hps/test_statistical_analysis.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-007-human-preference-score-hps-validation`, launch HPS validation report (planned artifact)
--   Compliance documentation package (usability/legal/security readiness) → **Req:** **NFR-008**, **SEC-015**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-008-usability`, launch compliance evidence package (planned artifact)
+-   Launch evidence package for usability, documentation, and security-audit readiness → **Req:** **NFR-008**, **NFR-010**, **SEC-015**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-008-usability`, `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-010-documentation`, launch compliance evidence package (planned artifact)
 
 **Exit Criteria:**
-- [ ] **HPS Gate**: ≥75% in EACH media category (Daguerreotype, Albumen, 16mm, Super 8, Kodachrome, VHS) → **Req:** **FR-007**, **NFR-001**, **Test:** `tests/hps/test_statistical_analysis.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-007-human-preference-score-hps-validation`, `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-001-cost-estimate-display`, `docs/specs/chronosrefine_prd_v9.md#beta-exit-criteria-ga-readiness`
+- [ ] **HPS Gate**: ≥75% in EACH media category (Daguerreotype, Albumen, 16mm, Super 8, Kodachrome, VHS) → **Req:** **FR-007**, **Test:** `tests/hps/test_statistical_analysis.py`, **See:** `docs/specs/chronosrefine_functional_requirements.md#fr-007-human-preference-score-hps-validation`, `docs/specs/chronosrefine_prd_v9.md#beta-exit-criteria-ga-readiness`
 - [ ] Security audit complete with zero critical vulnerabilities → **Req:** **SEC-015**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-015-third-party-security-audit`, launch audit evidence package (planned artifact)
 - [ ] Log retention and PII redaction controls validated in production-like environment → **Req:** **SEC-009**, **Test:** `tests/security/test_log_retention_redaction.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-009-log-retention--pii-redaction`
 - [ ] Deletion proofs generated/verified for required launch scenarios → **Req:** **SEC-010**, **Test:** `tests/api/test_deletion_proof.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-010-deletion-proofs`
@@ -498,8 +504,8 @@ This implementation plan is organized into a logical execution sequence designed
 - [ ] User documentation complete with video tutorials for each persona → **Req:** **NFR-010**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-010-documentation`, launch user-guide package (planned artifact)
 - [ ] Performance monitoring runbook and regression detection procedures documented → **Req:** **OPS-004**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#ops-004-performance-monitoring`, launch operations runbook package (planned artifact)
 - [ ] Monitoring-driven rollback decision procedure tested in staging → **Req:** **OPS-004**, **Test:** `tests/ops/test_rollback.py`, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#ops-004-performance-monitoring`
-- [ ] Legal review complete for Terms of Service and Privacy Policy → **Req:** **NFR-008**, **SEC-006**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-008-usability`, `docs/specs/chronosrefine_security_operations_requirements.md#sec-006-gdpr-compliance`
-- [ ] SOC 2 Type II readiness assessment complete → **Req:** **NFR-008**, **SEC-015**, **See:** `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-008-usability`, `docs/specs/chronosrefine_security_operations_requirements.md#sec-015-third-party-security-audit`, launch compliance evidence package (planned artifact)
+- [ ] Legal review complete for Terms of Service and Privacy Policy → **Req:** **SEC-006**, **NFR-010**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-006-gdpr-compliance`, `docs/specs/chronosrefine_nonfunctional_requirements.md#nfr-010-documentation`
+- [ ] SOC 2 Type II readiness assessment complete → **Req:** **SEC-015**, **See:** `docs/specs/chronosrefine_security_operations_requirements.md#sec-015-third-party-security-audit`, launch compliance evidence package (planned artifact)
 
 **Phase-Specific Risks:**
 - **Risk**: HPS fails to meet 75% threshold in one or more categories

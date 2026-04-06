@@ -44,6 +44,7 @@ jobs:
             SUPABASE_URL_DEV \
             SUPABASE_ANON_KEY_DEV \
             SUPABASE_SERVICE_ROLE_KEY \
+            STRIPE_SECRET_KEY \
             SUPABASE_DB_HOST \
             SUPABASE_DB_PORT \
             SUPABASE_DB_NAME \
@@ -58,14 +59,14 @@ jobs:
           done
       - name: Deploy to Cloud Run staging
         run: |
-          BUILD_TIME="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          eval "$(bash scripts/ops/emit_build_metadata.sh)"
           gcloud run deploy "${CLOUD_RUN_SERVICE}" \
             --project "${GCP_PROJECT_ID}" \
             --region "${GCP_REGION:-us-central1}" \
             --source . \
             --allow-unauthenticated \
-            --set-env-vars "ENVIRONMENT=staging,BUILD_SHA=${GITHUB_SHA},BUILD_TIME=${BUILD_TIME},JOB_DISPATCH_MODE=pubsub,JOB_PROGRESS_MODE=supabase,JOB_PUBSUB_TOPIC=projects/${GCP_PROJECT_ID}/topics/chronos-async-jobs-smoke,SEGMENT_CACHE_MODE=redis,GCS_BUCKET_NAME=${GCS_BUCKET_NAME}" \
-            --set-secrets "REDIS_URL=REDIS_URL:latest,SUPABASE_URL=SUPABASE_URL_DEV:latest,SUPABASE_ANON_KEY=SUPABASE_ANON_KEY_DEV:latest,SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest,SUPABASE_DB_HOST=SUPABASE_DB_HOST:latest,SUPABASE_DB_PORT=SUPABASE_DB_PORT:latest,SUPABASE_DB_NAME=SUPABASE_DB_NAME:latest,SUPABASE_DB_USER=SUPABASE_DB_USER:latest,SUPABASE_DB_PASSWORD=SUPABASE_DB_PASSWORD:latest,JOB_WORKER_TRUSTED_TOKEN=JOB_WORKER_TRUSTED_TOKEN:latest,OUTPUT_DELIVERY_SIGNING_SECRET=OUTPUT_DELIVERY_SIGNING_SECRET:latest" \
+            --set-env-vars "ENVIRONMENT=staging,BUILD_SHA=${BUILD_SHA},BUILD_TIME=${BUILD_TIME},JOB_DISPATCH_MODE=pubsub,JOB_PROGRESS_MODE=supabase,JOB_PUBSUB_TOPIC=projects/${GCP_PROJECT_ID}/topics/chronos-async-jobs-smoke,SEGMENT_CACHE_MODE=redis,GCS_BUCKET_NAME=${GCS_BUCKET_NAME}" \
+            --set-secrets "REDIS_URL=REDIS_URL:latest,SUPABASE_URL=SUPABASE_URL_DEV:latest,SUPABASE_ANON_KEY=SUPABASE_ANON_KEY_DEV:latest,SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest,STRIPE_SECRET_KEY=STRIPE_SECRET_KEY:1,SUPABASE_DB_HOST=SUPABASE_DB_HOST:latest,SUPABASE_DB_PORT=SUPABASE_DB_PORT:latest,SUPABASE_DB_NAME=SUPABASE_DB_NAME:latest,SUPABASE_DB_USER=SUPABASE_DB_USER:latest,SUPABASE_DB_PASSWORD=SUPABASE_DB_PASSWORD:latest,JOB_WORKER_TRUSTED_TOKEN=JOB_WORKER_TRUSTED_TOKEN:latest,OUTPUT_DELIVERY_SIGNING_SECRET=OUTPUT_DELIVERY_SIGNING_SECRET:latest" \
             --quiet
       - name: Verify Cloud Run runtime hardening
         run: |
