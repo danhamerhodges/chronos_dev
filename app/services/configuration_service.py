@@ -13,6 +13,7 @@ from app.api.problem_details import ProblemException
 from app.db.phase2_store import UploadRepository, UserProfileRepository
 from app.models.processing import ReproducibilityMode
 from app.services.billing_service import billable_minutes_for_duration
+from app.services.configuration_fingerprint import configuration_fingerprint
 from app.services.era_classifier import UNKNOWN_ERA, canonicalize_era_label, infer_capture_medium
 from app.services.era_detection_service import EraDetectionService
 from app.services.fidelity_profiles import (
@@ -309,12 +310,15 @@ def _build_preview_era_profile(
 ) -> dict[str, Any]:
     capture_medium = _capture_medium_for_detection(session, detection_snapshot)
     fidelity_profile = fidelity_profile_for(fidelity_tier)
+    hallucination_limit = fidelity_profile.hallucination_limit_max
+    if plan_tier.strip().lower() == "hobbyist" and fidelity_tier == FidelityTier.ENHANCE:
+        hallucination_limit = 0.25
     era_profile = {
         "capture_medium": capture_medium,
         "mode": fidelity_tier.value,
         "tier": _canonical_plan_tier(plan_tier),
         "resolution_cap": "1080p" if plan_tier.strip().lower() == "hobbyist" else "4k",
-        "hallucination_limit": fidelity_profile.hallucination_limit_max,
+        "hallucination_limit": hallucination_limit,
         "artifact_policy": {
             "deinterlace": capture_medium == "vhs",
             "grain_intensity": grain_preset.value,
@@ -534,6 +538,7 @@ class ConfigurationService:
         )
         relative_cost_multiplier = relative_cost_multiplier_for_tier(fidelity_tier)
         relative_processing_time_band = relative_processing_time_band_for_tier(fidelity_tier)
+        configured_at = _utc_now()
         job_payload_preview = JobCreateRequest.model_validate(
             {
                 "media_uri": session["media_uri"],
@@ -550,6 +555,7 @@ class ConfigurationService:
                     "grain_preset": grain_preset.value,
                     "relative_cost_multiplier": relative_cost_multiplier,
                     "relative_processing_time_band": relative_processing_time_band,
+                    "configured_at": configured_at,
                     "detection_snapshot": {
                         "detection_id": detection_snapshot["detection_id"],
                         "era": detection_snapshot["era"],
@@ -562,7 +568,10 @@ class ConfigurationService:
                 },
             }
         )
-        configured_at = _utc_now()
+        configuration_fingerprint_value = configuration_fingerprint(
+            configured_at=configured_at,
+            job_payload_preview=job_payload_preview.model_dump(),
+        )
         launch_config = {
             "upload_id": upload_id,
             "persona": persona.value,
@@ -572,6 +581,7 @@ class ConfigurationService:
             "relative_processing_time_band": relative_processing_time_band,
             "detection_snapshot": detection_snapshot,
             "job_payload_preview": job_payload_preview.model_dump(),
+            "configuration_fingerprint": configuration_fingerprint_value,
         }
         updated = self._upload_repo.update_session(
             upload_id,
@@ -622,6 +632,7 @@ class ConfigurationService:
             "relative_processing_time_band": relative_processing_time_band,
             "job_payload_preview": job_payload_preview.model_dump(),
             "configured_at": configured_at,
+            "configuration_fingerprint": configuration_fingerprint_value,
         }
 
     def _detect_and_persist(

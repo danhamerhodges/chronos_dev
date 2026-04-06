@@ -37,7 +37,11 @@ def valid_job_request(**overrides: Any) -> dict[str, Any]:
             "gemini_confidence": 0.92,
             "manual_confirmation_required": False,
         },
-        "config": {"stabilization": "medium", "color_balance": "neutral"},
+        "config": {
+            "stabilization": "medium",
+            "color_balance": "neutral",
+            "configured_at": "2026-04-04T12:00:00+00:00",
+        },
     }
     payload.update(overrides)
     return payload

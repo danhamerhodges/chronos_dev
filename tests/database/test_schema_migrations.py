@@ -1,4 +1,4 @@
-"""Maps to: ENG-010, ENG-016, SEC-013"""
+"""Maps to: ENG-010, ENG-016, SEC-013, FR-006"""
 
 from pathlib import Path
 
@@ -32,6 +32,7 @@ def test_expected_migrations_present() -> None:
         "0021_phase4_preview_sessions.sql",
         "0022_phase4_preview_sessions_rls.sql",
         "0023_phase4_preview_session_stabilization.sql",
+        "0024_phase5_preview_review_gate.sql",
     ]
 
 
@@ -127,3 +128,17 @@ def test_preview_session_stabilization_migration_adds_snapshot_identity_fields()
     assert "ADD COLUMN IF NOT EXISTS configuration_cache_fingerprint TEXT" in sql
     assert "CREATE UNIQUE INDEX IF NOT EXISTS idx_preview_sessions_owner_upload_snapshot" in sql
     assert "CREATE INDEX IF NOT EXISTS idx_preview_sessions_owner_reuse" in sql
+
+
+def test_preview_review_gate_migration_adds_review_and_launch_columns() -> None:
+    root = Path(__file__).resolve().parents[2]
+    sql = (root / "supabase" / "migrations" / "0024_phase5_preview_review_gate.sql").read_text(encoding="utf-8")
+
+    assert "ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'pending'" in sql
+    assert "ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ" in sql
+    assert "ADD COLUMN IF NOT EXISTS launch_status TEXT NOT NULL DEFAULT 'not_launched'" in sql
+    assert "ADD COLUMN IF NOT EXISTS launched_job_id UUID REFERENCES public.media_jobs (id)" in sql
+    assert "ADD COLUMN IF NOT EXISTS launched_external_job_id TEXT" in sql
+    assert "ADD COLUMN IF NOT EXISTS launched_at TIMESTAMPTZ" in sql
+    assert "CHECK (review_status IN ('pending', 'approved', 'rejected'))" in sql
+    assert "CHECK (launch_status IN ('not_launched', 'launch_pending', 'launched'))" in sql

@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+from app.api.contracts import FidelityTier
 from app.api.problem_details import ProblemException
 from app.db.phase2_store import JobDeletionProofRepository, JobRepository, ManifestRepository
 from app.models.processing import ReproducibilityMode
 from app.models.status import JobStatus
+from app.services.configuration_fingerprint import configuration_fingerprint
 from app.services.cost_estimation import BillingPricingUnavailableError, CostEstimationService
 from app.services.fidelity_profiles import resolve_fidelity_profile
 from app.services.job_dispatcher import publish_job
@@ -56,7 +58,10 @@ class JobService:
             )
         except BillingPricingUnavailableError as exc:
             raise self._pricing_unavailable_problem() from exc
-        return estimate.summary
+        return {
+            **estimate.summary,
+            "configuration_fingerprint": self._configuration_fingerprint_for_payload(payload),
+        }
 
     def create_job(
         self,
@@ -66,6 +71,9 @@ class JobService:
         org_id: str,
         payload: dict[str, object],
         access_token: str | None = None,
+        job_id_override: str | None = None,
+        publish_immediately: bool = True,
+        publish_source: str = "api",
     ) -> dict[str, object]:
         validation = validate_era_profile(payload["era_profile"])
         if not validation.is_valid:
@@ -78,8 +86,9 @@ class JobService:
 
         reproducibility_mode = ReproducibilityMode(str(payload.get("reproducibility_mode") or ReproducibilityMode.PERCEPTUAL_EQUIVALENCE.value))
         validate_reproducibility_mode(reproducibility_mode, plan_tier=plan_tier)
+        requested_tier = FidelityTier(str(payload["fidelity_tier"]))
         effective_fidelity_profile = resolve_fidelity_profile(
-            requested_tier=payload["fidelity_tier"],
+            requested_tier=requested_tier,
             era_profile=payload["era_profile"],
             config=payload.get("config") or {},
         )
@@ -106,12 +115,12 @@ class JobService:
                 ],
             )
 
-        job_id = str(uuid4())
+        job_id = job_id_override or str(uuid4())
         segments = build_segments(
             user_id=user_id,
             source_asset_checksum=str(payload["source_asset_checksum"]),
             estimated_duration_seconds=int(payload["estimated_duration_seconds"]),
-            fidelity_tier=str(payload["fidelity_tier"]),
+            fidelity_tier=requested_tier.value,
             reproducibility_mode=reproducibility_mode.value,
             processing_mode=str(payload["processing_mode"]),
             era_profile=payload["era_profile"],
@@ -127,8 +136,8 @@ class JobService:
             original_filename=str(payload.get("original_filename") or ""),
             mime_type=str(payload.get("mime_type") or ""),
             source_asset_checksum=str(payload["source_asset_checksum"]),
-            fidelity_tier=str(payload["fidelity_tier"]),
-            effective_fidelity_tier=str(payload["fidelity_tier"]),
+            fidelity_tier=requested_tier.value,
+            effective_fidelity_tier=requested_tier.value,
             effective_fidelity_profile=effective_fidelity_profile,
             reproducibility_mode=reproducibility_mode.value,
             processing_mode=str(payload["processing_mode"]),
@@ -139,10 +148,21 @@ class JobService:
             cost_estimate_summary=estimate.summary,
             access_token=access_token,
         )
-        publish_job(job_id, plan_tier=plan_tier)
+        if publish_immediately:
+            publish_job(job_id, plan_tier=plan_tier, source=publish_source)
         created = self._job_response_payload(job)
         created["queued_at"] = job["queued_at"]
         return created
+
+    def _configuration_fingerprint_for_payload(self, payload: dict[str, object]) -> str:
+        config = payload.get("config")
+        configured_at = ""
+        if isinstance(config, dict):
+            configured_at = str(config.get("configured_at") or "")
+        return configuration_fingerprint(
+            configured_at=configured_at,
+            job_payload_preview=payload,
+        )
 
     def get_job(self, job_id: str, *, owner_user_id: str, access_token: str | None = None) -> dict[str, object]:
         job = self._repo.get_job(job_id, owner_user_id=owner_user_id, access_token=access_token)
@@ -154,6 +174,24 @@ class JobService:
             )
         segments = self._repo.list_segments(job_id, owner_user_id=owner_user_id, access_token=access_token)
         return self._job_response_payload(job, include_segments=True, segments=segments, access_token=access_token)
+
+    def get_job_create_response(
+        self,
+        job_id: str,
+        *,
+        owner_user_id: str,
+        access_token: str | None = None,
+    ) -> dict[str, object]:
+        job = self._repo.get_job(job_id, owner_user_id=owner_user_id, access_token=access_token)
+        if job is None:
+            raise ProblemException(
+                title="Not Found",
+                detail="Job not found for the current user.",
+                status_code=404,
+            )
+        payload = self._job_response_payload(job)
+        payload["queued_at"] = job["queued_at"]
+        return payload
 
     def list_jobs(self, *, owner_user_id: str, access_token: str | None = None) -> list[dict[str, object]]:
         jobs = self._repo.list_jobs(owner_user_id=owner_user_id, access_token=access_token)

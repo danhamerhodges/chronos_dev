@@ -360,6 +360,18 @@ class PreviewStatus(StrEnum):
     READY = "ready"
 
 
+class PreviewReviewStatus(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class PreviewLaunchStatus(StrEnum):
+    NOT_LAUNCHED = "not_launched"
+    LAUNCH_PENDING = "launch_pending"
+    LAUNCHED = "launched"
+
+
 class PreviewSelectionMode(StrEnum):
     SCENE_AWARE = "scene_aware"
     UNIFORM_FALLBACK = "uniform_fallback"
@@ -471,6 +483,7 @@ class UploadConfigurationResponse(StrictModel):
     relative_processing_time_band: str
     job_payload_preview: JobCreateRequest
     configured_at: str
+    configuration_fingerprint: str
 
 
 class JobProgressResponse(StrictModel):
@@ -542,11 +555,19 @@ class JobCreateResponse(JobSummaryResponse):
 
 
 class JobEstimateResponse(CostEstimateSummaryResponse):
-    pass
+    configuration_fingerprint: str
 
 
 class PreviewCreateRequest(StrictModel):
     upload_id: str = Field(min_length=1)
+
+
+class PreviewReviewRequest(StrictModel):
+    review_status: Literal["approved", "rejected"]
+
+
+class PreviewLaunchRequest(StrictModel):
+    configuration_fingerprint: str = Field(min_length=64, max_length=64)
 
 
 class PreviewKeyframeResponse(StrictModel):
@@ -563,6 +584,11 @@ class PreviewSessionResponse(StrictModel):
     upload_id: str
     status: PreviewStatus
     configuration_fingerprint: str
+    review_status: PreviewReviewStatus
+    reviewed_at: str | None = None
+    launch_status: PreviewLaunchStatus = PreviewLaunchStatus.NOT_LAUNCHED
+    launched_job_id: str | None = None
+    launched_at: str | None = None
     stale: bool = False
     expires_at: str
     selection_mode: PreviewSelectionMode
