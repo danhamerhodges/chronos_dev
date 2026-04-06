@@ -1,4 +1,4 @@
-# AGENTS.md — ChronosRefine Codex Operating Guide (v4)
+# AGENTS.md — ChronosRefine Codex Operating Guide (v5)
 
 This file defines how coding agents must operate in this repository.
 
@@ -13,7 +13,7 @@ This file defines how coding agents must operate in this repository.
 ## 1) Project Context
 
 - Project: ChronosRefine.
-- Current repository state: spec-first/documentation-first.
+- Current repository state: active application, test, workflow, and canonical spec stack.
 - Canonical requirements and implementation governance live under `docs/specs/`.
 - If implementation code is missing for a requested change, update specs and call out the gap explicitly.
 
@@ -63,18 +63,33 @@ For substantial changes, provide:
 
 ## 4) Build/Test Commands (Current Repo State)
 
-This repository currently contains specs and guidance docs, not an executable app stack.
+This repository now contains executable backend/frontend code, tests, CI helpers, and canonical specs.
 
-Use these checks when editing specs:
+Recommended local bootstrap:
+
+- Python venv: `python3 -m venv .venv`
+- Python deps: `./.venv/bin/pip install -e .[dev]`
+- Root JS tooling: `npm install`
+- Web workspace deps: `./node_modules/.bin/pnpm -C web install`
+
+Recommended verification commands:
+
+- Codex/project setup sanity: `./scripts/validate_codex_setup.sh`
+- Traceability validator: `python3 scripts/validate_test_traceability.py`
+- Spec consistency audit: `bash .agents/skills/spec-consistency-audit/scripts/audit_specs.sh .`
+- Backend targeted suite: `./.venv/bin/python -m pytest tests/infrastructure tests/database tests/auth tests/billing tests/ops -q`
+- Frontend rendered suite: `./node_modules/.bin/pnpm -C web test`
+- Storybook baseline: `./node_modules/.bin/pnpm -C web storybook:test`
+- Design/visual suites: `./.venv/bin/python -m pytest tests/design_system tests/visual_regression -q`
+- Full backend suite: `./.venv/bin/python -m pytest -q`
+
+Docs-only checks:
 
 - List specs: `rg --files docs/specs`
 - Find stale internal references: `rg -n "coverage_matrix\\.md|chronosrefine_prd_final|\\bagents\\.md\\b" docs/specs`
 - Verify canonical phase headers: `rg -n "^## Phase [1-6]:" "docs/specs/ChronosRefine Requirements Coverage Matrix.md"`
-- Verify implementation plan phase declarations: `rg -n "^### Phase [1-6]:|\*\*Requirements Implemented:\*\*" docs/specs/chronosrefine_implementation_plan.md`
+- Verify implementation plan phase declarations: `rg -n "^### Phase [1-6]:|\*\*Requirements Implemented:\*\*|Phase [56] Requirement Set" docs/specs/chronosrefine_implementation_plan.md`
 
-If executable code/tests are introduced later:
-
-- Add exact setup/lint/test commands here immediately.
 - Do not claim tests ran unless commands were actually executed.
 
 ## 5) Requirement and Phase Gating
