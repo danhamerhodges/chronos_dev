@@ -5,8 +5,8 @@ import { Card } from "./components/Card";
 import { EraOverrideModal } from "./components/EraOverrideModal";
 import { FidelityTierSelector } from "./components/FidelityTierSelector";
 import { InputField } from "./components/InputField";
-import { LaunchCostEstimateModal } from "./components/LaunchCostEstimateModal";
 import { Modal } from "./components/Modal";
+import { PreviewReviewModal } from "./components/PreviewReviewModal";
 import { ProgressBar } from "./components/ProgressBar";
 import { UncertaintyCalloutsList } from "./components/UncertaintyCalloutsList";
 import {
@@ -35,10 +35,15 @@ import {
   fetchJobDetail,
   fetchUncertaintyCallouts,
   isActiveJobStatus,
-  startProcessing,
   type JobDetailResponse,
   type JobUncertaintyCalloutsResponse,
 } from "./lib/processingHelpers";
+import {
+  createPreview,
+  launchApprovedPreview,
+  reviewPreview,
+  type PreviewSessionResponse,
+} from "./lib/previewHelpers";
 import {
   fetchCurrentUserProfile,
   fetchDeletionProof,
@@ -70,7 +75,7 @@ function processingLaunchKey(configuration: UploadConfigurationResponse | null):
   if (!configuration) {
     return null;
   }
-  return `${configuration.upload_id}:${configuration.configured_at}`;
+  return `${configuration.upload_id}:${configuration.configuration_fingerprint}`;
 }
 
 type DeliveryActionKey = "av1" | "h264" | "manifest" | "proof";
@@ -138,8 +143,12 @@ export function App() {
   const [jobCallouts, setJobCallouts] = useState<JobUncertaintyCalloutsResponse | null>(null);
   const [jobBusy, setJobBusy] = useState(false);
   const [statusNotice, setStatusNotice] = useState("");
-  const [showLaunchCostModal, setShowLaunchCostModal] = useState(false);
+  const [showPreviewReviewModal, setShowPreviewReviewModal] = useState(false);
   const [showKeyboardShortcutsModal, setShowKeyboardShortcutsModal] = useState(false);
+  const [previewSession, setPreviewSession] = useState<PreviewSessionResponse | null>(null);
+  const [previewBusy, setPreviewBusy] = useState(false);
+  const [previewReviewBusy, setPreviewReviewBusy] = useState(false);
+  const [previewModalExpectedFingerprint, setPreviewModalExpectedFingerprint] = useState<string | null>(null);
   const [costEstimate, setCostEstimate] = useState<JobCostEstimateResponse | null>(null);
   const [costEstimateBusy, setCostEstimateBusy] = useState(false);
   const [overageApprovalBusy, setOverageApprovalBusy] = useState(false);
@@ -171,6 +180,7 @@ export function App() {
   const processingStatusRef = useRef<JobDetailResponse["status"] | null>(null);
   const latestRefreshTokenRef = useRef(0);
   const latestEstimateTokenRef = useRef(0);
+  const latestPreviewTokenRef = useRef(0);
   const lastTerminalStatusRef = useRef<JobDetailResponse["status"] | null>(null);
   const terminalHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const deliveryAlertRef = useRef<HTMLDivElement | null>(null);
@@ -222,7 +232,12 @@ export function App() {
     setManualOverrideEra("");
     setOverrideReason("");
     latestEstimateTokenRef.current += 1;
-    setShowLaunchCostModal(false);
+    latestPreviewTokenRef.current += 1;
+    setShowPreviewReviewModal(false);
+    setPreviewSession(null);
+    setPreviewBusy(false);
+    setPreviewReviewBusy(false);
+    setPreviewModalExpectedFingerprint(null);
     setCostEstimate(null);
     setCostEstimateBusy(false);
     setOverageApprovalBusy(false);
@@ -247,11 +262,16 @@ export function App() {
     setDeliveryRetryAction(null);
   }
 
-  function resetLaunchEstimateState(options: { closeModal?: boolean } = {}): void {
+  function resetPreviewReviewState(options: { closeModal?: boolean } = {}): void {
     latestEstimateTokenRef.current += 1;
+    latestPreviewTokenRef.current += 1;
     if (options.closeModal ?? true) {
-      setShowLaunchCostModal(false);
+      setShowPreviewReviewModal(false);
     }
+    setPreviewSession(null);
+    setPreviewBusy(false);
+    setPreviewReviewBusy(false);
+    setPreviewModalExpectedFingerprint(null);
     setCostEstimate(null);
     setCostEstimateBusy(false);
     setOverageApprovalBusy(false);
@@ -308,6 +328,25 @@ export function App() {
   const exportReady = isExportReadyStatus(processingJob?.status);
   const currentLaunchKey = processingLaunchKey(savedConfiguration);
   const canStartSavedConfiguration = Boolean(savedConfiguration) && (!processingJob || currentLaunchKey !== lastStartedConfigurationKey);
+  const previewReviewInvalidated =
+    Boolean(
+      showPreviewReviewModal &&
+        savedConfiguration &&
+        previewModalExpectedFingerprint &&
+        savedConfiguration.configuration_fingerprint !== previewModalExpectedFingerprint,
+    ) ||
+    Boolean(
+      showPreviewReviewModal &&
+        savedConfiguration &&
+        previewSession &&
+        previewSession.configuration_fingerprint !== savedConfiguration.configuration_fingerprint,
+    ) ||
+    Boolean(
+      showPreviewReviewModal &&
+        savedConfiguration &&
+        costEstimate &&
+        costEstimate.configuration_fingerprint !== savedConfiguration.configuration_fingerprint,
+    );
   const isMuseumPlan = deliveryPlanTier === "museum";
 
   function setDeliveryBusyFor(action: DeliveryActionKey, value: boolean): void {
@@ -396,7 +435,7 @@ export function App() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (showOverrideModal || showLaunchCostModal || showKeyboardShortcutsModal) {
+      if (showOverrideModal || showPreviewReviewModal || showKeyboardShortcutsModal) {
         return;
       }
       if (isEditableShortcutTarget(event.target)) {
@@ -443,7 +482,7 @@ export function App() {
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [showKeyboardShortcutsModal, showLaunchCostModal, showOverrideModal]);
+  }, [showKeyboardShortcutsModal, showPreviewReviewModal, showOverrideModal]);
 
   async function runUpload(resumeExisting: boolean): Promise<void> {
     if (!selectedFile) {
@@ -491,13 +530,13 @@ export function App() {
     setSelectedTier(nextTier);
     setSelectedGrainPreset(defaultGrainPresetForTier(catalog, nextTier));
     setSavedConfiguration(null);
-    resetLaunchEstimateState();
+    resetPreviewReviewState();
   }
 
   function clearPersonaSelection(): void {
     setSelectedPersona("");
     setSavedConfiguration(null);
-    resetLaunchEstimateState();
+    resetPreviewReviewState();
   }
 
   function handleTierChange(nextTier: FidelityTier): void {
@@ -511,7 +550,7 @@ export function App() {
     const allowedPresets = allowedGrainPresetsForTier(catalog, nextTier);
     setSelectedGrainPreset(defaultGrainPresetForTier(catalog, nextTier) ?? allowedPresets[0] ?? null);
     setSavedConfiguration(null);
-    resetLaunchEstimateState();
+    resetPreviewReviewState();
   }
 
   async function handleDetectEra(
@@ -534,7 +573,7 @@ export function App() {
       }
       setDetection(nextDetection);
       setSavedConfiguration(null);
-      resetLaunchEstimateState();
+      resetPreviewReviewState();
       clearFormError();
       setManualOverrideEra(overrides.manual_override_era ?? "");
       setOverrideReason(overrides.override_reason ?? "");
@@ -575,7 +614,12 @@ export function App() {
       setSelectedPersona(nextConfiguration.persona);
       setSelectedTier(nextConfiguration.fidelity_tier);
       setSelectedGrainPreset(nextConfiguration.grain_preset);
-      resetLaunchEstimateState();
+      if (showPreviewReviewModal) {
+        setLaunchModalError("");
+        setLaunchModalNotice("");
+      } else {
+        resetPreviewReviewState();
+      }
       clearFormError();
       setStatusNotice("");
     } catch (caught) {
@@ -630,47 +674,107 @@ export function App() {
     }
   }
 
-  async function loadLaunchEstimate(configuration: UploadConfigurationResponse): Promise<void> {
-    const requestToken = latestEstimateTokenRef.current + 1;
-    latestEstimateTokenRef.current = requestToken;
+  async function loadPreviewReviewGate(configuration: UploadConfigurationResponse): Promise<void> {
+    const estimateToken = latestEstimateTokenRef.current + 1;
+    latestEstimateTokenRef.current = estimateToken;
+    const previewToken = latestPreviewTokenRef.current + 1;
+    latestPreviewTokenRef.current = previewToken;
     const launchKey = processingLaunchKey(configuration);
-    const isCurrentEstimate = (): boolean =>
-      latestEstimateTokenRef.current === requestToken && processingLaunchKey(savedConfiguration) === launchKey;
+    const isCurrentRequest = (): boolean =>
+      latestEstimateTokenRef.current === estimateToken &&
+      latestPreviewTokenRef.current === previewToken &&
+      processingLaunchKey(savedConfiguration) === launchKey;
 
+    setPreviewBusy(true);
     setCostEstimateBusy(true);
     setLaunchModalError("");
     setLaunchModalNotice("");
+    setPreviewModalExpectedFingerprint(configuration.configuration_fingerprint);
     try {
       const accessToken = await currentAccessToken();
-      if (!isCurrentEstimate()) {
+      if (!isCurrentRequest()) {
         return;
       }
-      const nextEstimate = await fetchJobEstimate(API_BASE_URL, accessToken, configuration.job_payload_preview);
-      if (!isCurrentEstimate()) {
+      const [nextPreview, nextEstimate] = await Promise.all([
+        createPreview(API_BASE_URL, accessToken, configuration.upload_id),
+        fetchJobEstimate(API_BASE_URL, accessToken, configuration.job_payload_preview),
+      ]);
+      if (!isCurrentRequest()) {
         return;
       }
+      setPreviewSession(nextPreview);
       setCostEstimate(nextEstimate);
     } catch (caught) {
-      if (!isCurrentEstimate()) {
+      if (!isCurrentRequest()) {
         return;
       }
+      setPreviewSession(null);
       setCostEstimate(null);
-      setLaunchModalError(caught instanceof Error ? caught.message : "Unable to load the cost estimate.");
+      setLaunchModalError(
+        caught instanceof Error ? caught.message : "Unable to load the preview review gate.",
+      );
     } finally {
-      if (isCurrentEstimate()) {
+      if (isCurrentRequest()) {
+        setPreviewBusy(false);
         setCostEstimateBusy(false);
       }
     }
   }
 
-  async function handleOpenLaunchCostModal(): Promise<void> {
+  async function handleOpenPreviewReviewModal(): Promise<void> {
     if (!savedConfiguration) {
-      setFormError("Save a launch-ready configuration before reviewing launch costs.", "configuration");
+      setFormError("Save a launch-ready configuration before reviewing the preview gate.", "configuration");
       return;
     }
-    resetLaunchEstimateState({ closeModal: false });
-    setShowLaunchCostModal(true);
-    await loadLaunchEstimate(savedConfiguration);
+    resetPreviewReviewState({ closeModal: false });
+    setShowPreviewReviewModal(true);
+    await loadPreviewReviewGate(savedConfiguration);
+  }
+
+  async function handleApprovePreview(): Promise<void> {
+    if (!previewSession) {
+      return;
+    }
+    setPreviewReviewBusy(true);
+    setLaunchModalError("");
+    try {
+      const accessToken = await currentAccessToken();
+      const nextPreview = await reviewPreview(
+        API_BASE_URL,
+        accessToken,
+        previewSession.preview_id,
+        "approved",
+      );
+      setPreviewSession(nextPreview);
+      setLaunchModalNotice("Preview approved. Launch is ready when you are.");
+    } catch (caught) {
+      setLaunchModalError(caught instanceof Error ? caught.message : "Unable to approve the preview.");
+    } finally {
+      setPreviewReviewBusy(false);
+    }
+  }
+
+  async function handleRejectPreview(): Promise<void> {
+    if (!previewSession) {
+      return;
+    }
+    setPreviewReviewBusy(true);
+    setLaunchModalError("");
+    try {
+      const accessToken = await currentAccessToken();
+      const nextPreview = await reviewPreview(
+        API_BASE_URL,
+        accessToken,
+        previewSession.preview_id,
+        "rejected",
+      );
+      setPreviewSession(nextPreview);
+      setLaunchModalNotice("Preview rejected. Regenerate after saving an updated configuration.");
+    } catch (caught) {
+      setLaunchModalError(caught instanceof Error ? caught.message : "Unable to reject the preview.");
+    } finally {
+      setPreviewReviewBusy(false);
+    }
   }
 
   async function handleApproveLaunchOverage(): Promise<void> {
@@ -688,7 +792,7 @@ export function App() {
       );
       setLaunchModalNotice("Single-job overage approval recorded. Refreshing the estimate now.");
       if (savedConfiguration) {
-        await loadLaunchEstimate(savedConfiguration);
+        await loadPreviewReviewGate(savedConfiguration);
       }
       setLaunchModalNotice("Launch approval recorded. Start processing when you’re ready.");
     } catch (caught) {
@@ -698,9 +802,9 @@ export function App() {
     }
   }
 
-  async function handleStartProcessing(): Promise<void> {
-    if (!savedConfiguration || !uploadSession) {
-      setLaunchModalError("Save a launch-ready configuration before starting processing.");
+  async function handleLaunchFromPreview(): Promise<void> {
+    if (!savedConfiguration || !uploadSession || !previewSession) {
+      setLaunchModalError("Save a launch-ready configuration and load the preview before starting processing.");
       return;
     }
     const launchKey = processingLaunchKey(savedConfiguration);
@@ -713,7 +817,12 @@ export function App() {
     setLaunchModalError("");
     try {
       const accessToken = await currentAccessToken();
-      const createdJob = await startProcessing(API_BASE_URL, accessToken, savedConfiguration.job_payload_preview);
+      const createdJob = await launchApprovedPreview(
+        API_BASE_URL,
+        accessToken,
+        previewSession.preview_id,
+        savedConfiguration.configuration_fingerprint,
+      );
       if (activeUploadIdRef.current !== requestUploadId) {
         return;
       }
@@ -730,7 +839,7 @@ export function App() {
       setDeliveryError("");
       setDeliveryRetryAction(null);
       setLastStartedConfigurationKey(launchKey);
-      resetLaunchEstimateState();
+      resetPreviewReviewState();
     } catch (caught) {
       setLaunchModalError(caught instanceof Error ? caught.message : "Unable to start processing.");
     } finally {
@@ -1274,8 +1383,8 @@ export function App() {
           <Card title="Packet 4C Processing Flow">
             <div style={{ display: "grid", gap: "var(--spacing-md)" }}>
               <p style={{ color: "var(--color-text-muted)", marginTop: 0 }}>
-                Review launch cost from the saved Packet 4B configuration, start processing, monitor progress, and
-                review uncertainty callouts without leaving this flow.
+                Review the saved preview and live estimate from the Packet 4B configuration, then launch processing
+                from the approved preview without leaving this flow.
               </p>
               {savedConfiguration ? (
                 <div
@@ -1301,10 +1410,10 @@ export function App() {
                 <div style={{ display: "flex", gap: "var(--spacing-sm)", flexWrap: "wrap" }}>
                   <Button
                     disabled={jobBusy || !canStartSavedConfiguration}
-                    onClick={() => void handleOpenLaunchCostModal()}
+                    onClick={() => void handleOpenPreviewReviewModal()}
                     ref={launchReviewButtonRef}
                   >
-                    {jobBusy ? "Starting..." : "Review Cost & Start"}
+                    {jobBusy ? "Starting..." : "Review Preview & Start"}
                   </Button>
                 </div>
               ) : (
@@ -1360,10 +1469,10 @@ export function App() {
                     ) : (
                       <Button
                         disabled={jobBusy || !canStartSavedConfiguration}
-                        onClick={() => void handleOpenLaunchCostModal()}
+                        onClick={() => void handleOpenPreviewReviewModal()}
                         ref={launchReviewButtonRef}
                       >
-                        {jobBusy ? "Starting..." : "Review Cost & Start Again"}
+                        {jobBusy ? "Starting..." : "Review Preview & Start Again"}
                       </Button>
                     )}
                   </div>
@@ -1515,22 +1624,28 @@ export function App() {
         ) : null}
       </div>
 
-      <LaunchCostEstimateModal
+      <PreviewReviewModal
         approving={overageApprovalBusy}
         error={launchModalError}
         estimate={costEstimate}
-        loading={costEstimateBusy}
+        estimateLoading={costEstimateBusy}
+        invalidated={previewReviewInvalidated}
         notice={launchModalNotice}
         onApproveOverage={() => void handleApproveLaunchOverage()}
-        onClose={() => resetLaunchEstimateState()}
-        onRetryEstimate={() => {
+        onApprovePreview={() => void handleApprovePreview()}
+        onClose={() => resetPreviewReviewState()}
+        onLaunch={() => void handleLaunchFromPreview()}
+        onRefresh={() => {
           if (savedConfiguration) {
-            void loadLaunchEstimate(savedConfiguration);
+            void loadPreviewReviewGate(savedConfiguration);
           }
         }}
-        onStartProcessing={() => void handleStartProcessing()}
-        open={showLaunchCostModal}
-        starting={jobBusy}
+        onRejectPreview={() => void handleRejectPreview()}
+        open={showPreviewReviewModal}
+        preview={previewSession}
+        previewLoading={previewBusy}
+        reviewing={previewReviewBusy}
+        launching={jobBusy}
       />
       <Modal
         open={showKeyboardShortcutsModal}

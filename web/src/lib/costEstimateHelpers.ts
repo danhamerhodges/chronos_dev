@@ -17,6 +17,7 @@ export type UsageSnapshotResponse = {
 };
 
 export type JobCostEstimateResponse = {
+  configuration_fingerprint: string;
   estimated_usage_minutes: number;
   operational_cost_breakdown_usd: {
     gpu_time: number;

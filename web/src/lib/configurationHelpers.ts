@@ -76,6 +76,7 @@ export type UploadConfigurationResponse = {
   relative_processing_time_band: string;
   job_payload_preview: JobPayloadPreview;
   configured_at: string;
+  configuration_fingerprint: string;
 };
 
 type ProblemPayload = {
