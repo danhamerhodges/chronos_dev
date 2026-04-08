@@ -1106,7 +1106,18 @@ class _SupabaseUserProfileRepository(_SupabaseRepositoryBase):
     ) -> dict[str, Any]:
         if access_token:
             headers = self._client.user_scoped_headers(access_token)
-            row = self._client.rest_upsert(
+            existing = self._client.rest_select(
+                "user_profiles",
+                params={
+                    "select": "*",
+                    "external_user_id": f"eq.{user_id}",
+                    "limit": "1",
+                },
+                headers=headers,
+            )
+            if existing:
+                return self._row_to_profile(existing[0])
+            row = self._client.rest_insert(
                 "user_profiles",
                 payload={
                     "id": user_id,
@@ -1120,7 +1131,6 @@ class _SupabaseUserProfileRepository(_SupabaseRepositoryBase):
                     "preferences": {},
                     "updated_at": _utc_now(),
                 },
-                on_conflict="id",
                 headers=headers,
             )[0]
             return self._row_to_profile(row)
