@@ -189,6 +189,8 @@ If an ID/title conflicts with the above, this matrix must be updated immediately
 
 **Note:** FR-006 now explicitly depends on ENG-014 (Preview Generation implementation) to clarify the implementation relationship between the functional requirement (FR-006) and the technical implementation (ENG-014).
 
+**Closeout Note:** Global `FR-006` is now complete via Packet 5A plus Packet 5B hosted closeout. Packet 5B intentionally changed public `/v1/jobs` behavior for legacy bare launch payloads: clients must refresh the saved configuration, approve the current preview, and relaunch with `launch_context.source = approved_preview`.
+
 ---
 
 ## Phase 6: Production Readiness & Launch (10 requirements, 17%)
@@ -292,6 +294,7 @@ Source evidence:
 - `curl https://chronos-phase1-app-19961431854.us-central1.run.app/v1/version`
 - Packet 4A live-smoke evidence (`memory-live-smoke.json`, `supabase-live-smoke.json`, `staging-latency.json`) summarized in `docs/specs/chronosrefine_phase4_closeout_note.md`
 - Packet 5A hosted-closeout evidence summarized in `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md`
+- Packet 5B hosted-closeout evidence summarized in `docs/specs/chronosrefine_phase5_packet5b_closeout_note.md`
 
 | Phase | Requirements | Status | Notes |
 |---|---:|---|---|
@@ -299,7 +302,7 @@ Source evidence:
 | Phase 2: API Foundation & Data Layer | 6/6 | ✅ Complete (merged via PR #1) | `main` includes merge commit `709687a`; this is the canonical baseline for later phases |
 | Phase 3: Core Processing Pipeline & AI Integration | 11/12 | ✅ Complete for Phase 4 kickoff | PR #2 merged to `main`; `SEC-007` remains deferred to its canonical `GA+3 months` milestone |
 | Phase 4: User-Facing Features & Application Logic | 14/14 on `main` | ✅ Complete (Packet 4H merged on `main`) | Packets 4A through 4H are merged on `main`; `61d51ff3ff289fc881674bd05afe37a8ac94cba0` closes the remaining Phase 4 admin cost-ops slice of `NFR-003` without pulling Phase 5 `FR-006` preview-review UX forward |
-| Phase 5: Advanced Features & UX Refinement | 0/11 full requirements complete | 🟡 In Progress (Packet 5A hosted-complete) | Pricing and GDPR kickoff records now live in `docs/specs/chronosrefine_phase5_pricing_clearance.md` and `docs/specs/chronosrefine_phase5_gdpr_legal_clearance.md`. Packet 5A now has hosted-closeout evidence in `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md`: preview-launch and first-party UI are gated, `chronos_dev` migration state is validated through `0024`, the shared staging secret unblock is recorded without weakening secret handling, hosted smoke passed, publish-failure retry re-used the same bound `job_id`, generic `/v1/jobs` remained unchanged, and hosted preview latency remained under `<6s p95`. Packet 5A remains an `FR-006` slice only, generic `/v1/jobs` preview-approval enforcement remains deferred, global `FR-006` closeout is not yet claimed, canonical `NFR-008` ownership remains in Phase 6, and Packet 5B kickoff is recorded in `docs/specs/chronosrefine_phase5_packet5b_kickoff.md` for the remaining global closeout gap. |
+| Phase 5: Advanced Features & UX Refinement | 1/11 full requirements complete | 🟡 In Progress (`FR-006` globally complete via Packet 5A + 5B) | Pricing and GDPR kickoff records remain live in `docs/specs/chronosrefine_phase5_pricing_clearance.md` and `docs/specs/chronosrefine_phase5_gdpr_legal_clearance.md`. Packet 5A hosted-closeout evidence in `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md` preserves the preview-launch and first-party UI slice, including `chronos_dev` migration state through `0024`. Packet 5B hosted-closeout evidence in `docs/specs/chronosrefine_phase5_packet5b_closeout_note.md` closes global `FR-006`: public `/v1/jobs` now requires approved-preview `launch_context`, legacy bare payloads return `409 /problems/preview_approval_required`, refreshed approved payloads succeed with stable repeated-launch `job_id` reuse, stale anti-replay and cross-user denial remain enforced, publish-failure retry clears `launch_pending`, runtime signal evidence is recorded, and hosted preview latency remained under `<6s p95`. Canonical `NFR-008` ownership remains in Phase 6, so Phase 5 is still in progress even though `FR-006` is now complete. |
 | Phase 6: Production Readiness & Launch | 0/10 | ⏸️ Not Started | Dependent on Phase 5 completion |
 
 ### Phase 1 Progress: Foundation & Core Infrastructure
@@ -387,8 +390,9 @@ Source evidence:
 | Packet 4G merge evidence | Skip-link/main-landmark shell updates, Help-documented safe shortcuts for upload/save/launch/export actions, shared focus and contrast primitives, and rendered DS-002 through DS-005 suites pass; `docs/specs/chronosrefine_phase4_closeout_note.md` records the automated evidence plus the completed Chrome, Firefox, Safari/WebKit, keyboard-only, and screen-reader matrix; merged to `main` in `738e3a8ea0c2424f4425e7a0a0ac55931b6c2c08` |
 | Packet 4H merge evidence | `/v1/ops/costs` aggregates per-job cost/reconciliation data into a gross-margin + anomaly snapshot, `/v1/metrics` emits cost/margin/anomaly signals immediately after terminal reconciliation, Terraform adds cost dashboard panels and alert policies, tier-aware pricing is used for gross-margin reporting, and Packet 4H merged to `main` in `61d51ff3ff289fc881674bd05afe37a8ac94cba0` |
 | Packet 5A hosted-closeout evidence | `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md` records local validation, hosted `chronos_dev` migration evidence through `0024`, secret-level IAM unblock for `STRIPE_SECRET_KEY`, hosted smoke for pending/approval/idempotent launch/stale anti-replay/cross-user denial, publish-failure retry with stable `job_id` reuse, generic `/v1/jobs` non-regression, and hosted preview latency `p95=1.8466s` |
-| Packet 5B kickoff note | `docs/specs/chronosrefine_phase5_packet5b_kickoff.md` records the next planned `FR-006` packet for global preview-approval closeout across remaining launch surfaces, starting with generic `/v1/jobs` |
-| Context Note | `docs/specs/chronosrefine_phase4_closeout_note.md` records Packet 4A and Packet 4G historical completion evidence, and `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md` records the first hosted-close Packet 5A `FR-006` slice. Phase 4 remains complete on `main`; Phase 5 is now in progress without claiming global `FR-006` complete or advancing the full-requirement count yet. |
+| Packet 5B kickoff note | `docs/specs/chronosrefine_phase5_packet5b_kickoff.md` records the global `FR-006` closeout scope that was executed against generic `/v1/jobs` without reopening Packet 5A first-party UI scope |
+| Packet 5B hosted-closeout evidence | `docs/specs/chronosrefine_phase5_packet5b_closeout_note.md` records the global `FR-006` hosted proof: bare `/v1/jobs` rejection without approved-preview provenance, refreshed approved payload success, repeated generic launch same-`job_id` reuse, stale anti-replay, cross-user denial, publish-failure retry recovery, runtime signal evidence, and hosted preview latency `p95=0.9314s` |
+| Context Note | `docs/specs/chronosrefine_phase4_closeout_note.md` records Packet 4A and Packet 4G historical completion evidence, `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md` records the first hosted-close Packet 5A `FR-006` slice, and `docs/specs/chronosrefine_phase5_packet5b_closeout_note.md` records the packet that closes global `FR-006` and advances Phase 5 to `1/11` complete requirements while the rest of Phase 5 remains in progress. |
 
 ## Progress Tracking Template
 

@@ -1,12 +1,13 @@
 # ChronosRefine Phase 5 Packet 5B Kickoff
 
-Status: Kickoff scope note for Packet 5B. The decision-complete implementation contract now lives in `docs/specs/chronosrefine_phase5_packet5b_execution_packet.md` on the candidate branch and does not change canonical source-of-truth ordering in `AGENTS.md`.
+Status: Hosted-closeout scope note for Packet 5B. The decision-complete implementation contract lives in `docs/specs/chronosrefine_phase5_packet5b_execution_packet.md`, and hosted-closeout evidence is recorded in `docs/specs/chronosrefine_phase5_packet5b_closeout_note.md`.
 
 **Packet:** Packet 5B
 **Requirement Focus:** `FR-006`
-**Status:** Execution packet prepared on candidate branch
+**Status:** Hosted-complete
 **Predecessor Packet:** `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md`
 **Execution Packet:** `docs/specs/chronosrefine_phase5_packet5b_execution_packet.md`
+**Closeout Note:** `docs/specs/chronosrefine_phase5_packet5b_closeout_note.md`
 
 ## 1) Objective
 
@@ -23,7 +24,7 @@ Packet 5B should turn Packet 5A’s hosted-complete first-party preview-review s
   - preview-launch idempotency and `launch_pending` recovery
   - stale anti-replay and cross-user denial
   - first-party UI gating plus generic `/v1/jobs` non-regression
-- Global `FR-006` remains open because generic `/v1/jobs` preview-approval enforcement is still deferred.
+- Global `FR-006` is now complete because Packet 5B hosted-closeout extended preview-approval enforcement to generic public `/v1/jobs`.
 
 ## 3) Canonical Requirement Mapping
 
@@ -39,7 +40,7 @@ Packet 5A closed the first-party preview-review and preview-launch route slice. 
 
 ## 4) Packet 5B Scope
 
-Packet 5B is the next planned `FR-006` slice and should cover:
+Packet 5B is the global `FR-006` closeout slice and covers:
 
 - generic `POST /v1/jobs` preview-approval enforcement for launch requests derived from the saved upload configuration flow
 - deterministic, documented problem details for API clients that attempt full processing launch without a current approved preview
@@ -71,7 +72,7 @@ If a remaining public launch surface other than generic `POST /v1/jobs` is disco
 
 ## 7) Acceptance Contract
 
-Packet 5B should not be counted complete until all of the following are true:
+Packet 5B hosted closeout required all of the following:
 
 1. Generic `POST /v1/jobs` rejects launch attempts that require preview approval when no current approved preview exists.
 2. Generic launch accepts the request once the current preview is approved and fingerprint-aligned.
@@ -109,8 +110,8 @@ Validation should continue to include:
 
 ## 10) Packet Outcome
 
-Packet 5B is the next planned product packet for `FR-006`.
+Packet 5B is the product packet that closes global `FR-006`.
 
 - Packet 5A status: `hosted-complete`
-- Packet 5B status: `candidate implementation in progress`
-- Global `FR-006` status: `open until Packet 5B hosted closeout`
+- Packet 5B status: `hosted-complete`
+- Global `FR-006` status: `complete`

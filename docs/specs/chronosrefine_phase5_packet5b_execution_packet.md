@@ -1,12 +1,13 @@
 # ChronosRefine Phase 5 Packet 5B Execution Packet
 
-Status: Candidate execution packet for `FR-006` global closeout. This file records the decision-complete Packet 5B implementation contract on the candidate branch and does not change canonical source-of-truth ordering in `AGENTS.md`.
+Status: Hosted-complete execution packet for `FR-006` global closeout. This file records the decision-complete Packet 5B implementation contract; hosted-closeout evidence now lives in `docs/specs/chronosrefine_phase5_packet5b_closeout_note.md`.
 
 **Packet:** Packet 5B  
 **Requirement Focus:** `FR-006`  
-**Status:** In implementation on candidate branch  
+**Status:** Hosted-complete
 **Baseline:** `origin/main` after PR #25 (`3782373a64f3cb3ec2ab2d43c7246d7d124e602a`)  
 **Predecessor Packet:** `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md`
+**Closeout Note:** `docs/specs/chronosrefine_phase5_packet5b_closeout_note.md`
 
 ## 1) Decision Summary
 
@@ -114,7 +115,7 @@ Before closing Packet 5B, confirm the current upload/preview indexes are suffici
 - latest saved configuration lookup
 - derived preview lookup by owner/upload/configured snapshot
 
-Current candidate finding: existing indexes appear sufficient. If implementation exposes a concrete lookup gap, allow one narrow additive index-only migration and document it in closeout evidence.
+Hosted closeout finding: existing indexes proved sufficient. No additive index-only migration was required.
 
 ## 4) Non-Regression Boundary
 
@@ -171,7 +172,7 @@ Do not mark global `FR-006` complete and do not advance the Phase 5 full-require
 - hosted `chronos_dev` proof passes
 - Packet 5B closeout evidence is recorded
 
-At that point:
+Hosted closeout result:
 
 - Packet 5B becomes the packet that closes global `FR-006`
 - Phase 5 completed-requirement count advances to `1/11`
