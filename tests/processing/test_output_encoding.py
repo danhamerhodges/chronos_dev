@@ -1,4 +1,4 @@
-"""Maps to: ENG-015"""
+"""Maps to: ENG-015, NFR-006"""
 
 from app.services.output_delivery import resolve_output_encoding
 

@@ -218,6 +218,17 @@ class UserProfileUpdateRequest(StrictModel):
     preferences: dict[str, Any] = Field(default_factory=dict)
 
 
+class EffectivePricingResponse(StrictModel):
+    pricebook_version: str
+    subscription_price_id: str
+    subscription_price_usd: float = 0.0
+    included_minutes_monthly: int = 0
+    overage_enabled: bool = False
+    overage_price_id: str = ""
+    overage_rate_usd_per_minute: float = 0.0
+    entitlement_source: str = "commercial_pricebook"
+
+
 class UsageResponse(StrictModel):
     user_id: str
     plan_tier: str
@@ -234,6 +245,7 @@ class UsageResponse(StrictModel):
     overage_price_reference: str
     reconciliation_source: str
     reconciliation_status: str
+    effective_pricing: EffectivePricingResponse | None = None
 
 
 class OverageApprovalRequest(StrictModel):
@@ -279,6 +291,7 @@ class CostEstimateSummaryResponse(StrictModel):
     billing_breakdown_usd: BillingBreakdownResponse = Field(default_factory=BillingBreakdownResponse)
     confidence_interval_usd: ConfidenceIntervalResponse = Field(default_factory=ConfidenceIntervalResponse)
     usage_snapshot: UsageResponse
+    effective_pricing: EffectivePricingResponse | None = None
     launch_blocker: Literal["none", "overage_approval_required"] = "none"
     estimator_version: str
     generated_at: str

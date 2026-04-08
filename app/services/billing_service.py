@@ -5,6 +5,13 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from app.billing.pricebook import (
+    CommercialPricebookConfigurationError,
+    CommercialPricebookEntry,
+    cached_commercial_pricebook,
+    resolve_pricebook_entry,
+)
+from app.billing.stripe_client import BillingPricingMetadata
 from app.config import settings
 from app.db.phase2_store import UsageRepository
 
@@ -50,12 +57,90 @@ class BillingSnapshot:
         return self.used_minutes >= self.effective_limit_minutes or projected_usage > self.effective_limit_minutes
 
 
+@dataclass(frozen=True)
+class EffectivePricingSnapshot:
+    pricebook_version: str
+    subscription_price_id: str
+    subscription_price_usd: float
+    included_minutes_monthly: int
+    overage_enabled: bool
+    overage_price_id: str
+    overage_rate_usd_per_minute: float
+    entitlement_source: str = "commercial_pricebook"
+
+
+class CommercialPricingUnavailableError(RuntimeError):
+    """Raised when pricebook-backed pricing or entitlements cannot be resolved."""
+
+
+def _recurring_price_ids_by_tier() -> dict[str, str]:
+    return {
+        "hobbyist": settings.stripe_hobbyist_price_id.strip(),
+        "pro": settings.stripe_pro_price_id.strip(),
+        "museum": settings.stripe_museum_price_id.strip(),
+    }
+
+
+def _commercial_pricebook_entry(plan_tier: str) -> tuple[str, CommercialPricebookEntry]:
+    try:
+        pricebook = cached_commercial_pricebook(
+            settings.commercial_pricebook_json,
+            settings.stripe_hobbyist_price_id,
+            settings.stripe_pro_price_id,
+            settings.stripe_museum_price_id,
+        )
+        entry = resolve_pricebook_entry(
+            pricebook=pricebook,
+            recurring_price_ids_by_tier=_recurring_price_ids_by_tier(),
+            plan_tier=plan_tier,
+        )
+    except CommercialPricebookConfigurationError as exc:
+        raise CommercialPricingUnavailableError(
+            "Billing pricing is temporarily unavailable because the commercial pricebook configuration is invalid."
+        ) from exc
+    return pricebook.version, entry
+
+
 def monthly_limit_for_tier(plan_tier: str) -> int:
-    if plan_tier.lower() == "museum":
-        return settings.museum_monthly_limit_minutes
-    if plan_tier.lower() == "pro":
-        return settings.pro_monthly_limit_minutes
-    return settings.hobbyist_monthly_limit_minutes
+    _, entry = _commercial_pricebook_entry(plan_tier)
+    return entry.included_minutes_monthly
+
+
+def allowed_fidelity_tiers_for_plan(plan_tier: str) -> tuple[str, ...]:
+    _, entry = _commercial_pricebook_entry(plan_tier)
+    return entry.entitlements.fidelity_tiers
+
+
+def resolution_cap_for_plan(plan_tier: str) -> str:
+    _, entry = _commercial_pricebook_entry(plan_tier)
+    return entry.entitlements.resolution_cap
+
+
+def max_retention_days_for_plan(plan_tier: str) -> int:
+    _, entry = _commercial_pricebook_entry(plan_tier)
+    return entry.entitlements.export_retention_days
+
+
+def effective_pricing_for_plan(
+    plan_tier: str,
+    *,
+    pricing_metadata: BillingPricingMetadata | None = None,
+) -> EffectivePricingSnapshot:
+    version, entry = _commercial_pricebook_entry(plan_tier)
+    subscription_price_usd = (
+        pricing_metadata.subscription_price_usd_for_tier(plan_tier)
+        if pricing_metadata is not None
+        else 0.0
+    )
+    return EffectivePricingSnapshot(
+        pricebook_version=version,
+        subscription_price_id=entry.subscription_price_id,
+        subscription_price_usd=subscription_price_usd,
+        included_minutes_monthly=entry.included_minutes_monthly,
+        overage_enabled=entry.overage.enabled,
+        overage_price_id=entry.overage.price_id,
+        overage_rate_usd_per_minute=entry.overage.rate_usd_per_minute,
+    )
 
 
 def billable_minutes_for_duration(duration_seconds: int, mode: str) -> int:

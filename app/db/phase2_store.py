@@ -331,7 +331,13 @@ class _MemoryUsageRepository:
                 "overage_approval_scope": None,
                 "approved_for_minutes": 0,
             }
-            _STORE.usage[user_id] = usage
+        else:
+            usage = {
+                **usage,
+                "plan_tier": plan_tier,
+                "monthly_limit_minutes": monthly_limit_minutes,
+            }
+        _STORE.usage[user_id] = usage
         return dict(usage)
 
     def update(self, user_id: str, payload: dict[str, Any], *, access_token: str | None = None) -> dict[str, Any]:
@@ -1234,7 +1240,26 @@ class _SupabaseUsageRepository(_SupabaseRepositoryBase):
                 headers=headers,
             )
             if rows:
-                return self._row_to_usage(rows[0])
+                row = rows[0]
+                if (
+                    row.get("plan_tier") != plan_tier
+                    or int(row.get("monthly_limit_minutes", 0) or 0) != monthly_limit_minutes
+                ):
+                    row = self._client.rest_update(
+                        "user_usage_monthly",
+                        payload={
+                            "plan_tier": plan_tier,
+                            "monthly_limit_minutes": monthly_limit_minutes,
+                            "updated_at": _utc_now(),
+                        },
+                        params={
+                            "external_user_id": f"eq.{user_id}",
+                            "billing_month": f"eq.{month}",
+                            "select": "*",
+                        },
+                        headers=headers,
+                    )[0]
+                return self._row_to_usage(row)
             row = self._client.rest_insert(
                 "user_usage_monthly",
                 payload={

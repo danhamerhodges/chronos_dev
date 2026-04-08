@@ -14,11 +14,15 @@ from app.api.problem_details import ProblemException
 from app.config import settings
 from app.db.phase2_store import JobDeletionProofRepository, JobExportPackageRepository, JobRepository
 from app.models.status import JobStatus
+from app.services.billing_service import (
+    CommercialPricingUnavailableError,
+    max_retention_days_for_plan as configured_retention_days_for_plan,
+    resolution_cap_for_plan,
+)
 from app.services.uncertainty_callouts import UncertaintyCalloutService
 
 _EXPORT_VARIANTS = ("av1", "h264")
 _SUCCESSFUL_EXPORTABLE_STATUSES = {JobStatus.COMPLETED.value, JobStatus.PARTIAL.value}
-_DEFAULT_RETENTION_DAYS = 7
 _PDF_URL_TTL_HOURS = 1
 
 
@@ -51,7 +55,7 @@ def _sign_value(value: str) -> str:
 
 
 def max_retention_days_for_plan(plan_tier: str) -> int:
-    return 90 if str(plan_tier).lower() == "museum" else _DEFAULT_RETENTION_DAYS
+    return configured_retention_days_for_plan(plan_tier)
 
 
 def resolve_output_encoding(*, plan_tier: str, variant: str) -> dict[str, Any]:
@@ -66,11 +70,9 @@ def resolve_output_encoding(*, plan_tier: str, variant: str) -> dict[str, Any]:
         "pro": 16,
         "museum": 32,
     }[normalized_plan]
-    resolution_target = {
-        "hobbyist": "1080p",
-        "pro": "4K",
-        "museum": "native_scan",
-    }[normalized_plan]
+    resolution_target = resolution_cap_for_plan(plan_tier)
+    if resolution_target == "4k":
+        resolution_target = "4K"
     codec = "av1" if variant == "av1" else "h264"
     return {
         "variant": variant,
@@ -243,29 +245,37 @@ class OutputDeliveryService:
                 ],
             )
         normalized_plan = str(plan_tier).lower()
-        if normalized_plan != "museum" and retention_days > _DEFAULT_RETENTION_DAYS:
+        try:
+            allowed_retention_days = max_retention_days_for_plan(plan_tier)
+        except CommercialPricingUnavailableError as exc:
+            raise ProblemException(
+                title="Billing Pricing Unavailable",
+                detail="Commercial pricing configuration is temporarily unavailable. Retry once pricing metadata is available.",
+                status_code=503,
+            ) from exc
+        if normalized_plan != "museum" and retention_days > allowed_retention_days:
             raise ProblemException(
                 title="Plan Upgrade Required",
-                detail="Extended export retention beyond 7 days requires Museum tier.",
+                detail=f"Extended export retention beyond {allowed_retention_days} days requires a higher plan.",
                 status_code=403,
                 errors=[
                     {
                         "field": "retention_days",
-                        "message": "Extended export retention beyond 7 days requires Museum tier.",
-                        "rule_id": "FR-005",
+                        "message": f"Extended export retention beyond {allowed_retention_days} days requires a higher plan.",
+                        "rule_id": "NFR-006",
                     }
                 ],
             )
-        if normalized_plan == "museum" and retention_days > 90:
+        if normalized_plan == "museum" and retention_days > allowed_retention_days:
             raise ProblemException(
                 title="Invalid Retention Window",
-                detail="Museum retention requests must stay within 1 to 90 days.",
+                detail=f"Museum retention requests must stay within 1 to {allowed_retention_days} days.",
                 status_code=400,
                 errors=[
                     {
                         "field": "retention_days",
-                        "message": "Museum retention requests must stay within 1 to 90 days.",
-                        "rule_id": "FR-005",
+                        "message": f"Museum retention requests must stay within 1 to {allowed_retention_days} days.",
+                        "rule_id": "NFR-006",
                     }
                 ],
             )

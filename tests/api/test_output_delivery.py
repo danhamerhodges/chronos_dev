@@ -2,13 +2,16 @@
 Maps to:
 - FR-005
 - ENG-015
+- NFR-006
 """
 
 from __future__ import annotations
 
+import json
 import pytest
 from fastapi.testclient import TestClient
 
+from app.billing.pricebook import parse_commercial_pricebook
 from app.db.phase2_store import JobExportPackageRepository, reset_phase2_store
 from app.main import app
 from app.services.job_runtime import configure_segment_failures
@@ -191,3 +194,63 @@ def test_non_museum_retention_above_seven_days_returns_403() -> None:
 
     assert response.status_code == 403
     assert response.json()["title"] == "Plan Upgrade Required"
+
+
+def test_pro_retention_window_uses_pricebook_entitlement(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.billing_service.cached_commercial_pricebook",
+        lambda *_args: parse_commercial_pricebook(
+            json.dumps(
+                {
+                    "version": "retention-override",
+                    "entries": {
+                        "price_hobbyist": {
+                            "plan_tier": "hobbyist",
+                            "included_minutes_monthly": 30,
+                            "overage": {"enabled": False, "price_id": "", "rate_usd_per_minute": 0.0},
+                            "entitlements": {
+                                "preview_review": True,
+                                "fidelity_tiers": ["Enhance"],
+                                "resolution_cap": "1080p",
+                                "parallel_jobs": 1,
+                                "export_retention_days": 7,
+                            },
+                        },
+                        "price_pro": {
+                            "plan_tier": "pro",
+                            "included_minutes_monthly": 60,
+                            "overage": {"enabled": True, "price_id": "price_pro_overage", "rate_usd_per_minute": 0.5},
+                            "entitlements": {
+                                "preview_review": True,
+                                "fidelity_tiers": ["Enhance", "Restore", "Conserve"],
+                                "resolution_cap": "4k",
+                                "parallel_jobs": 5,
+                                "export_retention_days": 14,
+                            },
+                        },
+                        "price_museum": {
+                            "plan_tier": "museum",
+                            "included_minutes_monthly": 500,
+                            "overage": {"enabled": True, "price_id": "price_museum_overage", "rate_usd_per_minute": 0.4},
+                            "entitlements": {
+                                "preview_review": True,
+                                "fidelity_tiers": ["Enhance", "Restore", "Conserve"],
+                                "resolution_cap": "native_scan",
+                                "parallel_jobs": 20,
+                                "export_retention_days": 90,
+                            },
+                        },
+                    },
+                }
+            )
+        ),
+    )
+    job_id = _complete_job(user_id="pro-retention-override", tier="pro")
+
+    response = client.get(
+        f"/v1/jobs/{job_id}/export",
+        params={"retention_days": 14},
+        headers=fake_auth_header("pro-retention-override", tier="pro"),
+    )
+
+    assert response.status_code == 200

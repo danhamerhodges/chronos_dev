@@ -1049,6 +1049,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/UsageResponse"
+        "503":
+          description: Billing pricing metadata or commercial pricebook configuration is temporarily unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
   /v1/users/me/approve-overage:
     post:
       tags: [users]
@@ -1068,6 +1074,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OverageApprovalResponse"
+        "503":
+          description: Billing pricing metadata or commercial pricebook configuration is temporarily unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
   /v1/orgs/{org_id}/settings/logs:
     patch:
       tags: [security]
@@ -1565,6 +1577,36 @@ components:
         preferences:
           type: object
           additionalProperties: true
+    EffectivePricingResponse:
+      type: object
+      required:
+        [
+          pricebook_version,
+          subscription_price_id,
+          subscription_price_usd,
+          included_minutes_monthly,
+          overage_enabled,
+          overage_price_id,
+          overage_rate_usd_per_minute,
+          entitlement_source,
+        ]
+      properties:
+        pricebook_version:
+          type: string
+        subscription_price_id:
+          type: string
+        subscription_price_usd:
+          type: number
+        included_minutes_monthly:
+          type: integer
+        overage_enabled:
+          type: boolean
+        overage_price_id:
+          type: string
+        overage_rate_usd_per_minute:
+          type: number
+        entitlement_source:
+          type: string
     UsageResponse:
       type: object
       required:
@@ -1603,6 +1645,10 @@ components:
           type: string
         reconciliation_status:
           type: string
+        effective_pricing:
+          allOf:
+            - $ref: "#/components/schemas/EffectivePricingResponse"
+          nullable: true
     OverageApprovalRequest:
       type: object
       required: [approval_scope]
@@ -1677,6 +1723,10 @@ components:
           $ref: "#/components/schemas/ConfidenceIntervalResponse"
         usage_snapshot:
           $ref: "#/components/schemas/UsageResponse"
+        effective_pricing:
+          allOf:
+            - $ref: "#/components/schemas/EffectivePricingResponse"
+          nullable: true
         launch_blocker:
           type: string
           enum: [none, overage_approval_required]

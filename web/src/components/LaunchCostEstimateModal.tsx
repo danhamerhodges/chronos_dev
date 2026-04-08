@@ -36,6 +36,7 @@ export function LaunchCostEstimateModal({
   onStartProcessing,
 }: LaunchCostEstimateModalProps) {
   const launchBlocked = estimate?.launch_blocker === "overage_approval_required";
+  const effectivePricing = estimate?.effective_pricing ?? estimate?.usage_snapshot.effective_pricing ?? null;
 
   return (
     <Modal open={open} onClose={onClose} labelledBy="launch-cost-title" describedBy="launch-cost-description">
@@ -86,6 +87,20 @@ export function LaunchCostEstimateModal({
               <div>Remaining included minutes: {estimate.usage_snapshot.remaining_minutes}</div>
               <div>Approved overage remaining: {estimate.usage_snapshot.remaining_approved_overage_minutes}</div>
             </section>
+
+            {effectivePricing ? (
+              <section aria-labelledby="estimate-effective-pricing-heading" style={{ display: "grid", gap: "var(--spacing-xs)" }}>
+                <strong id="estimate-effective-pricing-heading">Effective configured pricing</strong>
+                <div>Pricebook version: {effectivePricing.pricebook_version}</div>
+                <div>
+                  Subscription price: {effectivePricing.subscription_price_id} ({currency(effectivePricing.subscription_price_usd)}/month)
+                </div>
+                <div>Included minutes: {effectivePricing.included_minutes_monthly} per month</div>
+                <div>
+                  Overage: {effectivePricing.overage_enabled ? `${effectivePricing.overage_price_id} at ${currency(effectivePricing.overage_rate_usd_per_minute)}/min` : "disabled"}
+                </div>
+              </section>
+            ) : null}
 
             {launchBlocked ? <div className="chronos-warning-banner">This launch needs single-job overage approval before processing can start.</div> : null}
           </>

@@ -68,6 +68,7 @@ export function PreviewReviewModal({
   const reviewPending = preview ? preview.review_status !== "approved" : false;
   const reviewLocked = preview?.launch_status === "launched";
   const overageApprovalRequired = estimate?.launch_blocker === "overage_approval_required";
+  const effectivePricing = estimate?.effective_pricing ?? estimate?.usage_snapshot.effective_pricing ?? null;
   const canReview = Boolean(preview) && !loading && !reviewing && !launching && !previewStale && !reviewLocked;
   const canStart =
     Boolean(preview) &&
@@ -204,6 +205,20 @@ export function PreviewReviewModal({
               <div>Approved overage remaining: {estimate.usage_snapshot.remaining_approved_overage_minutes}</div>
               {preview ? <div>Estimated preview-backed launch time: {preview.estimated_processing_time_seconds}s</div> : null}
             </section>
+
+            {effectivePricing ? (
+              <section aria-labelledby="estimate-effective-pricing-heading" style={{ display: "grid", gap: "var(--spacing-xs)" }}>
+                <strong id="estimate-effective-pricing-heading">Effective configured pricing</strong>
+                <div>Pricebook version: {effectivePricing.pricebook_version}</div>
+                <div>
+                  Subscription price: {effectivePricing.subscription_price_id} ({currency(effectivePricing.subscription_price_usd)}/month)
+                </div>
+                <div>Included minutes: {effectivePricing.included_minutes_monthly} per month</div>
+                <div>
+                  Overage: {effectivePricing.overage_enabled ? `${effectivePricing.overage_price_id} at ${currency(effectivePricing.overage_rate_usd_per_minute)}/min` : "disabled"}
+                </div>
+              </section>
+            ) : null}
           </>
         ) : null}
 

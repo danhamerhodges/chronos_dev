@@ -41,6 +41,26 @@ function buildEstimate() {
       overage_price_reference: "price_overage",
       reconciliation_source: "user_usage_monthly",
       reconciliation_status: "estimate_pending",
+      effective_pricing: {
+        pricebook_version: "test-pricebook-v1",
+        subscription_price_id: "price_subscription",
+        subscription_price_usd: 29,
+        included_minutes_monthly: 60,
+        overage_enabled: true,
+        overage_price_id: "price_overage",
+        overage_rate_usd_per_minute: 0.75,
+        entitlement_source: "commercial_pricebook",
+      },
+    },
+    effective_pricing: {
+      pricebook_version: "test-pricebook-v1",
+      subscription_price_id: "price_subscription",
+      subscription_price_usd: 29,
+      included_minutes_monthly: 60,
+      overage_enabled: true,
+      overage_price_id: "price_overage",
+      overage_rate_usd_per_minute: 0.75,
+      entitlement_source: "commercial_pricebook",
     },
     launch_blocker: "none" as const,
     estimator_version: "packet4e-v1",
@@ -103,6 +123,8 @@ describe("PreviewReviewModal", () => {
     );
 
     expect(screen.queryByRole("button", { name: "Start Processing" })).not.toBeInTheDocument();
+    expect(screen.getByText("Effective configured pricing")).toBeInTheDocument();
+    expect(screen.getByText("Included minutes: 60 per month")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Select preview keyframe 4" }));
     expect(screen.getByAltText("Selected preview frame 4")).toBeInTheDocument();
   });

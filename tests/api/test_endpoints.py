@@ -122,6 +122,7 @@ def test_tracked_openapi_spec_covers_phase2_subset() -> None:
     assert "enum: [ready]" in openapi_spec
     assert "PreviewReviewStatus:" in openapi_spec
     assert "PreviewLaunchStatus:" in openapi_spec
+    assert "EffectivePricingResponse:" in openapi_spec
     assert "enum: [ready, failed]" not in openapi_spec
     assert "Preview storage/signing is temporarily unavailable" in openapi_spec
     assert "/problems/preview_approval_required" in openapi_spec
@@ -132,6 +133,8 @@ def test_tracked_openapi_spec_covers_phase2_subset() -> None:
     assert "configuration_fingerprint:" in openapi_spec
     assert "launch_context:" in openapi_spec
     assert "source: approved_preview" in openapi_spec
+    assert "effective_pricing:" in openapi_spec
+    assert "entitlement_source:" in openapi_spec
     assert "/problems/preview_approval_required" in jobs_section
     assert "/problems/preview_stale" in jobs_section
     assert "/problems/preview_expired" in jobs_section

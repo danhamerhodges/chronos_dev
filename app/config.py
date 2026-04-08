@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from app.billing.pricebook import validate_commercial_pricebook_configuration
+
 
 def _as_bool(value: str, default: bool = False) -> bool:
     if value is None:
@@ -61,6 +63,7 @@ class Settings:
         default=_env_with_fallback("STRIPE_PRICE_ID", "STRIPE_SUBSCRIPTION_PRICE_ID"),
     )
     stripe_billing_portal_return_url: str = os.getenv("STRIPE_BILLING_PORTAL_RETURN_URL", "")
+    commercial_pricebook_json: str = os.getenv("COMMERCIAL_PRICEBOOK_JSON", "")
     hobbyist_monthly_limit_minutes: int = int(os.getenv("HOBBYIST_MONTHLY_LIMIT_MINUTES", "60"))
     pro_monthly_limit_minutes: int = int(os.getenv("PRO_MONTHLY_LIMIT_MINUTES", "600"))
     museum_monthly_limit_minutes: int = int(os.getenv("MUSEUM_MONTHLY_LIMIT_MINUTES", "2000"))
@@ -133,6 +136,21 @@ class Settings:
         ):
             raise ValueError(
                 "Effective STRIPE_PRO_PRICE_ID and STRIPE_MUSEUM_PRICE_ID must differ after shared fallback."
+            )
+        should_validate_pricebook = bool(self.commercial_pricebook_json.strip()) or self.environment not in {
+            "test",
+            "dev",
+            "development",
+            "local",
+        }
+        if should_validate_pricebook:
+            validate_commercial_pricebook_configuration(
+                raw_json=self.commercial_pricebook_json,
+                recurring_price_ids_by_tier={
+                    "hobbyist": self.stripe_hobbyist_price_id,
+                    "pro": self.stripe_pro_price_id,
+                    "museum": self.stripe_museum_price_id,
+                },
             )
         if self.output_delivery_signing_secret:
             return

@@ -1,10 +1,9 @@
-"""Maps to: ENG-013, NFR-003"""
+"""Maps to: ENG-013, NFR-003, NFR-006"""
 
 from fastapi.testclient import TestClient
 
-from app.billing.stripe_client import BillingPricingMetadata
 from app.main import app
-from app.services.billing_service import BillingService, monthly_limit_for_tier
+from app.services.billing_service import BillingService, EffectivePricingSnapshot, monthly_limit_for_tier
 from tests.helpers.auth import fake_auth_header
 from tests.helpers.jobs import valid_job_request
 
@@ -26,11 +25,15 @@ def test_estimate_breakdown_totals_match_component_sum() -> None:
     assert payload["confidence_interval_usd"]["low"] <= operational["total"]
 
 
-def test_estimate_uses_configured_pricing_metadata_for_overage_rate(monkeypatch) -> None:
+def test_estimate_uses_pricebook_backed_overage_rate(monkeypatch) -> None:
     monkeypatch.setattr(
-        "app.services.cost_estimation.resolve_billing_pricing_metadata",
-        lambda: BillingPricingMetadata(
+        "app.services.cost_estimation.effective_pricing_for_plan",
+        lambda plan_tier, pricing_metadata=None: EffectivePricingSnapshot(
+            pricebook_version="test-pricebook-v2",
             subscription_price_id="price_custom_subscription",
+            subscription_price_usd=99.0,
+            included_minutes_monthly=60,
+            overage_enabled=True,
             overage_price_id="price_custom_overage",
             overage_rate_usd_per_minute=1.23,
         ),
@@ -49,3 +52,4 @@ def test_estimate_uses_configured_pricing_metadata_for_overage_rate(monkeypatch)
     payload = response.json()
     assert payload["billing_breakdown_usd"]["overage_rate_usd_per_minute"] == 1.23
     assert payload["billing_breakdown_usd"]["estimated_charge_total_usd"] == 3.69
+    assert payload["effective_pricing"]["subscription_price_id"] == "price_custom_subscription"

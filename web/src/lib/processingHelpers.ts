@@ -16,6 +16,18 @@ export type UsageSnapshotResponse = {
   overage_price_reference: string;
   reconciliation_source: string;
   reconciliation_status: string;
+  effective_pricing?: EffectivePricingResponse | null;
+};
+
+export type EffectivePricingResponse = {
+  pricebook_version: string;
+  subscription_price_id: string;
+  subscription_price_usd: number;
+  included_minutes_monthly: number;
+  overage_enabled: boolean;
+  overage_price_id: string;
+  overage_rate_usd_per_minute: number;
+  entitlement_source: string;
 };
 
 export type CostEstimateSummaryResponse = {
@@ -37,6 +49,7 @@ export type CostEstimateSummaryResponse = {
     high: number;
   };
   usage_snapshot: UsageSnapshotResponse;
+  effective_pricing?: EffectivePricingResponse | null;
   launch_blocker: "none" | "overage_approval_required";
   estimator_version: string;
   generated_at: string;
