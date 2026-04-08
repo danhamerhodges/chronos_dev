@@ -130,8 +130,12 @@ def test_tracked_openapi_spec_covers_phase2_subset() -> None:
     assert "/problems/preview_already_launched" in openapi_spec
     assert "/problems/launch_dispatch_failed" in openapi_spec
     assert "configuration_fingerprint:" in openapi_spec
-    assert "/problems/preview_approval_required" not in jobs_section
-    assert "/problems/preview_stale" not in jobs_section
+    assert "launch_context:" in openapi_spec
+    assert "source: approved_preview" in openapi_spec
+    assert "/problems/preview_approval_required" in jobs_section
+    assert "/problems/preview_stale" in jobs_section
+    assert "/problems/preview_expired" in jobs_section
+    assert '"422":' in jobs_section
     assert "/v1/jobs/{job_id}/export:" in openapi_spec
     assert "/v1/jobs/{job_id}/uncertainty-callouts:" in openapi_spec
     assert "/v1/deletion-proofs/{proof_id}:" in openapi_spec

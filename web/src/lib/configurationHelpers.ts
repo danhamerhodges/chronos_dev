@@ -51,6 +51,12 @@ export type UploadDetectEraResponse = {
   estimated_usage_minutes: number;
 };
 
+export type JobLaunchContext = {
+  source: "approved_preview";
+  upload_id: string;
+  configuration_fingerprint: string;
+};
+
 export type JobPayloadPreview = {
   media_uri: string;
   original_filename: string;
@@ -62,6 +68,7 @@ export type JobPayloadPreview = {
   processing_mode: string;
   era_profile: Record<string, unknown>;
   config: Record<string, unknown>;
+  launch_context: JobLaunchContext;
 };
 
 export type UploadConfigurationResponse = {

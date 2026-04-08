@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.api.contracts import FidelityTier
+from app.services.job_service import JobService
 from app.services.job_runtime import drain_job_queue
 
 
@@ -49,3 +50,22 @@ def valid_job_request(**overrides: Any) -> dict[str, Any]:
 
 def run_all_jobs() -> list[str]:
     return drain_job_queue()
+
+
+def create_seed_job(
+    *,
+    user_id: str,
+    tier: str = "pro",
+    org_id: str = "org-default",
+    payload: dict[str, Any] | None = None,
+    publish_immediately: bool = True,
+) -> dict[str, Any]:
+    service = JobService()
+    return service.create_job(
+        user_id=user_id,
+        plan_tier=tier,
+        org_id=org_id,
+        payload=payload or valid_job_request(),
+        access_token=f"test-token-for-{user_id}",
+        publish_immediately=publish_immediately,
+    )

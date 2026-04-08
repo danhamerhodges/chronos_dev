@@ -4,13 +4,13 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from tests.helpers.auth import fake_auth_header
-from tests.helpers.jobs import run_all_jobs, valid_job_request
+from tests.helpers.jobs import create_seed_job, run_all_jobs
 
 client = TestClient(app)
 
 
 def test_job_stage_timings_are_recorded_for_baseline_slo_reporting() -> None:
-    created = client.post("/v1/jobs", headers=fake_auth_header("perf-user", tier="pro"), json=valid_job_request()).json()
+    created = create_seed_job(user_id="perf-user", tier="pro")
 
     run_all_jobs()
     response = client.get(f"/v1/jobs/{created['job_id']}", headers=fake_auth_header("perf-user", tier="pro"))

@@ -8,7 +8,14 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-from app.api.contracts import FidelityTier, GrainPreset, JobCreateRequest, UploadStatus, UserPersona
+from app.api.contracts import (
+    FidelityTier,
+    GrainPreset,
+    JobCreateRequest,
+    JobLaunchContextRequest,
+    UploadStatus,
+    UserPersona,
+)
 from app.api.problem_details import ProblemException
 from app.db.phase2_store import UploadRepository, UserProfileRepository
 from app.models.processing import ReproducibilityMode
@@ -566,11 +573,25 @@ class ConfigurationService:
                         "grain_intensity": grain_preset.value,
                     },
                 },
+                "launch_context": {
+                    "source": "approved_preview",
+                    "upload_id": upload_id,
+                    "configuration_fingerprint": "0" * 64,
+                },
             }
         )
         configuration_fingerprint_value = configuration_fingerprint(
             configured_at=configured_at,
             job_payload_preview=job_payload_preview.model_dump(),
+        )
+        job_payload_preview = job_payload_preview.model_copy(
+            update={
+                "launch_context": JobLaunchContextRequest(
+                    source="approved_preview",
+                    upload_id=upload_id,
+                    configuration_fingerprint=configuration_fingerprint_value,
+                ),
+            }
         )
         launch_config = {
             "upload_id": upload_id,

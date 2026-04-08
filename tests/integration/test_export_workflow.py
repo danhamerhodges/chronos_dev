@@ -15,6 +15,7 @@ from app.services.job_runtime import configure_segment_failures
 from app.main import app
 from tests.helpers.auth import fake_auth_header
 from tests.helpers.jobs import run_all_jobs
+from tests.helpers.previews import save_configuration_with_approved_preview
 
 client = TestClient(app)
 
@@ -82,25 +83,14 @@ def _seed_detection(upload_id: str, owner_user_id: str) -> None:
     )
 
 
-def _save_configuration(*, upload_id: str, owner_user_id: str) -> dict[str, object]:
-    response = client.patch(
-        f"/v1/upload/{upload_id}/configuration",
-        headers=fake_auth_header(owner_user_id, tier="pro"),
-        json={
-            "persona": "filmmaker",
-            "fidelity_tier": "Restore",
-            "grain_preset": "Heavy",
-            "estimated_duration_seconds": 180,
-        },
-    )
-    assert response.status_code == 200
-    return response.json()
-
-
 def test_packet_4d_export_flow_surfaces_delivery_artifacts_for_completed_jobs() -> None:
     _seed_completed_upload(upload_id="upload-export-complete", owner_user_id="export-flow-user")
     _seed_detection("upload-export-complete", "export-flow-user")
-    configuration = _save_configuration(upload_id="upload-export-complete", owner_user_id="export-flow-user")
+    configuration = save_configuration_with_approved_preview(
+        client,
+        upload_id="upload-export-complete",
+        owner_user_id="export-flow-user",
+    )
     headers = fake_auth_header("export-flow-user", tier="pro")
 
     created = client.post("/v1/jobs", headers=headers, json=configuration["job_payload_preview"])
@@ -135,7 +125,11 @@ def test_packet_4d_export_flow_surfaces_delivery_artifacts_for_completed_jobs() 
 def test_packet_4d_export_flow_supports_partial_jobs() -> None:
     _seed_completed_upload(upload_id="upload-export-partial", owner_user_id="partial-export-user")
     _seed_detection("upload-export-partial", "partial-export-user")
-    configuration = _save_configuration(upload_id="upload-export-partial", owner_user_id="partial-export-user")
+    configuration = save_configuration_with_approved_preview(
+        client,
+        upload_id="upload-export-partial",
+        owner_user_id="partial-export-user",
+    )
     headers = fake_auth_header("partial-export-user", tier="pro")
 
     created = client.post("/v1/jobs", headers=headers, json=configuration["job_payload_preview"])

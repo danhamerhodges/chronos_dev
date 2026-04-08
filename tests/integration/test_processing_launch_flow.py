@@ -1,6 +1,7 @@
 """
 Maps to:
 - FR-004
+- FR-006
 - DS-006
 """
 
@@ -14,6 +15,7 @@ from app.main import app
 from app.models.status import UploadStatus
 from tests.helpers.auth import fake_auth_header
 from tests.helpers.jobs import run_all_jobs
+from tests.helpers.previews import approve_preview, create_preview
 
 client = TestClient(app)
 
@@ -99,13 +101,28 @@ def _save_configuration(*, upload_id: str, owner_user_id: str) -> dict[str, obje
     return response.json()
 
 
+def _approved_launch_payload(*, upload_id: str, owner_user_id: str) -> dict[str, object]:
+    configuration = _save_configuration(upload_id=upload_id, owner_user_id=owner_user_id)
+    preview = create_preview(
+        client,
+        upload_id=upload_id,
+        owner_user_id=owner_user_id,
+    )
+    approve_preview(
+        client,
+        preview_id=str(preview["preview_id"]),
+        owner_user_id=owner_user_id,
+    )
+    return configuration["job_payload_preview"]
+
+
 def test_packet_4c_launch_flow_surfaces_callouts_through_terminal_state() -> None:
     upload = _seed_completed_upload(upload_id="upload-processing", owner_user_id="processing-user")
     _seed_low_confidence_detection(upload["upload_id"], "processing-user")
-    configuration = _save_configuration(upload_id=upload["upload_id"], owner_user_id="processing-user")
     headers = fake_auth_header("processing-user", tier="pro")
+    launch_payload = _approved_launch_payload(upload_id=upload["upload_id"], owner_user_id="processing-user")
 
-    created = client.post("/v1/jobs", headers=headers, json=configuration["job_payload_preview"])
+    created = client.post("/v1/jobs", headers=headers, json=launch_payload)
     assert created.status_code == 202
     job_id = created.json()["job_id"]
 
@@ -130,10 +147,10 @@ def test_packet_4c_launch_flow_surfaces_callouts_through_terminal_state() -> Non
 def test_packet_4c_cancel_flow_reuses_existing_job_api_and_callout_endpoint() -> None:
     upload = _seed_completed_upload(upload_id="upload-cancel", owner_user_id="cancel-flow-user")
     _seed_low_confidence_detection(upload["upload_id"], "cancel-flow-user")
-    configuration = _save_configuration(upload_id=upload["upload_id"], owner_user_id="cancel-flow-user")
     headers = fake_auth_header("cancel-flow-user", tier="pro")
+    launch_payload = _approved_launch_payload(upload_id=upload["upload_id"], owner_user_id="cancel-flow-user")
 
-    created = client.post("/v1/jobs", headers=headers, json=configuration["job_payload_preview"])
+    created = client.post("/v1/jobs", headers=headers, json=launch_payload)
     job_id = created.json()["job_id"]
 
     cancel = client.delete(f"/v1/jobs/{job_id}", headers=headers)

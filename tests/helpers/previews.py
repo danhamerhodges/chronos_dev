@@ -1,5 +1,6 @@
 """
 Maps to:
+- FR-006
 - ENG-014
 
 Preview test helpers for Packet 4F.
@@ -91,3 +92,63 @@ def save_configuration(
     )
     assert response.status_code == 200
     return response.json()
+
+
+def create_preview(
+    client: TestClient,
+    *,
+    upload_id: str,
+    owner_user_id: str,
+    tier: str = "pro",
+) -> dict[str, object]:
+    response = client.post(
+        "/v1/previews",
+        headers=fake_auth_header(owner_user_id, tier=tier),
+        json={"upload_id": upload_id},
+    )
+    assert response.status_code == 200
+    return response.json()
+
+
+def approve_preview(
+    client: TestClient,
+    *,
+    preview_id: str,
+    owner_user_id: str,
+    tier: str = "pro",
+) -> dict[str, object]:
+    response = client.post(
+        f"/v1/previews/{preview_id}/review",
+        headers=fake_auth_header(owner_user_id, tier=tier),
+        json={"review_status": "approved"},
+    )
+    assert response.status_code == 200
+    return response.json()
+
+
+def save_configuration_with_approved_preview(
+    client: TestClient,
+    *,
+    upload_id: str,
+    owner_user_id: str,
+    tier: str = "pro",
+) -> dict[str, object]:
+    configuration = save_configuration(
+        client,
+        upload_id=upload_id,
+        owner_user_id=owner_user_id,
+        tier=tier,
+    )
+    preview = create_preview(
+        client,
+        upload_id=upload_id,
+        owner_user_id=owner_user_id,
+        tier=tier,
+    )
+    approve_preview(
+        client,
+        preview_id=str(preview["preview_id"]),
+        owner_user_id=owner_user_id,
+        tier=tier,
+    )
+    return configuration

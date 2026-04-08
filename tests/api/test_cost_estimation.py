@@ -1,4 +1,8 @@
-"""Maps to: ENG-013"""
+"""
+Maps to:
+- ENG-013
+- FR-006
+"""
 
 import pytest
 from fastapi.testclient import TestClient
@@ -7,6 +11,7 @@ from app.main import app
 from app.services.billing_service import BillingService, monthly_limit_for_tier
 from tests.helpers.auth import fake_auth_header
 from tests.helpers.jobs import valid_job_request
+from tests.helpers.previews import seed_completed_upload, seed_detection, save_configuration_with_approved_preview
 
 client = TestClient(app)
 
@@ -29,6 +34,24 @@ def test_estimate_route_returns_full_breakdown_for_valid_launch_payload() -> Non
     assert payload["launch_blocker"] == "none"
     assert payload["estimator_version"] == "packet4e-v1"
     assert len(payload["configuration_fingerprint"]) == 64
+
+
+def test_estimate_route_accepts_launch_context_without_preview_enforcement() -> None:
+    response = client.post(
+        "/v1/jobs/estimate",
+        headers=fake_auth_header("estimate-user-with-context", tier="pro"),
+        json=valid_job_request(
+            launch_context={
+                "source": "approved_preview",
+                "upload_id": "upload-estimate-context",
+                "configuration_fingerprint": "a" * 64,
+            }
+        ),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["launch_blocker"] == "none"
 
 
 def test_estimate_route_returns_overage_blocker_instead_of_403() -> None:
@@ -67,6 +90,13 @@ def test_estimate_route_returns_503_when_pricing_metadata_is_unavailable(monkeyp
 
 
 def test_launch_route_returns_503_when_pricing_metadata_is_invalid(monkeypatch) -> None:
+    seed_completed_upload(upload_id="launch-pricing-upload", owner_user_id="launch-pricing-unavailable")
+    seed_detection(upload_id="launch-pricing-upload", owner_user_id="launch-pricing-unavailable")
+    configuration = save_configuration_with_approved_preview(
+        client,
+        upload_id="launch-pricing-upload",
+        owner_user_id="launch-pricing-unavailable",
+    )
     monkeypatch.setattr(
         "app.services.cost_estimation.resolve_billing_pricing_metadata",
         lambda: (_ for _ in ()).throw(ValueError("Stripe overage price is missing unit_amount metadata.")),
@@ -75,7 +105,7 @@ def test_launch_route_returns_503_when_pricing_metadata_is_invalid(monkeypatch) 
     response = client.post(
         "/v1/jobs",
         headers=fake_auth_header("launch-pricing-unavailable", tier="pro"),
-        json=valid_job_request(estimated_duration_seconds=180, fidelity_tier="Restore"),
+        json=configuration["job_payload_preview"],
     )
 
     assert response.status_code == 503

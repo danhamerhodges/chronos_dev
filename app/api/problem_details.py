@@ -84,12 +84,15 @@ async def request_validation_exception_handler(request: Request, exc: RequestVal
                 "message": item.get("msg", "Invalid request payload."),
             }
         )
+    status_code = 400
+    if request.method.upper() == "POST" and request.url.path in {"/v1/jobs", "/v1/jobs/estimate"}:
+        status_code = 422
     return problem_response(
         build_problem(
             request,
             title="Request Validation Failed",
             detail="Request payload validation failed. Fix the highlighted fields and retry.",
-            status_code=400,
+            status_code=status_code,
             errors=errors,
         )
     )

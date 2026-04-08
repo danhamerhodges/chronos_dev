@@ -5,13 +5,13 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.services.job_runtime import configure_segment_failures, dead_letter_jobs
 from tests.helpers.auth import fake_auth_header
-from tests.helpers.jobs import run_all_jobs, valid_job_request
+from tests.helpers.jobs import create_seed_job, run_all_jobs
 
 client = TestClient(app)
 
 
 def test_persistent_segment_failure_exhausts_three_attempts() -> None:
-    created = client.post("/v1/jobs", headers=fake_auth_header("persistent-user"), json=valid_job_request()).json()
+    created = create_seed_job(user_id="persistent-user")
     configure_segment_failures(created["job_id"], 0, ["persistent", "persistent", "persistent"])
     configure_segment_failures(created["job_id"], 1, ["persistent", "persistent", "persistent"])
     configure_segment_failures(created["job_id"], 2, ["persistent", "persistent", "persistent"])

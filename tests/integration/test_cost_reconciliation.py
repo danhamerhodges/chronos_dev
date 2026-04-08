@@ -5,17 +5,17 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.services.billing_service import BillingService, monthly_limit_for_tier
 from tests.helpers.auth import fake_auth_header
-from tests.helpers.jobs import run_all_jobs, valid_job_request
+from tests.helpers.jobs import create_seed_job, run_all_jobs, valid_job_request
 
 client = TestClient(app)
 
 
 def test_terminal_job_exposes_cost_estimate_and_reconciliation_summaries() -> None:
-    created = client.post(
-        "/v1/jobs",
-        headers=fake_auth_header("cost-reconciliation-user", tier="pro"),
-        json=valid_job_request(estimated_duration_seconds=90, fidelity_tier="Restore"),
-    ).json()
+    created = create_seed_job(
+        user_id="cost-reconciliation-user",
+        tier="pro",
+        payload=valid_job_request(estimated_duration_seconds=90, fidelity_tier="Restore"),
+    )
 
     run_all_jobs()
     response = client.get(f"/v1/jobs/{created['job_id']}", headers=fake_auth_header("cost-reconciliation-user", tier="pro"))
@@ -40,11 +40,11 @@ def test_terminal_job_flags_cost_reconciliation_outliers(monkeypatch) -> None:
             "total_cost_usd": 25.0,
         },
     )
-    created = client.post(
-        "/v1/jobs",
-        headers=fake_auth_header("cost-outlier-user", tier="museum"),
-        json=valid_job_request(estimated_duration_seconds=60, fidelity_tier="Restore"),
-    ).json()
+    created = create_seed_job(
+        user_id="cost-outlier-user",
+        tier="museum",
+        payload=valid_job_request(estimated_duration_seconds=60, fidelity_tier="Restore"),
+    )
 
     run_all_jobs()
     response = client.get(f"/v1/jobs/{created['job_id']}", headers=fake_auth_header("cost-outlier-user", tier="museum"))
@@ -61,11 +61,11 @@ def test_terminal_reconciliation_uses_post_consumption_billing_state() -> None:
     monthly_limit = monthly_limit_for_tier("pro")
     billing.consume_minutes(user_id="cost-reconciliation-drift-user", plan_tier="pro", minutes=monthly_limit - 5)
 
-    created = client.post(
-        "/v1/jobs",
-        headers=fake_auth_header("cost-reconciliation-drift-user", tier="pro"),
-        json=valid_job_request(estimated_duration_seconds=90, fidelity_tier="Restore"),
-    ).json()
+    created = create_seed_job(
+        user_id="cost-reconciliation-drift-user",
+        tier="pro",
+        payload=valid_job_request(estimated_duration_seconds=90, fidelity_tier="Restore"),
+    )
 
     billing.consume_minutes(user_id="cost-reconciliation-drift-user", plan_tier="pro", minutes=4)
 
@@ -89,11 +89,11 @@ def test_terminal_job_still_completes_when_cost_signal_refresh_fails(monkeypatch
         lambda: (_ for _ in ()).throw(RuntimeError("cost ops unavailable")),
     )
 
-    created = client.post(
-        "/v1/jobs",
-        headers=fake_auth_header("cost-signal-failure-user", tier="pro"),
-        json=valid_job_request(estimated_duration_seconds=90, fidelity_tier="Restore"),
-    ).json()
+    created = create_seed_job(
+        user_id="cost-signal-failure-user",
+        tier="pro",
+        payload=valid_job_request(estimated_duration_seconds=90, fidelity_tier="Restore"),
+    )
 
     run_all_jobs()
     response = client.get(
