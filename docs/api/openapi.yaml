@@ -482,7 +482,7 @@ paths:
   /v1/jobs:
     post:
       tags: [jobs]
-      summary: Submit an async restoration job
+      summary: Submit an async restoration job from the approved preview path
       security:
         - bearerAuth: []
       requestBody:
@@ -498,12 +498,61 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/JobCreateResponse"
-        "503":
-          description: Billing pricing metadata is temporarily unavailable
+        "404":
+          description: Upload session not found for the current user
           content:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetail"
+        "409":
+          description: Approved-preview provenance is missing or stale
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+              examples:
+                preview_approval_required:
+                  value:
+                    type: /problems/preview_approval_required
+                    title: Preview Approval Required
+                    status: 409
+                    detail: Generate and approve the current preview before launching full processing.
+                preview_stale:
+                  value:
+                    type: /problems/preview_stale
+                    title: Preview Stale
+                    status: 409
+                    detail: The launch request does not match the latest saved configuration fingerprint.
+        "410":
+          description: Preview session expired and its artifacts were deleted
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+              example:
+                type: /problems/preview_expired
+                title: Preview Expired
+                status: 410
+                detail: The preview session has expired and its artifacts were deleted. Generate a fresh preview from the saved configuration.
+        "422":
+          description: Request payload or launch_context validation failed
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "503":
+          description: Launch claim persisted, but dispatch did not complete, or billing pricing metadata is temporarily unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+              examples:
+                launch_dispatch_failed:
+                  value:
+                    type: /problems/launch_dispatch_failed
+                    title: Launch Dispatch Failed
+                    status: 503
+                    detail: Preview launch was claimed, but dispatch did not complete. Retry the same preview launch to reuse the existing job binding.
     get:
       tags: [jobs]
       summary: List async jobs for the current user
@@ -520,6 +569,7 @@ paths:
     post:
       tags: [jobs]
       summary: Estimate launch-time usage and cost for an async restoration job
+      description: Accepts the same launch_context-capable request model as `/v1/jobs`, but ignores launch provenance metadata for billing calculations and does not enforce preview approval.
       security:
         - bearerAuth: []
       requestBody:
@@ -535,6 +585,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/JobEstimateResponse"
+        "422":
+          description: Request payload or launch_context validation failed
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
         "503":
           description: Billing pricing metadata is temporarily unavailable
           content:
@@ -1748,6 +1804,24 @@ components:
         config:
           type: object
           additionalProperties: true
+        launch_context:
+          $ref: "#/components/schemas/JobLaunchContextRequest"
+    JobLaunchContextRequest:
+      type: object
+      required: [source, upload_id, configuration_fingerprint]
+      example:
+        source: approved_preview
+        upload_id: upload-123
+        configuration_fingerprint: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      properties:
+        source:
+          type: string
+          enum: [approved_preview]
+          example: approved_preview
+        upload_id:
+          type: string
+        configuration_fingerprint:
+          type: string
     UploadConfigurationResponse:
       type: object
       required:

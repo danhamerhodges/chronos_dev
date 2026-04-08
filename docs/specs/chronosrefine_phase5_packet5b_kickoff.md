@@ -1,11 +1,12 @@
 # ChronosRefine Phase 5 Packet 5B Kickoff
 
-Status: Planned kickoff packet. This file records the next `FR-006` packet after Packet 5A hosted closeout and does not change canonical source-of-truth ordering in `AGENTS.md`.
+Status: Kickoff scope note for Packet 5B. The decision-complete implementation contract now lives in `docs/specs/chronosrefine_phase5_packet5b_execution_packet.md` on the candidate branch and does not change canonical source-of-truth ordering in `AGENTS.md`.
 
 **Packet:** Packet 5B
 **Requirement Focus:** `FR-006`
-**Status:** Planned
+**Status:** Execution packet prepared on candidate branch
 **Predecessor Packet:** `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md`
+**Execution Packet:** `docs/specs/chronosrefine_phase5_packet5b_execution_packet.md`
 
 ## 1) Objective
 
@@ -42,6 +43,7 @@ Packet 5B is the next planned `FR-006` slice and should cover:
 
 - generic `POST /v1/jobs` preview-approval enforcement for launch requests derived from the saved upload configuration flow
 - deterministic, documented problem details for API clients that attempt full processing launch without a current approved preview
+- explicit `launch_context.source = approved_preview` provenance on refreshed saved-config launch payloads
 - alignment between generic launch, preview session freshness, and the configuration fingerprint/version contract added in Packet 5A
 - OpenAPI and automated test coverage for non-first-party launch clients
 - hosted `chronos_dev` evidence that the remaining public launch surfaces honor the `FR-006` approval contract
@@ -75,7 +77,7 @@ Packet 5B should not be counted complete until all of the following are true:
 2. Generic launch accepts the request once the current preview is approved and fingerprint-aligned.
 3. Stale preview anti-replay still blocks launch deterministically after configuration changes.
 4. Owner scoping remains enforced across preview review, preview launch, and generic launch.
-5. OpenAPI documents the generic launch approval contract and the exact problem-detail types returned by the remaining public launch surfaces.
+5. OpenAPI documents the generic launch approval contract, legacy payload migration path, and the exact problem-detail types returned by the remaining public launch surfaces.
 6. Packet 5A first-party preview-review flow remains green after the generic-route enforcement lands.
 7. Hosted `chronos_dev` smoke demonstrates the generic-route enforcement and preserves Packet 5A latency/idempotency expectations.
 8. Packet 5B is recorded as the packet that closes global `FR-006`; do not advance the full-requirement count until that hosted evidence exists.
@@ -110,5 +112,5 @@ Validation should continue to include:
 Packet 5B is the next planned product packet for `FR-006`.
 
 - Packet 5A status: `hosted-complete`
-- Packet 5B status: `planned`
+- Packet 5B status: `candidate implementation in progress`
 - Global `FR-006` status: `open until Packet 5B hosted closeout`

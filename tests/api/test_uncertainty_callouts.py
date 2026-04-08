@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from app.db.phase2_store import JobRepository, reset_phase2_store
 from app.main import app
 from tests.helpers.auth import fake_auth_header
-from tests.helpers.jobs import valid_job_request
+from tests.helpers.jobs import create_seed_job, valid_job_request
 
 client = TestClient(app)
 
@@ -122,11 +122,11 @@ def _request_with_invalid_confidence() -> dict[str, object]:
 
 
 def test_uncertainty_callouts_enforce_owner_scope() -> None:
-    created = client.post(
-        "/v1/jobs",
-        headers=fake_auth_header("callout-owner", tier="pro"),
-        json=_request_with_low_confidence_detection(),
-    ).json()
+    created = create_seed_job(
+        user_id="callout-owner",
+        tier="pro",
+        payload=_request_with_low_confidence_detection(),
+    )
 
     response = client.get(
         f"/v1/jobs/{created['job_id']}/uncertainty-callouts",
@@ -138,11 +138,11 @@ def test_uncertainty_callouts_enforce_owner_scope() -> None:
 
 
 def test_uncertainty_callouts_return_low_confidence_and_segment_mapping() -> None:
-    created = client.post(
-        "/v1/jobs",
-        headers=fake_auth_header("callout-user", tier="pro"),
-        json=_request_with_low_confidence_detection(),
-    ).json()
+    created = create_seed_job(
+        user_id="callout-user",
+        tier="pro",
+        payload=_request_with_low_confidence_detection(),
+    )
     repo = JobRepository()
     repo.update_job_for_worker(
         created["job_id"],
@@ -212,11 +212,11 @@ def test_uncertainty_callouts_return_low_confidence_and_segment_mapping() -> Non
 
 
 def test_uncertainty_callouts_prefer_manual_confirmation_message_when_confidence_is_high() -> None:
-    created = client.post(
-        "/v1/jobs",
-        headers=fake_auth_header("manual-callout-user", tier="pro"),
-        json=_request_with_manual_confirmation_only(),
-    ).json()
+    created = create_seed_job(
+        user_id="manual-callout-user",
+        tier="pro",
+        payload=_request_with_manual_confirmation_only(),
+    )
 
     response = client.get(
         f"/v1/jobs/{created['job_id']}/uncertainty-callouts",
@@ -231,11 +231,11 @@ def test_uncertainty_callouts_prefer_manual_confirmation_message_when_confidence
 
 
 def test_uncertainty_callouts_treat_invalid_confidence_as_uncertain() -> None:
-    created = client.post(
-        "/v1/jobs",
-        headers=fake_auth_header("invalid-confidence-user", tier="pro"),
-        json=_request_with_invalid_confidence(),
-    ).json()
+    created = create_seed_job(
+        user_id="invalid-confidence-user",
+        tier="pro",
+        payload=_request_with_invalid_confidence(),
+    )
 
     response = client.get(
         f"/v1/jobs/{created['job_id']}/uncertainty-callouts",

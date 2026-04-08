@@ -368,6 +368,11 @@ def test_save_configuration_updates_preferences_and_returns_job_payload_preview(
                 "grain_intensity": "Heavy",
             },
         },
+        "launch_context": {
+            "source": "approved_preview",
+            "upload_id": "upload-config",
+            "configuration_fingerprint": payload["configuration_fingerprint"],
+        },
     }
     era_profile = preview["era_profile"]
     assert isinstance(era_profile, dict)

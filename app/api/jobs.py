@@ -17,9 +17,11 @@ from app.api.contracts import (
 )
 from app.api.dependencies import AuthenticatedUser, apply_rate_limit, require_permission
 from app.services.job_service import JobService
+from app.services.preview_generation import PreviewGenerationService
 
 router = APIRouter()
 _job_service = JobService()
+_preview_service = PreviewGenerationService()
 
 
 @router.post("/v1/jobs/estimate", response_model=JobEstimateResponse)
@@ -47,11 +49,11 @@ def create_job(
     user: AuthenticatedUser = Depends(require_permission("jobs:write")),
 ) -> JobCreateResponse:
     apply_rate_limit(user, "/v1/jobs")
-    job = _job_service.create_job(
-        user_id=user.user_id,
-        plan_tier=user.plan_tier,
+    job = _preview_service.launch_job_request(
+        owner_user_id=user.user_id,
         org_id=user.org_id,
-        payload=payload.model_dump(),
+        plan_tier=user.plan_tier,
+        payload=payload.model_dump(exclude_none=True),
         access_token=user.access_token,
     )
     return JobCreateResponse.model_validate(job)

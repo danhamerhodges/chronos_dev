@@ -26,7 +26,13 @@ from app.observability.monitoring import (
     record_preview_generation,
     record_runtime_snapshot,
 )
-from app.services.configuration_fingerprint import canonical_json, configuration_fingerprint, preview_launch_external_job_id, sha256_hex
+from app.services.configuration_fingerprint import (
+    canonical_json,
+    configuration_fingerprint,
+    core_job_payload,
+    preview_launch_external_job_id,
+    sha256_hex,
+)
 from app.services.cost_estimation import BillingPricingUnavailableError, CostEstimationService
 from app.services.job_dispatcher import publish_job
 from app.services.job_service import JobService
@@ -373,6 +379,96 @@ class PreviewGenerationService:
             owner_user_id=owner_user_id,
             access_token=access_token,
         )
+
+    def launch_job_request(
+        self,
+        *,
+        owner_user_id: str,
+        org_id: str,
+        plan_tier: str,
+        access_token: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        launch_context = payload.get("launch_context")
+        if not isinstance(launch_context, dict):
+            raise self._jobs_preview_approval_required_problem(
+                detail=(
+                    "Generate and approve the current preview before launching full processing. "
+                    "Refresh the saved configuration payload to include approved-preview launch provenance."
+                ),
+                upload_id=None,
+                configuration_fingerprint_value=None,
+            )
+
+        upload_id = str(launch_context.get("upload_id") or "")
+        configuration_fingerprint_value = str(launch_context.get("configuration_fingerprint") or "")
+        session = self._uploads.get_session(
+            upload_id,
+            owner_user_id=owner_user_id,
+            access_token=access_token,
+        )
+        if session is None:
+            raise ProblemException(
+                title="Not Found",
+                detail="Upload session not found for the current user.",
+                status_code=404,
+            )
+        try:
+            snapshot = self._saved_launch_snapshot(session)
+        except ProblemException as exc:
+            raise ProblemException(
+                title="Preview Stale",
+                detail="The launch request no longer matches the latest saved configuration. Regenerate and approve the preview again.",
+                status_code=409,
+                type=_PROBLEM_PREVIEW_STALE,
+            ) from exc
+
+        request_fingerprint = configuration_fingerprint(
+            configured_at=str((payload.get("config") or {}).get("configured_at") or ""),
+            job_payload_preview=core_job_payload(payload),
+        )
+        if (
+            not configuration_fingerprint_value
+            or configuration_fingerprint_value != request_fingerprint
+            or configuration_fingerprint_value != str(snapshot["configuration_fingerprint"])
+        ):
+            raise ProblemException(
+                title="Preview Stale",
+                detail="The launch request does not match the latest saved configuration fingerprint.",
+                status_code=409,
+                type=_PROBLEM_PREVIEW_STALE,
+            )
+
+        preview_id = str(snapshot["preview_id"])
+        preview = self._previews.get_preview(
+            preview_id,
+            owner_user_id=owner_user_id,
+            access_token=access_token,
+        )
+        if preview is None:
+            raise self._jobs_preview_approval_required_problem(
+                detail="Generate and approve the current preview before launching full processing.",
+                upload_id=upload_id,
+                configuration_fingerprint_value=configuration_fingerprint_value,
+            )
+
+        try:
+            return self.launch_preview(
+                preview_id,
+                owner_user_id=owner_user_id,
+                org_id=org_id,
+                plan_tier=plan_tier,
+                access_token=access_token,
+                configuration_fingerprint_value=configuration_fingerprint_value,
+            )
+        except ProblemException as exc:
+            if exc.type == _PROBLEM_PREVIEW_APPROVAL_REQUIRED:
+                raise self._jobs_preview_approval_required_problem(
+                    detail=exc.detail,
+                    upload_id=upload_id,
+                    configuration_fingerprint_value=configuration_fingerprint_value,
+                ) from exc
+            raise
 
     def _require_preview_ready_upload(self, session: dict[str, Any] | None) -> dict[str, Any]:
         if session is None:
@@ -829,6 +925,26 @@ class PreviewGenerationService:
             detail="This preview has already been launched and cannot be reviewed again.",
             status_code=409,
             type=_PROBLEM_PREVIEW_ALREADY_LAUNCHED,
+        )
+
+    def _jobs_preview_approval_required_problem(
+        self,
+        *,
+        detail: str,
+        upload_id: str | None,
+        configuration_fingerprint_value: str | None,
+    ) -> ProblemException:
+        record_job_runtime_event("preview_approval_required_jobs_launch")
+        _LOGGER.warning(
+            "preview_approval_required_jobs_launch upload_id=%s configuration_fingerprint=%s",
+            upload_id or "unknown",
+            configuration_fingerprint_value or "unknown",
+        )
+        return ProblemException(
+            title="Preview Approval Required",
+            detail=detail,
+            status_code=409,
+            type=_PROBLEM_PREVIEW_APPROVAL_REQUIRED,
         )
 
     def _estimated_processing_time_seconds(self, duration_seconds: int) -> int:

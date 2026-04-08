@@ -9,7 +9,7 @@ from app.db.phase2_store import JobRepository
 from app.main import app
 from app.observability.monitoring import record_cost_reconciliation
 from tests.helpers.auth import fake_auth_header
-from tests.helpers.jobs import run_all_jobs, valid_job_request
+from tests.helpers.jobs import create_seed_job, run_all_jobs, valid_job_request
 
 client = TestClient(app)
 
@@ -24,10 +24,10 @@ def test_cost_reconciliation_outliers_emit_monitoring_signal(monkeypatch) -> Non
             "total_cost_usd": 40.0,
         },
     )
-    client.post(
-        "/v1/jobs",
-        headers=fake_auth_header("ops-cost-user", tier="museum"),
-        json=valid_job_request(estimated_duration_seconds=60, fidelity_tier="Restore"),
+    create_seed_job(
+        user_id="ops-cost-user",
+        tier="museum",
+        payload=valid_job_request(estimated_duration_seconds=60, fidelity_tier="Restore"),
     )
 
     run_all_jobs()
@@ -83,10 +83,10 @@ def test_cost_snapshot_generates_quarterly_recommendations_and_cost_ops_metrics(
             "total_cost_usd": 40.0,
         },
     )
-    client.post(
-        "/v1/jobs",
-        headers=fake_auth_header("ops-opt-user", tier="museum"),
-        json=valid_job_request(estimated_duration_seconds=60, fidelity_tier="Restore"),
+    create_seed_job(
+        user_id="ops-opt-user",
+        tier="museum",
+        payload=valid_job_request(estimated_duration_seconds=60, fidelity_tier="Restore"),
     )
 
     run_all_jobs()
@@ -155,11 +155,11 @@ def test_cost_snapshot_uses_quarterly_window_for_recommendations(monkeypatch) ->
         },
     )
 
-    created = client.post(
-        "/v1/jobs",
-        headers=fake_auth_header("ops-quarterly-user", role="admin", tier="pro"),
-        json=valid_job_request(estimated_duration_seconds=60, fidelity_tier="Restore"),
-    ).json()
+    created = create_seed_job(
+        user_id="ops-quarterly-user",
+        tier="pro",
+        payload=valid_job_request(estimated_duration_seconds=60, fidelity_tier="Restore"),
+    )
 
     run_all_jobs()
     quarterly_timestamp = (datetime.now(timezone.utc) - timedelta(days=60)).strftime("%Y-%m-%dT%H:%M:%S")

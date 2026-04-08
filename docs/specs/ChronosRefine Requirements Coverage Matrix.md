@@ -171,7 +171,7 @@ If an ID/title conflicts with the above, this matrix must be updated immediately
 
 | Req ID | Requirement Name | Dependencies | Test Files | Verification | Risk |
 |---|---|---|---|---|---|
-| **FR-006** | Preview Generation | FR-001, FR-002, ENG-007, ENG-014 | `tests/api/test_preview_sessions.py`, `tests/integration/test_preview_pipeline.py`, `tests/processing/test_preview_generation.py`, `tests/processing/test_scene_detection.py`, `tests/ui/test_preview_modal.spec.ts`, `tests/accessibility/test_preview_review_modal_a11y.spec.ts`, `tests/load/test_preview_performance.py` | Automated | Medium |
+| **FR-006** | Preview Generation | FR-001, FR-002, ENG-007, ENG-014 | `tests/api/test_preview_sessions.py`, `tests/api/test_async_processing.py`, `tests/api/test_cost_estimation.py`, `tests/integration/test_preview_pipeline.py`, `tests/integration/test_processing_launch_flow.py`, `tests/integration/test_configuration_job_handoff.py`, `tests/processing/test_preview_generation.py`, `tests/processing/test_scene_detection.py`, `tests/ui/test_preview_modal.spec.ts`, `tests/accessibility/test_preview_review_modal_a11y.spec.ts`, `tests/load/test_preview_performance.py` | Automated | Medium |
 | **SEC-001** | Authentication & Authorization | FR-005, ENG-010 | `tests/security/test_deletion_proof.py` | Automated | High |
 | **SEC-002** | Data Encryption | FR-002, ENG-007 | `tests/quality/test_uncertainty.py` | Automated | Medium |
 | **SEC-003** | Data Classification | ENG-010, SEC-008 | `tests/security/test_manifest_redaction.py` | Automated | Medium |

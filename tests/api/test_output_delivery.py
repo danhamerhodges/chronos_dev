@@ -13,7 +13,7 @@ from app.db.phase2_store import JobExportPackageRepository, reset_phase2_store
 from app.main import app
 from app.services.job_runtime import configure_segment_failures
 from tests.helpers.auth import fake_auth_header
-from tests.helpers.jobs import run_all_jobs, valid_job_request
+from tests.helpers.jobs import create_seed_job, run_all_jobs
 
 client = TestClient(app)
 
@@ -24,13 +24,13 @@ def reset_state() -> None:
 
 
 def _complete_job(*, user_id: str, tier: str = "pro") -> str:
-    created = client.post("/v1/jobs", headers=fake_auth_header(user_id, tier=tier), json=valid_job_request()).json()
+    created = create_seed_job(user_id=user_id, tier=tier)
     run_all_jobs()
     return created["job_id"]
 
 
 def _partial_job(*, user_id: str, tier: str = "pro") -> str:
-    created = client.post("/v1/jobs", headers=fake_auth_header(user_id, tier=tier), json=valid_job_request()).json()
+    created = create_seed_job(user_id=user_id, tier=tier)
     configure_segment_failures(created["job_id"], 1, ["persistent", "persistent", "persistent"])
     run_all_jobs()
     return created["job_id"]
@@ -91,7 +91,7 @@ def test_partial_jobs_export_successfully() -> None:
 
 
 def test_inflight_jobs_return_409_until_processing_finishes() -> None:
-    created = client.post("/v1/jobs", headers=fake_auth_header("export-queued-owner", tier="pro"), json=valid_job_request()).json()
+    created = create_seed_job(user_id="export-queued-owner", tier="pro")
 
     response = client.get(
         f"/v1/jobs/{created['job_id']}/export",
@@ -103,7 +103,7 @@ def test_inflight_jobs_return_409_until_processing_finishes() -> None:
 
 
 def test_cancelled_jobs_return_409_for_export() -> None:
-    created = client.post("/v1/jobs", headers=fake_auth_header("export-cancel-owner", tier="pro"), json=valid_job_request()).json()
+    created = create_seed_job(user_id="export-cancel-owner", tier="pro")
     cancel = client.delete(f"/v1/jobs/{created['job_id']}", headers=fake_auth_header("export-cancel-owner", tier="pro"))
     assert cancel.status_code == 200
     run_all_jobs()
@@ -117,7 +117,7 @@ def test_cancelled_jobs_return_409_for_export() -> None:
 
 
 def test_failed_jobs_return_409_for_export() -> None:
-    created = client.post("/v1/jobs", headers=fake_auth_header("export-failed-owner", tier="pro"), json=valid_job_request()).json()
+    created = create_seed_job(user_id="export-failed-owner", tier="pro")
     for segment_index in range(3):
         configure_segment_failures(created["job_id"], segment_index, ["persistent", "persistent", "persistent"])
     run_all_jobs()

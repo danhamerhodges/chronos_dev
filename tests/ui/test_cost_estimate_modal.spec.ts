@@ -177,6 +177,11 @@ function buildSavedConfiguration(configuredAt = "2026-03-14T00:05:00+00:00") {
       processing_mode: "balanced",
       era_profile: {},
       config: { configured_at: configuredAt },
+      launch_context: {
+        source: "approved_preview",
+        upload_id: "upload-1",
+        configuration_fingerprint: configurationFingerprint,
+      },
     },
     configured_at: configuredAt,
     configuration_fingerprint: configurationFingerprint,

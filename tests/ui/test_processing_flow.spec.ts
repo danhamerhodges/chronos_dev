@@ -264,6 +264,11 @@ function buildSavedConfiguration(configuredAt = "2026-03-13T00:05:00+00:00") {
           grain_intensity: "Heavy",
         },
       },
+      launch_context: {
+        source: "approved_preview",
+        upload_id: "upload-1",
+        configuration_fingerprint: configurationFingerprint,
+      },
     },
     configured_at: configuredAt,
     configuration_fingerprint: configurationFingerprint,

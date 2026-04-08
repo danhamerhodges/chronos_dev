@@ -458,6 +458,12 @@ class PerformanceSummaryResponse(StrictModel):
     throughput_ratio: float | None = None
 
 
+class JobLaunchContextRequest(StrictModel):
+    source: Literal["approved_preview"]
+    upload_id: str = Field(min_length=1)
+    configuration_fingerprint: str = Field(min_length=64, max_length=64)
+
+
 class JobCreateRequest(StrictModel):
     media_uri: str
     original_filename: str = ""
@@ -469,6 +475,7 @@ class JobCreateRequest(StrictModel):
     processing_mode: str = Field(default="balanced", min_length=3)
     era_profile: EraProfileInput
     config: dict[str, Any] = Field(default_factory=dict)
+    launch_context: JobLaunchContextRequest | None = None
 
 
 class UploadConfigurationResponse(StrictModel):

@@ -8,7 +8,7 @@ from app.main import app
 from app.services.billing_service import BillingService, monthly_limit_for_tier
 from app.services.runtime_ops import incident_history
 from tests.helpers.auth import fake_auth_header
-from tests.helpers.jobs import run_all_jobs, valid_job_request
+from tests.helpers.jobs import create_seed_job, run_all_jobs, valid_job_request
 
 client = TestClient(app)
 
@@ -72,12 +72,11 @@ def test_cost_snapshot_reports_totals_and_margin(monkeypatch) -> None:
         },
     )
 
-    launch = client.post(
-        "/v1/jobs",
-        headers=fake_auth_header("ops-cost-admin", role="admin", tier="pro"),
-        json=valid_job_request(estimated_duration_seconds=60, fidelity_tier="Restore"),
+    create_seed_job(
+        user_id="ops-cost-admin",
+        tier="pro",
+        payload=valid_job_request(estimated_duration_seconds=60, fidelity_tier="Restore"),
     )
-    assert launch.status_code == 202
 
     run_all_jobs()
     response = client.get("/v1/ops/costs", headers=fake_auth_header("ops-admin", role="admin", tier="pro"))
@@ -123,12 +122,11 @@ def test_cost_snapshot_flags_margin_breach_and_incident(monkeypatch) -> None:
         },
     )
 
-    launch = client.post(
-        "/v1/jobs",
-        headers=fake_auth_header("ops-margin-admin", role="admin", tier="pro"),
-        json=valid_job_request(estimated_duration_seconds=60, fidelity_tier="Restore"),
+    create_seed_job(
+        user_id="ops-margin-admin",
+        tier="pro",
+        payload=valid_job_request(estimated_duration_seconds=60, fidelity_tier="Restore"),
     )
-    assert launch.status_code == 202
 
     run_all_jobs()
     incidents = incident_history()
@@ -159,12 +157,11 @@ def test_cost_delta_incident_emits_without_ops_snapshot_poll(monkeypatch) -> Non
         },
     )
 
-    launch = client.post(
-        "/v1/jobs",
-        headers=fake_auth_header("ops-delta-user", role="admin", tier="museum"),
-        json=valid_job_request(estimated_duration_seconds=60, fidelity_tier="Restore"),
+    create_seed_job(
+        user_id="ops-delta-user",
+        tier="museum",
+        payload=valid_job_request(estimated_duration_seconds=60, fidelity_tier="Restore"),
     )
-    assert launch.status_code == 202
 
     run_all_jobs()
 
@@ -187,12 +184,11 @@ def test_cost_ops_snapshot_is_side_effect_free(monkeypatch) -> None:
         },
     )
 
-    launch = client.post(
-        "/v1/jobs",
-        headers=fake_auth_header("ops-side-effect-user", role="admin", tier="museum"),
-        json=valid_job_request(estimated_duration_seconds=60, fidelity_tier="Restore"),
+    create_seed_job(
+        user_id="ops-side-effect-user",
+        tier="museum",
+        payload=valid_job_request(estimated_duration_seconds=60, fidelity_tier="Restore"),
     )
-    assert launch.status_code == 202
 
     run_all_jobs()
     monkeypatch.setattr(
@@ -219,11 +215,11 @@ def test_cost_snapshot_excludes_non_completed_jobs_even_with_reconciliation(monk
         "app.services.cost_ops.resolve_billing_pricing_metadata",
         lambda: _pricing_metadata(pro=120.0, museum=500.0),
     )
-    created = client.post(
-        "/v1/jobs",
-        headers=fake_auth_header("ops-queued-user", role="admin", tier="pro"),
-        json=valid_job_request(estimated_duration_seconds=60, fidelity_tier="Restore"),
-    ).json()
+    created = create_seed_job(
+        user_id="ops-queued-user",
+        tier="pro",
+        payload=valid_job_request(estimated_duration_seconds=60, fidelity_tier="Restore"),
+    )
     JobRepository().update_job_for_worker(
         created["job_id"],
         patch={
@@ -266,12 +262,11 @@ def test_negative_cost_delta_does_not_emit_anomaly(monkeypatch) -> None:
         },
     )
 
-    launch = client.post(
-        "/v1/jobs",
-        headers=fake_auth_header("ops-negative-delta-user", role="admin", tier="pro"),
-        json=valid_job_request(estimated_duration_seconds=60, fidelity_tier="Restore"),
+    create_seed_job(
+        user_id="ops-negative-delta-user",
+        tier="pro",
+        payload=valid_job_request(estimated_duration_seconds=60, fidelity_tier="Restore"),
     )
-    assert launch.status_code == 202
 
     run_all_jobs()
     response = client.get("/v1/ops/costs", headers=fake_auth_header("ops-admin", role="admin", tier="pro"))
@@ -304,11 +299,11 @@ def test_cost_snapshot_uses_reconciled_usage_split_for_revenue(monkeypatch) -> N
     monthly_limit = monthly_limit_for_tier("pro")
     billing.consume_minutes(user_id="ops-revenue-split-user", plan_tier="pro", minutes=monthly_limit - 5)
 
-    created = client.post(
-        "/v1/jobs",
-        headers=fake_auth_header("ops-revenue-split-user", role="admin", tier="pro"),
-        json=valid_job_request(estimated_duration_seconds=90, fidelity_tier="Restore"),
-    ).json()
+    created = create_seed_job(
+        user_id="ops-revenue-split-user",
+        tier="pro",
+        payload=valid_job_request(estimated_duration_seconds=90, fidelity_tier="Restore"),
+    )
 
     billing.consume_minutes(user_id="ops-revenue-split-user", plan_tier="pro", minutes=4)
 

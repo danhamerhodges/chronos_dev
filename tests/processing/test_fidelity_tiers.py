@@ -1,11 +1,12 @@
 """Maps to: ENG-005"""
 
+import pytest
 from fastapi.testclient import TestClient
 
+from app.api.problem_details import ProblemException
 from app.main import app
 from app.db.phase2_store import JobRepository
-from tests.helpers.auth import fake_auth_header
-from tests.helpers.jobs import valid_job_request
+from tests.helpers.jobs import create_seed_job, valid_job_request
 
 client = TestClient(app)
 
@@ -18,10 +19,10 @@ def test_all_fidelity_tiers_persist_effective_profile() -> None:
     ]
 
     for tier, hallucination_limit, grain in scenarios:
-        response = client.post(
-            "/v1/jobs",
-            headers=fake_auth_header(f"user-{tier.lower()}", tier="pro"),
-            json=valid_job_request(
+        payload = create_seed_job(
+            user_id=f"user-{tier.lower()}",
+            tier="pro",
+            payload=valid_job_request(
                 fidelity_tier=tier,
                 era_profile={
                     **valid_job_request()["era_profile"],
@@ -35,8 +36,6 @@ def test_all_fidelity_tiers_persist_effective_profile() -> None:
             ),
         )
 
-        assert response.status_code == 202
-        payload = response.json()
         assert payload["fidelity_tier"] == tier
         assert payload["effective_fidelity_tier"] == tier
         assert payload["reproducibility_mode"] == "perceptual_equivalence"
@@ -50,14 +49,15 @@ def test_all_fidelity_tiers_persist_effective_profile() -> None:
 
 
 def test_tier_breaking_override_is_rejected() -> None:
-    response = client.post(
-        "/v1/jobs",
-        headers=fake_auth_header("invalid-tier-user", tier="pro"),
-        json=valid_job_request(
-            fidelity_tier="Restore",
-            config={"fidelity_overrides": {"hallucination_limit": 0.2}},
-        ),
-    )
+    with pytest.raises(ProblemException) as exc_info:
+        create_seed_job(
+            user_id="invalid-tier-user",
+            tier="pro",
+            payload=valid_job_request(
+                fidelity_tier="Restore",
+                config={"fidelity_overrides": {"hallucination_limit": 0.2}},
+            ),
+        )
 
-    assert response.status_code == 400
-    assert response.json()["title"] == "Invalid Fidelity Override"
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.title == "Invalid Fidelity Override"

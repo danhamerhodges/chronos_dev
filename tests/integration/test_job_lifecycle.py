@@ -7,13 +7,13 @@ from fastapi.testclient import TestClient
 import app.services.job_runtime as job_runtime
 from app.main import app
 from tests.helpers.auth import fake_auth_header
-from tests.helpers.jobs import run_all_jobs, valid_job_request
+from tests.helpers.jobs import create_seed_job, run_all_jobs
 
 client = TestClient(app)
 
 
 def test_job_lifecycle_transitions_from_queued_to_completed() -> None:
-    created = client.post("/v1/jobs", headers=fake_auth_header("lifecycle-user"), json=valid_job_request()).json()
+    created = create_seed_job(user_id="lifecycle-user")
 
     assert created["status"] == "queued"
 
@@ -36,7 +36,7 @@ def test_job_lifecycle_transitions_from_queued_to_completed() -> None:
 
 
 def test_job_cancellation_is_cooperatively_applied() -> None:
-    created = client.post("/v1/jobs", headers=fake_auth_header("cancel-user"), json=valid_job_request()).json()
+    created = create_seed_job(user_id="cancel-user")
 
     cancel = client.delete(f"/v1/jobs/{created['job_id']}", headers=fake_auth_header("cancel-user"))
     run_all_jobs()
@@ -49,7 +49,7 @@ def test_job_cancellation_is_cooperatively_applied() -> None:
 
 
 def test_terminal_job_cancellation_returns_nullable_cancel_requested_timestamp() -> None:
-    created = client.post("/v1/jobs", headers=fake_auth_header("terminal-cancel-user"), json=valid_job_request()).json()
+    created = create_seed_job(user_id="terminal-cancel-user")
 
     run_all_jobs()
     cancel = client.delete(f"/v1/jobs/{created['job_id']}", headers=fake_auth_header("terminal-cancel-user"))

@@ -323,6 +323,11 @@ describe("Packet 4D focus management", () => {
         processing_mode: "balanced",
         era_profile: {},
         config: { configured_at: configuredAt },
+        launch_context: {
+          source: "approved_preview",
+          upload_id: "upload-1",
+          configuration_fingerprint: configurationFingerprint,
+        },
       },
       configured_at: configuredAt,
       configuration_fingerprint: configurationFingerprint,

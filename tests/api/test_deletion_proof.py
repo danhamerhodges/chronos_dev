@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 from app.db.phase2_store import JobExportPackageRepository, reset_phase2_store
 from app.main import app
 from tests.helpers.auth import fake_auth_header
-from tests.helpers.jobs import run_all_jobs, valid_job_request
+from tests.helpers.jobs import create_seed_job, run_all_jobs
 
 client = TestClient(app)
 
@@ -23,7 +23,7 @@ def reset_state() -> None:
 
 
 def test_deletion_proof_route_returns_job_linked_metadata_and_signed_pdf_url() -> None:
-    created = client.post("/v1/jobs", headers=fake_auth_header("proof-owner", tier="museum"), json=valid_job_request()).json()
+    created = create_seed_job(user_id="proof-owner", tier="museum")
     run_all_jobs()
     export = client.get(
         f"/v1/jobs/{created['job_id']}/export",
@@ -49,7 +49,7 @@ def test_deletion_proof_route_returns_job_linked_metadata_and_signed_pdf_url() -
 
 
 def test_deletion_proof_route_is_owner_scoped() -> None:
-    created = client.post("/v1/jobs", headers=fake_auth_header("proof-owner-only", tier="pro"), json=valid_job_request()).json()
+    created = create_seed_job(user_id="proof-owner-only", tier="pro")
     run_all_jobs()
     export = client.get(
         f"/v1/jobs/{created['job_id']}/export",
@@ -66,7 +66,7 @@ def test_deletion_proof_route_is_owner_scoped() -> None:
 
 
 def test_deletion_proof_route_remains_available_after_export_package_expiry() -> None:
-    created = client.post("/v1/jobs", headers=fake_auth_header("proof-expiry-owner", tier="pro"), json=valid_job_request()).json()
+    created = create_seed_job(user_id="proof-expiry-owner", tier="pro")
     run_all_jobs()
     export = client.get(
         f"/v1/jobs/{created['job_id']}/export",
@@ -88,7 +88,7 @@ def test_deletion_proof_route_remains_available_after_export_package_expiry() ->
 
 
 def test_terminal_job_detail_exposes_deletion_proof_id() -> None:
-    created = client.post("/v1/jobs", headers=fake_auth_header("proof-detail-owner", tier="museum"), json=valid_job_request()).json()
+    created = create_seed_job(user_id="proof-detail-owner", tier="museum")
     run_all_jobs()
 
     detail = client.get(

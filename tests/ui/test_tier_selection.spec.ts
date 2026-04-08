@@ -180,6 +180,11 @@ describe("Packet 4B App flow", () => {
         processing_mode: "balanced",
         era_profile: {},
         config: {},
+        launch_context: {
+          source: "approved_preview",
+          upload_id: "upload-1",
+          configuration_fingerprint: "fingerprint-2026-03-11T00:05:00+00:00",
+        },
       },
       configured_at: "2026-03-11T00:05:00+00:00",
     });
@@ -341,6 +346,11 @@ describe("Packet 4B App flow", () => {
         processing_mode: "balanced",
         era_profile: {},
         config: {},
+        launch_context: {
+          source: "approved_preview",
+          upload_id: "upload-1",
+          configuration_fingerprint: "fingerprint-2026-03-11T00:05:00+00:00",
+        },
       },
       configured_at: "2026-03-11T00:05:00+00:00",
     });
@@ -724,6 +734,11 @@ describe("Packet 4B App flow", () => {
         processing_mode: "balanced",
         era_profile: {},
         config: {},
+        launch_context: {
+          source: "approved_preview",
+          upload_id: "upload-a",
+          configuration_fingerprint: "fingerprint-2026-03-11T00:05:00+00:00",
+        },
       },
       configured_at: "2026-03-11T00:05:00+00:00",
     });
