@@ -18,6 +18,14 @@ Packet 5C is hosted-complete as the first `NFR-006` slice for current merged pri
 
 Packet 5C does **not** claim global `NFR-006` closeout. Deferred acceptance criteria `AC-NFR-006-05`, `AC-NFR-006-06`, `AC-NFR-006-09`, and `AC-NFR-006-10` remain open, so `NFR-006` stays partial and the Phase 5 full-requirement count remains unchanged.
 
+## Administrative Merge Clarification
+
+- PR `#27` merged the full Packet 5C implementation branch history, not only the final closeout-doc commit.
+- Commits merged by PR `#27`:
+  - implementation commit `500a8a5d497b38aa5029a26ad1d6f3b6bbdb8608`
+  - hosted-proof auth fix `5c9cf8d316d3e17c31f3050809cd6b5764819b11`
+  - closeout docs `31ceedd80e94bd30ca88ba3a970d8f56867a08bc`
+
 ## Verification Commands
 
 Local validation:
