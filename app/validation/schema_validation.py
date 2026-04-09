@@ -233,39 +233,6 @@ def validate_era_profile(payload: Mapping[str, Any]) -> ValidationResult:
                 "Restore mode typically uses hallucination_limit between 0.05 and 0.20.",
             )
         )
-    if payload.get("tier") == "Hobbyist" and payload.get("resolution_cap") != "1080p":
-        result.errors.append(
-            _issue(
-                "VR-010",
-                "error",
-                "resolution_cap",
-                "Hobbyist tier is limited to 1080p resolution. Upgrade to Pro for 4K.",
-            )
-        )
-
     tier, mode = _mode_key(payload)
-    if (tier, mode) == ("Hobbyist", "Enhance") and hallucination_limit is not None and hallucination_limit != 0.25:
-        result.errors.append(
-            _issue(
-                "VR-MATRIX",
-                "error",
-                "hallucination_limit",
-                "Hobbyist Enhance locks hallucination_limit to 0.25.",
-            )
-        )
-    if tier == "Hobbyist" and (
-        artifact_policy.get("preserve_edge_fog") is True or artifact_policy.get("preserve_chromatic_aberration") is True
-    ):
-        result.errors.append(
-            _issue(
-                "VR-MATRIX",
-                "error",
-                "artifact_policy",
-                "Hobbyist tier locks artifact preservation flags to false.",
-            )
-        )
-    if tier == "Hobbyist" and mode != "Enhance":
-        result.errors.append(_issue("VR-MATRIX", "error", "mode", "Hobbyist tier locks mode to Enhance."))
-
     result.latency_ms = (time.perf_counter() - started) * 1000
     return result

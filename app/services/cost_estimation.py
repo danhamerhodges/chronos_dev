@@ -7,8 +7,15 @@ from datetime import datetime, timezone
 from math import ceil
 from typing import Any
 
-from app.billing.stripe_client import billing_price_references, resolve_billing_pricing_metadata
-from app.services.billing_service import BillingService, BillingSnapshot, billable_minutes_for_duration
+from app.billing.stripe_client import resolve_billing_pricing_metadata
+from app.services.billing_service import (
+    BillingService,
+    BillingSnapshot,
+    CommercialPricingUnavailableError,
+    EffectivePricingSnapshot,
+    billable_minutes_for_duration,
+    effective_pricing_for_plan,
+)
 from app.observability.monitoring import record_cost_reconciliation
 
 ESTIMATOR_VERSION = "packet4e-v1"
@@ -67,8 +74,20 @@ def calculate_operational_cost_breakdown(
     }
 
 
-def _build_usage_snapshot(snapshot: BillingSnapshot) -> dict[str, Any]:
-    price_refs = billing_price_references()
+def _effective_pricing_payload(effective_pricing: EffectivePricingSnapshot) -> dict[str, Any]:
+    return {
+        "pricebook_version": effective_pricing.pricebook_version,
+        "subscription_price_id": effective_pricing.subscription_price_id,
+        "subscription_price_usd": effective_pricing.subscription_price_usd,
+        "included_minutes_monthly": effective_pricing.included_minutes_monthly,
+        "overage_enabled": effective_pricing.overage_enabled,
+        "overage_price_id": effective_pricing.overage_price_id,
+        "overage_rate_usd_per_minute": effective_pricing.overage_rate_usd_per_minute,
+        "entitlement_source": effective_pricing.entitlement_source,
+    }
+
+
+def _build_usage_snapshot(snapshot: BillingSnapshot, *, effective_pricing: EffectivePricingSnapshot) -> dict[str, Any]:
     return {
         "user_id": snapshot.user_id,
         "plan_tier": snapshot.plan_tier,
@@ -81,10 +100,11 @@ def _build_usage_snapshot(snapshot: BillingSnapshot) -> dict[str, Any]:
         "threshold_alerts": snapshot.threshold_alerts,
         "overage_approval_scope": snapshot.overage_approval_scope,
         "hard_stop": snapshot.hard_stop,
-        "price_reference": price_refs["subscription_price_id"],
-        "overage_price_reference": price_refs["overage_price_id"],
+        "price_reference": effective_pricing.subscription_price_id,
+        "overage_price_reference": effective_pricing.overage_price_id,
         "reconciliation_source": snapshot.reconciliation_source,
         "reconciliation_status": snapshot.reconciliation_status,
+        "effective_pricing": _effective_pricing_payload(effective_pricing),
     }
 
 
@@ -123,12 +143,17 @@ class CostEstimationService:
         estimated_duration_seconds = int(payload["estimated_duration_seconds"])
         fidelity_tier = str(payload["fidelity_tier"])
         estimated_usage_minutes = billable_minutes_for_duration(estimated_duration_seconds, fidelity_tier)
-        usage_snapshot = self._billing.record_estimate(
-            user_id=user_id,
-            plan_tier=plan_tier,
-            estimated_minutes=estimated_usage_minutes,
-            access_token=access_token,
-        )
+        try:
+            usage_snapshot = self._billing.record_estimate(
+                user_id=user_id,
+                plan_tier=plan_tier,
+                estimated_minutes=estimated_usage_minutes,
+                access_token=access_token,
+            )
+        except CommercialPricingUnavailableError as exc:
+            raise BillingPricingUnavailableError(
+                "Pricing data is temporarily unavailable. Retry the request once billing metadata is available."
+            ) from exc
         segment_count = max(ceil(max(estimated_duration_seconds, 1) / SEGMENT_DURATION_SECONDS), 1)
         operational_breakdown = calculate_operational_cost_breakdown(
             gpu_seconds=estimated_duration_seconds,
@@ -137,27 +162,32 @@ class CostEstimationService:
         )
         try:
             pricing_metadata = resolve_billing_pricing_metadata()
+            effective_pricing = effective_pricing_for_plan(
+                plan_tier,
+                pricing_metadata=pricing_metadata,
+            )
         except Exception as exc:
             raise BillingPricingUnavailableError(
                 "Pricing data is temporarily unavailable. Retry the request once billing metadata is available."
             ) from exc
         included_usage = min(estimated_usage_minutes, max(usage_snapshot.monthly_limit_minutes - usage_snapshot.used_minutes, 0))
         overage_minutes = max(estimated_usage_minutes - included_usage, 0)
-        charge_total = round(overage_minutes * pricing_metadata.overage_rate_usd_per_minute, 4)
+        charge_total = round(overage_minutes * effective_pricing.overage_rate_usd_per_minute, 4)
         summary = {
             "estimated_usage_minutes": estimated_usage_minutes,
             "operational_cost_breakdown_usd": operational_breakdown,
             "billing_breakdown_usd": {
                 "included_usage": included_usage,
                 "overage_minutes": overage_minutes,
-                "overage_rate_usd_per_minute": pricing_metadata.overage_rate_usd_per_minute,
+                "overage_rate_usd_per_minute": effective_pricing.overage_rate_usd_per_minute,
                 "estimated_charge_total_usd": charge_total,
             },
             "confidence_interval_usd": _confidence_interval(
                 operational_breakdown["total"],
                 fidelity_tier=fidelity_tier,
             ),
-            "usage_snapshot": _build_usage_snapshot(usage_snapshot),
+            "usage_snapshot": _build_usage_snapshot(usage_snapshot, effective_pricing=effective_pricing),
+            "effective_pricing": _effective_pricing_payload(effective_pricing),
             "launch_blocker": "overage_approval_required" if usage_snapshot.hard_stop else "none",
             "estimator_version": ESTIMATOR_VERSION,
             "generated_at": _utc_now(),

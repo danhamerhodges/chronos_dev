@@ -2,6 +2,7 @@
 Maps to:
 - FR-003
 - DS-001
+- NFR-006
 """
 
 from __future__ import annotations
@@ -462,7 +463,7 @@ def test_save_configuration_rejects_hobbyist_non_enhance_tiers_before_validation
     assert response.status_code == 403
     payload = response.json()
     assert payload["title"] == "Plan Upgrade Required"
-    assert "Hobbyist includes Enhance only" in payload["detail"]
+    assert "Allowed tiers: Enhance." in payload["detail"]
 
     repo = UploadRepository()
     session = repo.get_session(
