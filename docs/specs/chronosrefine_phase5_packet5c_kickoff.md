@@ -1,12 +1,13 @@
 # ChronosRefine Phase 5 Packet 5C Kickoff
 
-Status: Kickoff scope note for Packet 5C. The decision-complete implementation contract lives in `docs/specs/chronosrefine_phase5_packet5c_execution_packet.md` on the candidate branch and does not change canonical source-of-truth ordering in `AGENTS.md`.
+Status: Hosted-complete slice scope note for Packet 5C. The decision-complete implementation contract lives in `docs/specs/chronosrefine_phase5_packet5c_execution_packet.md`, and hosted evidence is summarized in `docs/specs/chronosrefine_phase5_packet5c_closeout_note.md`. This file does not change canonical source-of-truth ordering in `AGENTS.md`.
 
 **Packet:** Packet 5C
 **Requirement Focus:** `NFR-006`
-**Status:** Execution packet prepared on candidate branch
+**Status:** Hosted-complete slice
 **Predecessor Packet:** `docs/specs/chronosrefine_phase5_packet5b_closeout_note.md`
 **Execution Packet:** `docs/specs/chronosrefine_phase5_packet5c_execution_packet.md`
+**Closeout Note:** `docs/specs/chronosrefine_phase5_packet5c_closeout_note.md`
 
 ## 1) Objective
 
@@ -54,8 +55,9 @@ Packet 5C should cover:
 
 ## 6) Packet Outcome
 
-Packet 5C is the next planned `NFR-006` slice.
+Packet 5C is now a hosted-complete `NFR-006` slice for current merged pricing-model surfaces.
 
 - Packet 5B status: `hosted-complete`
-- Packet 5C status: `candidate planning complete`
-- Global `NFR-006` status after Packet 5C planning: `still open pending implementation + hosted proof + later closeout decision`
+- Packet 5C status: `hosted-complete slice`
+- Global `NFR-006` status after Packet 5C closeout: `still partial pending deferred acceptance criteria`
+- Phase 5 full-requirement count after Packet 5C: unchanged at `1/11`

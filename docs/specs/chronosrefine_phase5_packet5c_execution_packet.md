@@ -1,12 +1,13 @@
 # ChronosRefine Phase 5 Packet 5C Execution Packet
 
-Status: Candidate execution packet for the first `NFR-006` implementation slice. This file records the decision-complete Packet 5C planning contract on the candidate branch and does not change canonical source-of-truth ordering in `AGENTS.md`.
+Status: Hosted-complete execution packet for the first `NFR-006` implementation slice. This file records the decision-complete Packet 5C contract and links the hosted evidence summary in `docs/specs/chronosrefine_phase5_packet5c_closeout_note.md`. It does not change canonical source-of-truth ordering in `AGENTS.md`.
 
 **Packet:** Packet 5C
 **Requirement Focus:** `NFR-006`
-**Status:** Planning complete on candidate branch
+**Status:** Hosted-complete slice
 **Baseline:** `origin/main` after PR #26 (`382b39801b44feddfb8617718cf716526e08f9a2`)
 **Predecessor Packet:** `docs/specs/chronosrefine_phase5_packet5b_closeout_note.md`
+**Closeout Note:** `docs/specs/chronosrefine_phase5_packet5c_closeout_note.md`
 
 ## 1) Decision Summary
 
@@ -345,7 +346,19 @@ Do **not**:
 
 unless a later packet explicitly closes the remaining `NFR-006` scope and records hosted closeout evidence for that full requirement.
 
-## 12) Open Risks To Carry Forward
+## 12) Hosted Outcome
+
+Packet 5C is now hosted-complete as a slice. The hosted closeout note records:
+
+- baseline `chronos_dev` proof for the approved staging pricebook
+- config-only alternate pricebook proof on the same build SHA without a code deploy
+- Packet 5A and Packet 5B non-regression on the 5C revision
+- runtime signal evidence for `preview_approval_required` and stale `launch_pending` recovery
+- preview latency remaining within the canonical `<6s p95` guardrail
+
+This packet still does **not** close global `NFR-006`. Deferred acceptance criteria remain open and the Phase 5 completed-requirement count stays unchanged.
+
+## 13) Open Risks To Carry Forward
 
 - `NFR-012` is canonically complete, but the implementation plan still contains stale unchecked Stripe setup bullets; closeout may need a small canon-normalization pass
 - customer-specific Museum quote overrides and pricing-change audit provenance remain outside this packet
