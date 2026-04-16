@@ -84,11 +84,13 @@ def _consume_usage_and_reconcile(
     before_snapshot = billing.snapshot(
         user_id=str(job["owner_user_id"]),
         plan_tier=str(job["plan_tier"]),
+        org_id=str(job.get("org_id") or "") or None,
     )
     after_snapshot = billing.consume_minutes(
         user_id=str(job["owner_user_id"]),
         plan_tier=str(job["plan_tier"]),
         minutes=actual_usage_minutes,
+        org_id=str(job.get("org_id") or "") or None,
     )
     reconciliation_summary = CostEstimationService().reconcile_estimate(
         estimate_summary=job.get("cost_estimate_summary"),
@@ -282,6 +284,7 @@ def process_job(job_id: str, *, trusted_token: str | None = None) -> dict[str, A
                 user_id=failed["owner_user_id"],
                 plan_tier=validated_plan_tier,
                 minutes=0,
+                org_id=str(failed.get("org_id") or "") or None,
             )
         record_job_runtime_event("failed")
         _publish_progress(failed, segment_index=0, trusted_token=trusted_token)

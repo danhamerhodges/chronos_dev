@@ -70,10 +70,21 @@ def _operational_cost_breakdown(job: dict[str, Any]) -> dict[str, float]:
     return {"gpu": gpu, "storage": storage, "api": api}
 
 
+def _job_pricing_snapshot(job: dict[str, Any]) -> dict[str, Any]:
+    snapshot = job.get("billing_pricing_snapshot") or {}
+    if snapshot:
+        return dict(snapshot)
+    return dict((job.get("cost_estimate_summary") or {}).get("effective_pricing") or {})
+
+
 def _job_overage_rate_usd_per_minute(job: dict[str, Any], *, pricing_metadata: BillingPricingMetadata) -> float:
+    pricing_snapshot = _job_pricing_snapshot(job)
+    stored_rate = float(pricing_snapshot.get("overage_rate_usd_per_minute", 0.0) or 0.0)
+    if stored_rate > 0:
+        return stored_rate
     billing_breakdown = (job.get("cost_estimate_summary") or {}).get("billing_breakdown_usd") or {}
-    stored_rate = float(billing_breakdown.get("overage_rate_usd_per_minute", 0.0) or 0.0)
-    return stored_rate if stored_rate > 0 else pricing_metadata.overage_rate_usd_per_minute
+    estimated_rate = float(billing_breakdown.get("overage_rate_usd_per_minute", 0.0) or 0.0)
+    return estimated_rate if estimated_rate > 0 else pricing_metadata.overage_rate_usd_per_minute
 
 
 def _included_minutes(job: dict[str, Any], reconciliation_summary: dict[str, Any], *, pricing_metadata: BillingPricingMetadata) -> int:
@@ -96,13 +107,21 @@ def _job_financials(
     actual_cost_total_usd = round(float(reconciliation_summary.get("actual_total_cost_usd", 0.0) or 0.0), 4)
     actual_charge_total_usd = round(float(reconciliation_summary.get("actual_charge_total_usd", 0.0) or 0.0), 4)
     plan_tier = str(job.get("plan_tier", "hobbyist"))
-    monthly_limit = max(monthly_limit_for_tier(plan_tier), 1)
+    pricing_snapshot = _job_pricing_snapshot(job)
+    monthly_limit = max(
+        int(pricing_snapshot.get("included_minutes_monthly") or 0) or monthly_limit_for_tier(plan_tier),
+        1,
+    )
     included_minutes = _included_minutes(
         job,
         reconciliation_summary,
         pricing_metadata=pricing_metadata,
     )
-    subscription_price_usd = pricing_metadata.subscription_price_usd_for_tier(plan_tier)
+    subscription_price_usd = float(
+        pricing_snapshot.get("subscription_price_usd")
+        or pricing_metadata.subscription_price_usd_for_tier(plan_tier)
+        or 0.0
+    )
     included_revenue_usd = round((subscription_price_usd / monthly_limit) * included_minutes, 4)
     revenue_total_usd = round(included_revenue_usd + actual_charge_total_usd, 4)
     gross_margin_percent = (

@@ -54,6 +54,7 @@ def detect_era(request: DetectEraRequest, user: AuthenticatedUser = Depends(get_
         user_id=user.user_id,
         plan_tier=user.plan_tier,
         estimated_minutes=estimated_usage_minutes,
+        org_id=user.org_id,
         access_token=user.access_token,
     )
     if billing_snapshot.hard_stop:

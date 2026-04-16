@@ -86,6 +86,7 @@ class PreviewGenerationService:
         *,
         upload_id: str,
         owner_user_id: str,
+        org_id: str,
         plan_tier: str,
         access_token: str,
     ) -> dict[str, Any]:
@@ -117,6 +118,7 @@ class PreviewGenerationService:
             estimate = self._estimator.estimate_launch(
                 user_id=owner_user_id,
                 plan_tier=plan_tier,
+                org_id=org_id,
                 payload=snapshot["job_payload_preview"],
                 access_token=access_token,
             )

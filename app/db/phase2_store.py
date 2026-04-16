@@ -105,6 +105,7 @@ def _preview_launch_pending_metrics(previews: list[dict[str, Any]]) -> dict[str,
 
 
 _SUPABASE_JOB_JSON_FIELDS = {
+    "billing_pricing_snapshot",
     "failed_segments",
     "warnings",
     "config",
@@ -234,6 +235,10 @@ def phase2_backend_name() -> str:
 class Phase2Store:
     users: dict[str, dict[str, Any]] = field(default_factory=dict)
     usage: dict[str, dict[str, Any]] = field(default_factory=dict)
+    billing_accounts: dict[str, dict[str, Any]] = field(default_factory=dict)
+    billing_audit_events: list[dict[str, Any]] = field(default_factory=list)
+    commercial_pricebook_revisions: dict[str, dict[str, Any]] = field(default_factory=dict)
+    processed_stripe_events: dict[str, dict[str, Any]] = field(default_factory=dict)
     upload_sessions: dict[str, dict[str, Any]] = field(default_factory=dict)
     preview_sessions: dict[str, dict[str, Any]] = field(default_factory=dict)
     gcs_object_pointers: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -258,6 +263,10 @@ _UPLOAD_STORE_LOCK = Lock()
 def reset_phase2_store() -> None:
     _STORE.users.clear()
     _STORE.usage.clear()
+    _STORE.billing_accounts.clear()
+    _STORE.billing_audit_events.clear()
+    _STORE.commercial_pricebook_revisions.clear()
+    _STORE.processed_stripe_events.clear()
     _STORE.upload_sessions.clear()
     _STORE.preview_sessions.clear()
     _STORE.gcs_object_pointers.clear()
@@ -345,6 +354,211 @@ class _MemoryUsageRepository:
         usage.update(payload)
         _STORE.usage[user_id] = usage
         return dict(usage)
+
+
+class _MemoryBillingAccountRepository:
+    def get_by_org(self, org_id: str, *, access_token: str | None = None) -> dict[str, Any] | None:
+        del access_token
+        account = _STORE.billing_accounts.get(org_id)
+        return dict(account) if account else None
+
+    def get_by_customer_id(self, customer_id: str) -> dict[str, Any] | None:
+        normalized_customer_id = str(customer_id or "").strip()
+        for account in _STORE.billing_accounts.values():
+            if str(account.get("stripe_customer_id") or "").strip() == normalized_customer_id:
+                return dict(account)
+        return None
+
+    def upsert_by_org(
+        self,
+        *,
+        org_id: str,
+        owner_user_id: str,
+        patch: dict[str, Any],
+    ) -> dict[str, Any]:
+        now = _utc_now()
+        existing = _STORE.billing_accounts.get(org_id) or {}
+        record = {
+            "id": existing.get("id") or str(uuid4()),
+            "owner_user_id": str(existing.get("owner_user_id") or owner_user_id),
+            "org_id": org_id,
+            "stripe_customer_id": existing.get("stripe_customer_id"),
+            "stripe_subscription_id": existing.get("stripe_subscription_id"),
+            "subscription_status": existing.get("subscription_status"),
+            "subscription_price_id": existing.get("subscription_price_id"),
+            "subscription_price_usd": existing.get("subscription_price_usd"),
+            "included_minutes_monthly": existing.get("included_minutes_monthly"),
+            "overage_price_id": existing.get("overage_price_id"),
+            "overage_rate_usd_per_minute": existing.get("overage_rate_usd_per_minute"),
+            "museum_quote_id": existing.get("museum_quote_id"),
+            "museum_quote_status": existing.get("museum_quote_status"),
+            "museum_quote_pricing": dict(existing.get("museum_quote_pricing") or {}),
+            "recent_invoices": list(existing.get("recent_invoices") or []),
+            "last_synced_at": existing.get("last_synced_at"),
+            "created_at": existing.get("created_at") or now,
+            "updated_at": now,
+        }
+        record.update(_request_patch(patch, nullable_keys={"last_synced_at"}))
+        _STORE.billing_accounts[org_id] = record
+        return dict(record)
+
+
+class _MemoryBillingAuditRepository:
+    def append_event(
+        self,
+        *,
+        org_id: str,
+        source: str,
+        event_type: str,
+        actor_user_id: str | None = None,
+        stripe_event_id: str | None = None,
+        before_summary: dict[str, Any] | None = None,
+        after_summary: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        record = {
+            "id": str(uuid4()),
+            "org_id": org_id,
+            "source": source,
+            "event_type": event_type,
+            "actor_user_id": actor_user_id,
+            "stripe_event_id": stripe_event_id,
+            "before_summary": dict(before_summary or {}),
+            "after_summary": dict(after_summary or {}),
+            "created_at": _utc_now(),
+        }
+        _STORE.billing_audit_events.append(record)
+        return dict(record)
+
+    def list_events(self, *, org_id: str | None = None) -> list[dict[str, Any]]:
+        events = [
+            dict(event)
+            for event in _STORE.billing_audit_events
+            if org_id is None or event["org_id"] == org_id
+        ]
+        return sorted(events, key=lambda item: item["created_at"], reverse=True)
+
+
+class _MemoryCommercialPricebookRevisionRepository:
+    def get_active(self) -> dict[str, Any] | None:
+        active = [dict(item) for item in _STORE.commercial_pricebook_revisions.values() if item.get("active")]
+        if not active:
+            return None
+        active.sort(key=lambda item: item["activated_at"], reverse=True)
+        return active[0]
+
+    def activate(
+        self,
+        *,
+        version: str,
+        payload: dict[str, Any],
+        applied_by_user_id: str,
+        applied_by_org_id: str,
+        source: str,
+        change_summary: str,
+    ) -> dict[str, Any]:
+        now = _utc_now()
+        if version in _STORE.commercial_pricebook_revisions:
+            raise ValueError("A commercial pricebook revision with that version already exists.")
+        for stored_version, item in list(_STORE.commercial_pricebook_revisions.items()):
+            if item.get("active"):
+                _STORE.commercial_pricebook_revisions[stored_version] = {
+                    **item,
+                    "active": False,
+                    "updated_at": now,
+                }
+        record = {
+            "id": _STORE.commercial_pricebook_revisions.get(version, {}).get("id") or str(uuid4()),
+            "version": version,
+            "payload": dict(payload),
+            "applied_by_user_id": applied_by_user_id,
+            "applied_by_org_id": applied_by_org_id,
+            "source": source,
+            "change_summary": change_summary,
+            "activated_at": now,
+            "active": True,
+            "updated_at": now,
+        }
+        _STORE.commercial_pricebook_revisions[version] = record
+        return dict(record)
+
+    def list_active(self) -> list[dict[str, Any]]:
+        active = [dict(item) for item in _STORE.commercial_pricebook_revisions.values() if item.get("active")]
+        return sorted(active, key=lambda item: item["activated_at"], reverse=True)
+
+
+class _MemoryProcessedStripeEventRepository:
+    def claim_event(
+        self,
+        *,
+        stripe_event_id: str,
+        event_type: str,
+        org_id: str | None,
+    ) -> dict[str, Any] | None:
+        now = _utc_now()
+        with _UPLOAD_STORE_LOCK:
+            existing = _STORE.processed_stripe_events.get(stripe_event_id)
+            if existing is None:
+                record = {
+                    "stripe_event_id": stripe_event_id,
+                    "event_type": event_type,
+                    "org_id": org_id,
+                    "processing_status": "claimed",
+                    "summary_metadata": {},
+                    "created_at": now,
+                    "processed_at": None,
+                    "updated_at": now,
+                }
+                _STORE.processed_stripe_events[stripe_event_id] = record
+                return dict(record)
+            if existing.get("processing_status") != "failed":
+                return None
+            reclaimed = {
+                **existing,
+                "event_type": event_type,
+                "org_id": org_id or existing.get("org_id"),
+                "processing_status": "claimed",
+                "processed_at": None,
+                "updated_at": now,
+            }
+            _STORE.processed_stripe_events[stripe_event_id] = reclaimed
+            return dict(reclaimed)
+
+    def get_event(self, stripe_event_id: str) -> dict[str, Any] | None:
+        event = _STORE.processed_stripe_events.get(stripe_event_id)
+        return dict(event) if event else None
+
+    def mark_processed(
+        self,
+        stripe_event_id: str,
+        *,
+        summary_metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        now = _utc_now()
+        with _UPLOAD_STORE_LOCK:
+            existing = dict(_STORE.processed_stripe_events[stripe_event_id])
+            existing["processing_status"] = "processed"
+            existing["processed_at"] = now
+            existing["updated_at"] = now
+            if summary_metadata is not None:
+                existing["summary_metadata"] = dict(summary_metadata)
+            _STORE.processed_stripe_events[stripe_event_id] = existing
+            return dict(existing)
+
+    def mark_failed(
+        self,
+        stripe_event_id: str,
+        *,
+        summary_metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        now = _utc_now()
+        with _UPLOAD_STORE_LOCK:
+            existing = dict(_STORE.processed_stripe_events[stripe_event_id])
+            existing["processing_status"] = "failed"
+            existing["updated_at"] = now
+            if summary_metadata is not None:
+                existing["summary_metadata"] = dict(summary_metadata)
+            _STORE.processed_stripe_events[stripe_event_id] = existing
+            return dict(existing)
 
 
 class _MemoryUploadRepository:
@@ -693,13 +907,16 @@ class _MemoryJobRepository:
         estimated_duration_seconds: int,
         segments: list[dict[str, Any]],
         cost_estimate_summary: dict[str, Any] | None = None,
+        billing_pricing_snapshot: dict[str, Any] | None = None,
         effective_fidelity_tier: str | None = None,
         effective_fidelity_profile: dict[str, Any] | None = None,
         reproducibility_mode: str = "perceptual_equivalence",
         access_token: str | None = None,
     ) -> dict[str, Any]:
         del access_token
-        created_at = _utc_now()
+        existing = _STORE.jobs.get(job_id) or {}
+        created_at = str(existing.get("created_at") or _utc_now())
+        queued_at = str(existing.get("queued_at") or created_at)
         record = {
             "job_id": job_id,
             "owner_user_id": owner_user_id,
@@ -768,7 +985,12 @@ class _MemoryJobRepository:
                 "api_calls": 0,
                 "total_cost_usd": 0.0,
             },
-            "cost_estimate_summary": cost_estimate_summary,
+            "cost_estimate_summary": existing.get("cost_estimate_summary") or cost_estimate_summary,
+            "billing_pricing_snapshot": dict(
+                existing.get("billing_pricing_snapshot")
+                or billing_pricing_snapshot
+                or {}
+            ),
             "cost_reconciliation_summary": None,
             "slo_summary": {
                 "target_total_ms": estimated_duration_seconds * 2000,
@@ -782,12 +1004,12 @@ class _MemoryJobRepository:
             "failed_segments": [],
             "warnings": [],
             "last_error": None,
-            "queued_at": created_at,
+            "queued_at": queued_at,
             "created_at": created_at,
             "started_at": None,
             "completed_at": None,
             "cancel_requested_at": None,
-            "updated_at": created_at,
+            "updated_at": _utc_now(),
         }
         _STORE.jobs[job_id] = record
         _STORE.job_segments[job_id] = [
@@ -1379,6 +1601,367 @@ class _SupabaseUsageRepository(_SupabaseRepositoryBase):
         if row is None:
             raise RuntimeError("Failed to update usage snapshot")
         return self._row_to_usage(row)
+
+
+class _SupabaseBillingAccountRepository(_SupabaseRepositoryBase):
+    def _billing_account_from_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": row["id"],
+            "owner_user_id": row.get("external_owner_user_id") or row.get("owner_user_id"),
+            "org_id": row.get("org_id", "org-default"),
+            "stripe_customer_id": row.get("stripe_customer_id"),
+            "stripe_subscription_id": row.get("stripe_subscription_id"),
+            "subscription_status": row.get("subscription_status"),
+            "subscription_price_id": row.get("subscription_price_id"),
+            "subscription_price_usd": row.get("subscription_price_usd"),
+            "included_minutes_monthly": row.get("included_minutes_monthly"),
+            "overage_price_id": row.get("overage_price_id"),
+            "overage_rate_usd_per_minute": row.get("overage_rate_usd_per_minute"),
+            "museum_quote_id": row.get("museum_quote_id"),
+            "museum_quote_status": row.get("museum_quote_status"),
+            "museum_quote_pricing": row.get("museum_quote_pricing") or {},
+            "recent_invoices": row.get("recent_invoices") or [],
+            "last_synced_at": row.get("last_synced_at"),
+            "created_at": row["created_at"],
+            "updated_at": row.get("updated_at") or row["created_at"],
+        }
+
+    def get_by_org(self, org_id: str, *, access_token: str | None = None) -> dict[str, Any] | None:
+        if access_token:
+            rows = self._client.rest_select(
+                "billing_accounts",
+                params={"select": "*", "org_id": f"eq.{org_id}", "limit": "1"},
+                headers=self._client.user_scoped_headers(access_token),
+            )
+            return self._billing_account_from_row(rows[0]) if rows else None
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                select billing_accounts.*, user_profiles.external_user_id as external_owner_user_id
+                from public.billing_accounts
+                left join public.user_profiles on public.user_profiles.id = public.billing_accounts.owner_user_id
+                where public.billing_accounts.org_id = %s
+                limit 1
+                """,
+                (org_id,),
+            )
+            row = cur.fetchone()
+        return self._billing_account_from_row(row) if row else None
+
+    def get_by_customer_id(self, customer_id: str) -> dict[str, Any] | None:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                select billing_accounts.*, user_profiles.external_user_id as external_owner_user_id
+                from public.billing_accounts
+                left join public.user_profiles on public.user_profiles.id = public.billing_accounts.owner_user_id
+                where public.billing_accounts.stripe_customer_id = %s
+                limit 1
+                """,
+                (customer_id,),
+            )
+            row = cur.fetchone()
+        return self._billing_account_from_row(row) if row else None
+
+    def upsert_by_org(
+        self,
+        *,
+        org_id: str,
+        owner_user_id: str,
+        patch: dict[str, Any],
+    ) -> dict[str, Any]:
+        from psycopg.types.json import Jsonb
+
+        existing = self.get_by_org(org_id)
+        effective_owner_user_id = str((existing or {}).get("owner_user_id") or owner_user_id)
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into public.billing_accounts (
+                    id, owner_user_id, org_id, stripe_customer_id, stripe_subscription_id,
+                    subscription_status, subscription_price_id, subscription_price_usd,
+                    included_minutes_monthly, overage_price_id, overage_rate_usd_per_minute,
+                    museum_quote_id, museum_quote_status, museum_quote_pricing, recent_invoices,
+                    last_synced_at, updated_at
+                )
+                values (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now()
+                )
+                on conflict (org_id) do update
+                set owner_user_id = excluded.owner_user_id,
+                    stripe_customer_id = excluded.stripe_customer_id,
+                    stripe_subscription_id = excluded.stripe_subscription_id,
+                    subscription_status = excluded.subscription_status,
+                    subscription_price_id = excluded.subscription_price_id,
+                    subscription_price_usd = excluded.subscription_price_usd,
+                    included_minutes_monthly = excluded.included_minutes_monthly,
+                    overage_price_id = excluded.overage_price_id,
+                    overage_rate_usd_per_minute = excluded.overage_rate_usd_per_minute,
+                    museum_quote_id = excluded.museum_quote_id,
+                    museum_quote_status = excluded.museum_quote_status,
+                    museum_quote_pricing = excluded.museum_quote_pricing,
+                    recent_invoices = excluded.recent_invoices,
+                    last_synced_at = excluded.last_synced_at,
+                    updated_at = now()
+                returning *
+                """,
+                (
+                    str((existing or {}).get("id") or uuid4()),
+                    _stable_uuid(effective_owner_user_id),
+                    org_id,
+                    patch.get("stripe_customer_id", (existing or {}).get("stripe_customer_id")),
+                    patch.get("stripe_subscription_id", (existing or {}).get("stripe_subscription_id")),
+                    patch.get("subscription_status", (existing or {}).get("subscription_status")),
+                    patch.get("subscription_price_id", (existing or {}).get("subscription_price_id")),
+                    patch.get("subscription_price_usd", (existing or {}).get("subscription_price_usd")),
+                    patch.get("included_minutes_monthly", (existing or {}).get("included_minutes_monthly")),
+                    patch.get("overage_price_id", (existing or {}).get("overage_price_id")),
+                    patch.get("overage_rate_usd_per_minute", (existing or {}).get("overage_rate_usd_per_minute")),
+                    patch.get("museum_quote_id", (existing or {}).get("museum_quote_id")),
+                    patch.get("museum_quote_status", (existing or {}).get("museum_quote_status")),
+                    Jsonb(patch.get("museum_quote_pricing", (existing or {}).get("museum_quote_pricing") or {})),
+                    Jsonb(patch.get("recent_invoices", (existing or {}).get("recent_invoices") or [])),
+                    patch.get("last_synced_at", (existing or {}).get("last_synced_at")),
+                ),
+            )
+            row = cur.fetchone()
+        if row is None:
+            raise RuntimeError("Failed to upsert billing account")
+        return self.get_by_org(org_id) or self._billing_account_from_row(row)
+
+
+class _SupabaseBillingAuditRepository(_SupabaseRepositoryBase):
+    def append_event(
+        self,
+        *,
+        org_id: str,
+        source: str,
+        event_type: str,
+        actor_user_id: str | None = None,
+        stripe_event_id: str | None = None,
+        before_summary: dict[str, Any] | None = None,
+        after_summary: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from psycopg.types.json import Jsonb
+
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into public.billing_audit_events (
+                    id, org_id, source, event_type, actor_user_id, stripe_event_id,
+                    before_summary, after_summary
+                )
+                values (%s, %s, %s, %s, %s, %s, %s, %s)
+                returning *
+                """,
+                (
+                    str(uuid4()),
+                    org_id,
+                    source,
+                    event_type,
+                    actor_user_id,
+                    stripe_event_id,
+                    Jsonb(before_summary or {}),
+                    Jsonb(after_summary or {}),
+                ),
+            )
+            row = cur.fetchone()
+        if row is None:
+            raise RuntimeError("Failed to append billing audit event")
+        return dict(row)
+
+    def list_events(self, *, org_id: str | None = None) -> list[dict[str, Any]]:
+        query = "select * from public.billing_audit_events"
+        params: tuple[Any, ...] = ()
+        if org_id is not None:
+            query += " where org_id = %s"
+            params = (org_id,)
+        query += " order by created_at desc"
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(query, params)
+            rows = cur.fetchall()
+        return [dict(row) for row in rows]
+
+
+class _SupabaseCommercialPricebookRevisionRepository(_SupabaseRepositoryBase):
+    def get_active(self) -> dict[str, Any] | None:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                select *
+                from public.commercial_pricebook_revisions
+                where active = true
+                order by activated_at desc
+                limit 1
+                """
+            )
+            row = cur.fetchone()
+        return dict(row) if row else None
+
+    def activate(
+        self,
+        *,
+        version: str,
+        payload: dict[str, Any],
+        applied_by_user_id: str,
+        applied_by_org_id: str,
+        source: str,
+        change_summary: str,
+    ) -> dict[str, Any]:
+        from psycopg.types.json import Jsonb
+
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                select 1
+                from public.commercial_pricebook_revisions
+                where version = %s
+                limit 1
+                """,
+                (version,),
+            )
+            if cur.fetchone() is not None:
+                raise ValueError("A commercial pricebook revision with that version already exists.")
+            cur.execute("update public.commercial_pricebook_revisions set active = false, updated_at = now() where active = true")
+            cur.execute(
+                """
+                insert into public.commercial_pricebook_revisions (
+                    id, version, payload, applied_by_user_id, applied_by_org_id,
+                    source, change_summary, activated_at, active, updated_at
+                )
+                values (%s, %s, %s, %s, %s, %s, %s, now(), true, now())
+                returning *
+                """,
+                (
+                    str(uuid4()),
+                    version,
+                    Jsonb(payload),
+                    applied_by_user_id,
+                    applied_by_org_id,
+                    source,
+                    change_summary,
+                ),
+            )
+            row = cur.fetchone()
+        if row is None:
+            raise RuntimeError("Failed to activate commercial pricebook revision")
+        return dict(row)
+
+    def list_active(self) -> list[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                select *
+                from public.commercial_pricebook_revisions
+                where active = true
+                order by activated_at desc
+                """
+            )
+            rows = cur.fetchall()
+        return [dict(row) for row in rows]
+
+
+class _SupabaseProcessedStripeEventRepository(_SupabaseRepositoryBase):
+    def claim_event(
+        self,
+        *,
+        stripe_event_id: str,
+        event_type: str,
+        org_id: str | None,
+    ) -> dict[str, Any] | None:
+        from psycopg.types.json import Jsonb
+
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into public.processed_stripe_events (
+                    stripe_event_id, event_type, org_id, processing_status, summary_metadata
+                )
+                values (%s, %s, %s, 'claimed', %s)
+                on conflict (stripe_event_id) do nothing
+                returning *
+                """,
+                (stripe_event_id, event_type, org_id, Jsonb({})),
+            )
+            created = cur.fetchone()
+            if created is not None:
+                return dict(created)
+            cur.execute(
+                """
+                update public.processed_stripe_events
+                set event_type = %s,
+                    org_id = coalesce(%s, org_id),
+                    processing_status = 'claimed',
+                    processed_at = null,
+                    updated_at = now()
+                where stripe_event_id = %s
+                  and processing_status = 'failed'
+                returning *
+                """,
+                (event_type, org_id, stripe_event_id),
+            )
+            reclaimed = cur.fetchone()
+        return dict(reclaimed) if reclaimed else None
+
+    def get_event(self, stripe_event_id: str) -> dict[str, Any] | None:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "select * from public.processed_stripe_events where stripe_event_id = %s limit 1",
+                (stripe_event_id,),
+            )
+            row = cur.fetchone()
+        return dict(row) if row else None
+
+    def mark_processed(
+        self,
+        stripe_event_id: str,
+        *,
+        summary_metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from psycopg.types.json import Jsonb
+
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                update public.processed_stripe_events
+                set processing_status = 'processed',
+                    summary_metadata = %s,
+                    processed_at = now(),
+                    updated_at = now()
+                where stripe_event_id = %s
+                returning *
+                """,
+                (Jsonb(summary_metadata or {}), stripe_event_id),
+            )
+            row = cur.fetchone()
+        if row is None:
+            raise RuntimeError(f"Processed Stripe event {stripe_event_id} not found")
+        return dict(row)
+
+    def mark_failed(
+        self,
+        stripe_event_id: str,
+        *,
+        summary_metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from psycopg.types.json import Jsonb
+
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                update public.processed_stripe_events
+                set processing_status = 'failed',
+                    summary_metadata = %s,
+                    updated_at = now()
+                where stripe_event_id = %s
+                returning *
+                """,
+                (Jsonb(summary_metadata or {}), stripe_event_id),
+            )
+            row = cur.fetchone()
+        if row is None:
+            raise RuntimeError(f"Processed Stripe event {stripe_event_id} not found")
+        return dict(row)
 
 
 class _SupabaseUploadRepository(_SupabaseRepositoryBase):
@@ -2272,6 +2855,7 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
             "cost_summary": row.get("cost_summary")
             or {"gpu_seconds": 0, "storage_operations": 0, "api_calls": 0, "total_cost_usd": 0.0},
             "cost_estimate_summary": row.get("cost_estimate_summary"),
+            "billing_pricing_snapshot": row.get("billing_pricing_snapshot") or {},
             "cost_reconciliation_summary": row.get("cost_reconciliation_summary"),
             "slo_summary": row.get("slo_summary")
             or {
@@ -2337,6 +2921,7 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
         estimated_duration_seconds: int,
         segments: list[dict[str, Any]],
         cost_estimate_summary: dict[str, Any] | None = None,
+        billing_pricing_snapshot: dict[str, Any] | None = None,
         effective_fidelity_tier: str | None = None,
         effective_fidelity_profile: dict[str, Any] | None = None,
         reproducibility_mode: str = "perceptual_equivalence",
@@ -2346,9 +2931,14 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
             headers = self._client.user_scoped_headers(access_token)
             existing_job_rows = self._client.rest_select(
                 "media_jobs",
-                params={"select": "id", "external_job_id": f"eq.{job_id}", "limit": "1"},
+                params={
+                    "select": "id,queued_at,billing_pricing_snapshot,cost_estimate_summary",
+                    "external_job_id": f"eq.{job_id}",
+                    "limit": "1",
+                },
                 headers=headers,
             )
+            existing_job = existing_job_rows[0] if existing_job_rows else {}
             row = self._client.rest_upsert(
                 "media_jobs",
                 payload={
@@ -2417,7 +3007,12 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
                         "api_calls": 0,
                         "total_cost_usd": 0.0,
                     },
-                    "cost_estimate_summary": cost_estimate_summary or {},
+                    "cost_estimate_summary": existing_job.get("cost_estimate_summary")
+                    or cost_estimate_summary
+                    or {},
+                    "billing_pricing_snapshot": existing_job.get("billing_pricing_snapshot")
+                    or billing_pricing_snapshot
+                    or {},
                     "cost_reconciliation_summary": None,
                     "slo_summary": {
                         "target_total_ms": estimated_duration_seconds * 2000,
@@ -2428,7 +3023,7 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
                         "error_budget_burn_percent": 0.0,
                         "museum_sla_applies": plan_tier.lower() == "museum",
                     },
-                    "queued_at": _utc_now(),
+                    "queued_at": existing_job.get("queued_at") or _utc_now(),
                     "updated_at": _utc_now(),
                 },
                 on_conflict="external_job_id",
@@ -2483,11 +3078,11 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
                     eta_seconds, current_operation, progress_topic, failed_segments,
                     warnings, manifest_available, quality_summary, stage_timings,
                     cache_summary, gpu_summary, cost_summary, cost_estimate_summary,
-                    cost_reconciliation_summary, slo_summary, queued_at, updated_at
+                    billing_pricing_snapshot, cost_reconciliation_summary, slo_summary, queued_at, updated_at
                 )
                 values (
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    0, 0, 0, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    0, 0, 0, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                 )
                 on conflict (external_job_id) do update
                 set org_id = excluded.org_id,
@@ -2517,10 +3112,8 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
                     cache_summary = excluded.cache_summary,
                     gpu_summary = excluded.gpu_summary,
                     cost_summary = excluded.cost_summary,
-                    cost_estimate_summary = excluded.cost_estimate_summary,
                     cost_reconciliation_summary = excluded.cost_reconciliation_summary,
                     slo_summary = excluded.slo_summary,
-                    queued_at = excluded.queued_at,
                     updated_at = excluded.updated_at
                 returning *
                 """,
@@ -2580,6 +3173,7 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
                     ),
                     Jsonb({"gpu_seconds": 0, "storage_operations": 0, "api_calls": 0, "total_cost_usd": 0.0}),
                     Jsonb(cost_estimate_summary or {}),
+                    Jsonb(billing_pricing_snapshot or {}),
                     Jsonb(None),
                     Jsonb(
                         {
@@ -3338,6 +3932,30 @@ def _usage_backend() -> _MemoryUsageRepository | _SupabaseUsageRepository:
     return _SupabaseUsageRepository() if phase2_backend_name() == "supabase" else _MemoryUsageRepository()
 
 
+def _billing_account_backend() -> _MemoryBillingAccountRepository | _SupabaseBillingAccountRepository:
+    return _SupabaseBillingAccountRepository() if phase2_backend_name() == "supabase" else _MemoryBillingAccountRepository()
+
+
+def _billing_audit_backend() -> _MemoryBillingAuditRepository | _SupabaseBillingAuditRepository:
+    return _SupabaseBillingAuditRepository() if phase2_backend_name() == "supabase" else _MemoryBillingAuditRepository()
+
+
+def _commercial_pricebook_revision_backend() -> _MemoryCommercialPricebookRevisionRepository | _SupabaseCommercialPricebookRevisionRepository:
+    return (
+        _SupabaseCommercialPricebookRevisionRepository()
+        if phase2_backend_name() == "supabase"
+        else _MemoryCommercialPricebookRevisionRepository()
+    )
+
+
+def _processed_stripe_event_backend() -> _MemoryProcessedStripeEventRepository | _SupabaseProcessedStripeEventRepository:
+    return (
+        _SupabaseProcessedStripeEventRepository()
+        if phase2_backend_name() == "supabase"
+        else _MemoryProcessedStripeEventRepository()
+    )
+
+
 def _upload_backend() -> _MemoryUploadRepository | _SupabaseUploadRepository:
     return _SupabaseUploadRepository() if phase2_backend_name() == "supabase" else _MemoryUploadRepository()
 
@@ -3430,6 +4048,122 @@ class UsageRepository:
 
     def update(self, user_id: str, payload: dict[str, Any], *, access_token: str | None = None) -> dict[str, Any]:
         return self._backend.update(user_id, payload, access_token=access_token)
+
+
+class BillingAccountRepository:
+    def __init__(self) -> None:
+        self._backend = _billing_account_backend()
+
+    def get_by_org(self, org_id: str, *, access_token: str | None = None) -> dict[str, Any] | None:
+        return self._backend.get_by_org(org_id, access_token=access_token)
+
+    def get_by_customer_id(self, customer_id: str) -> dict[str, Any] | None:
+        return self._backend.get_by_customer_id(customer_id)
+
+    def upsert_by_org(
+        self,
+        *,
+        org_id: str,
+        owner_user_id: str,
+        patch: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._backend.upsert_by_org(org_id=org_id, owner_user_id=owner_user_id, patch=patch)
+
+
+class BillingAuditRepository:
+    def __init__(self) -> None:
+        self._backend = _billing_audit_backend()
+
+    def append_event(
+        self,
+        *,
+        org_id: str,
+        source: str,
+        event_type: str,
+        actor_user_id: str | None = None,
+        stripe_event_id: str | None = None,
+        before_summary: dict[str, Any] | None = None,
+        after_summary: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self._backend.append_event(
+            org_id=org_id,
+            source=source,
+            event_type=event_type,
+            actor_user_id=actor_user_id,
+            stripe_event_id=stripe_event_id,
+            before_summary=before_summary,
+            after_summary=after_summary,
+        )
+
+    def list_events(self, *, org_id: str | None = None) -> list[dict[str, Any]]:
+        return self._backend.list_events(org_id=org_id)
+
+
+class CommercialPricebookRevisionRepository:
+    def __init__(self) -> None:
+        self._backend = _commercial_pricebook_revision_backend()
+
+    def get_active(self) -> dict[str, Any] | None:
+        return self._backend.get_active()
+
+    def activate(
+        self,
+        *,
+        version: str,
+        payload: dict[str, Any],
+        applied_by_user_id: str,
+        applied_by_org_id: str,
+        source: str,
+        change_summary: str,
+    ) -> dict[str, Any]:
+        return self._backend.activate(
+            version=version,
+            payload=payload,
+            applied_by_user_id=applied_by_user_id,
+            applied_by_org_id=applied_by_org_id,
+            source=source,
+            change_summary=change_summary,
+        )
+
+    def list_active(self) -> list[dict[str, Any]]:
+        return self._backend.list_active()
+
+
+class ProcessedStripeEventRepository:
+    def __init__(self) -> None:
+        self._backend = _processed_stripe_event_backend()
+
+    def claim_event(
+        self,
+        *,
+        stripe_event_id: str,
+        event_type: str,
+        org_id: str | None,
+    ) -> dict[str, Any] | None:
+        return self._backend.claim_event(
+            stripe_event_id=stripe_event_id,
+            event_type=event_type,
+            org_id=org_id,
+        )
+
+    def get_event(self, stripe_event_id: str) -> dict[str, Any] | None:
+        return self._backend.get_event(stripe_event_id)
+
+    def mark_processed(
+        self,
+        stripe_event_id: str,
+        *,
+        summary_metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self._backend.mark_processed(stripe_event_id, summary_metadata=summary_metadata)
+
+    def mark_failed(
+        self,
+        stripe_event_id: str,
+        *,
+        summary_metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self._backend.mark_failed(stripe_event_id, summary_metadata=summary_metadata)
 
 
 class UploadRepository:
@@ -3670,6 +4404,7 @@ class JobRepository:
         estimated_duration_seconds: int,
         segments: list[dict[str, Any]],
         cost_estimate_summary: dict[str, Any] | None = None,
+        billing_pricing_snapshot: dict[str, Any] | None = None,
         effective_fidelity_tier: str | None = None,
         effective_fidelity_profile: dict[str, Any] | None = None,
         reproducibility_mode: str = "perceptual_equivalence",
@@ -3694,6 +4429,7 @@ class JobRepository:
             estimated_duration_seconds=estimated_duration_seconds,
             segments=segments,
             cost_estimate_summary=cost_estimate_summary,
+            billing_pricing_snapshot=billing_pricing_snapshot,
             access_token=access_token,
         )
 

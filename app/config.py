@@ -64,6 +64,10 @@ class Settings:
     )
     stripe_billing_portal_return_url: str = os.getenv("STRIPE_BILLING_PORTAL_RETURN_URL", "")
     commercial_pricebook_json: str = os.getenv("COMMERCIAL_PRICEBOOK_JSON", "")
+    commercial_pricebook_bootstrap_enabled: bool = _as_bool(
+        os.getenv("COMMERCIAL_PRICEBOOK_BOOTSTRAP_ENABLED", "false"),
+        default=False,
+    )
     hobbyist_monthly_limit_minutes: int = int(os.getenv("HOBBYIST_MONTHLY_LIMIT_MINUTES", "60"))
     pro_monthly_limit_minutes: int = int(os.getenv("PRO_MONTHLY_LIMIT_MINUTES", "600"))
     museum_monthly_limit_minutes: int = int(os.getenv("MUSEUM_MONTHLY_LIMIT_MINUTES", "2000"))

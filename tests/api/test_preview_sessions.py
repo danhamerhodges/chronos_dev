@@ -2,6 +2,7 @@
 Maps to:
 - FR-006
 - ENG-014
+- NFR-006
 """
 
 from __future__ import annotations
@@ -14,8 +15,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.api import previews as previews_api
-from app.db.phase2_store import PreviewSessionRepository, UploadRepository, reset_phase2_store
+from app.db.phase2_store import JobRepository, PreviewSessionRepository, UploadRepository, reset_phase2_store
 from app.main import app
+from app.services.billing_service import EffectivePricingSnapshot
 from app.services.job_dispatcher import queued_dispatch_messages, reset_job_dispatcher_state
 from app.services.preview_generation import PreviewStorageUnavailableError
 from tests.helpers.auth import fake_auth_header
@@ -386,6 +388,7 @@ def test_claimed_launch_retry_reuses_same_job_id_after_dispatch_failure(monkeypa
     )
 
     attempts = {"count": 0}
+    pricing_state = {"version": "test-pricebook-v1", "subscription_price_usd": 29.0, "overage_rate": 0.5}
     from app.services import preview_generation as preview_generation_service
 
     original_publish = preview_generation_service.publish_job
@@ -397,6 +400,19 @@ def test_claimed_launch_retry_reuses_same_job_id_after_dispatch_failure(monkeypa
         return original_publish(job_id, plan_tier=plan_tier, source=source)
 
     monkeypatch.setattr(preview_generation_service, "publish_job", flaky_publish)
+    monkeypatch.setattr(
+        "app.services.cost_estimation.effective_pricing_for_plan",
+        lambda plan_tier, org_id=None, access_token=None, pricing_metadata=None: EffectivePricingSnapshot(
+            pricebook_version=str(pricing_state["version"]),
+            subscription_price_id=f"price_{plan_tier}",
+            subscription_price_usd=float(pricing_state["subscription_price_usd"]),
+            included_minutes_monthly=60,
+            overage_enabled=True,
+            overage_price_id=f"price_{plan_tier}_overage",
+            overage_rate_usd_per_minute=float(pricing_state["overage_rate"]),
+            entitlement_source="commercial_pricebook",
+        ),
+    )
 
     first_launch = client.post(
         f"/v1/previews/{created['preview_id']}/launch",
@@ -408,20 +424,44 @@ def test_claimed_launch_retry_reuses_same_job_id_after_dispatch_failure(monkeypa
         owner_user_id="preview-dispatch-retry-user",
         access_token="test-token-for-preview-dispatch-retry-user",
     )
+    assert pending_preview is not None
+    job_before_retry = JobRepository().get_job(
+        str(pending_preview["launched_external_job_id"]),
+        owner_user_id="preview-dispatch-retry-user",
+        access_token="test-token-for-preview-dispatch-retry-user",
+    )
+    assert job_before_retry is not None
+    pricing_state.update(
+        {
+            "version": "test-pricebook-v2",
+            "subscription_price_usd": 99.0,
+            "overage_rate": 1.25,
+        }
+    )
     second_launch = client.post(
         f"/v1/previews/{created['preview_id']}/launch",
         headers=fake_auth_header("preview-dispatch-retry-user", tier="pro"),
         json={"configuration_fingerprint": configuration["configuration_fingerprint"]},
     )
+    job_after_retry = JobRepository().get_job(
+        str(pending_preview["launched_external_job_id"]),
+        owner_user_id="preview-dispatch-retry-user",
+        access_token="test-token-for-preview-dispatch-retry-user",
+    )
 
     assert first_launch.status_code == 503
     assert first_launch.json()["type"] == "/problems/launch_dispatch_failed"
-    assert pending_preview is not None
     assert pending_preview["launch_status"] == "launch_pending"
     assert pending_preview["launched_external_job_id"]
     assert second_launch.status_code == 202
     assert second_launch.json()["job_id"] == pending_preview["launched_external_job_id"]
     assert len(queued_dispatch_messages()) == 1
+    assert job_after_retry is not None
+    assert job_after_retry["queued_at"] == job_before_retry["queued_at"]
+    assert job_after_retry["billing_pricing_snapshot"]["pricebook_version"] == "test-pricebook-v1"
+    assert job_after_retry["billing_pricing_snapshot"]["subscription_price_usd"] == 29.0
+    assert job_after_retry["cost_estimate_summary"]["effective_pricing"]["pricebook_version"] == "test-pricebook-v1"
+    assert job_after_retry["cost_estimate_summary"]["effective_pricing"]["subscription_price_usd"] == 29.0
 
 
 def test_preview_create_does_not_return_expired_exact_hit_when_delete_patch_misses(

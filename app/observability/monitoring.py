@@ -16,6 +16,7 @@ _JOB_RUNTIME_COUNTS: dict[str, int] = defaultdict(int)
 _SEGMENT_RETRY_COUNTS: dict[str, int] = defaultdict(int)
 _SEGMENT_FAILURE_COUNTS: dict[str, int] = defaultdict(int)
 _WEBHOOK_ATTEMPT_COUNTS: dict[str, int] = defaultdict(int)
+_BILLING_EVENT_COUNTS: dict[str, int] = defaultdict(int)
 _JOB_STAGE_TIMING_SUMS_MS: dict[str, int] = defaultdict(int)
 _JOB_STAGE_TIMING_COUNTS: dict[str, int] = defaultdict(int)
 _CACHE_EVENT_COUNTS: dict[str, int] = defaultdict(int)
@@ -74,6 +75,10 @@ def record_segment_failure(error_classification: str) -> None:
 
 def record_webhook_attempt(status: str) -> None:
     _WEBHOOK_ATTEMPT_COUNTS[status] += 1
+
+
+def record_billing_event(event_name: str, *, outcome: str) -> None:
+    _BILLING_EVENT_COUNTS[f"{event_name}:{outcome}"] += 1
 
 
 def record_job_stage_timings(stage_timings: dict[str, int | None]) -> None:
@@ -251,6 +256,17 @@ def metrics_payload(namespace: str) -> str:
         lines.append(f"{namespace}_job_webhook_attempts_total{{status=\"{webhook_status}\"}} {count}")
     lines.extend(
         [
+            f"# HELP {namespace}_billing_events_total Total billing control-plane events by type and outcome.",
+            f"# TYPE {namespace}_billing_events_total counter",
+        ]
+    )
+    for billing_key, count in sorted(_BILLING_EVENT_COUNTS.items()):
+        event_name, outcome = billing_key.split(":", 1)
+        lines.append(
+            f"{namespace}_billing_events_total{{event_name=\"{event_name}\",outcome=\"{outcome}\"}} {count}"
+        )
+    lines.extend(
+        [
             f"# HELP {namespace}_job_stage_duration_ms_sum Sum of job stage durations in milliseconds.",
             f"# TYPE {namespace}_job_stage_duration_ms_sum counter",
         ]
@@ -425,6 +441,7 @@ def reset_monitoring_state() -> None:
     _SEGMENT_RETRY_COUNTS.clear()
     _SEGMENT_FAILURE_COUNTS.clear()
     _WEBHOOK_ATTEMPT_COUNTS.clear()
+    _BILLING_EVENT_COUNTS.clear()
     _JOB_STAGE_TIMING_SUMS_MS.clear()
     _JOB_STAGE_TIMING_COUNTS.clear()
     _CACHE_EVENT_COUNTS.clear()

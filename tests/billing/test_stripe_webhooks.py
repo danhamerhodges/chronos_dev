@@ -1,10 +1,17 @@
-"""Maps to: NFR-012"""
+"""Maps to: NFR-012, NFR-006"""
 
+from types import SimpleNamespace
 import os
 
 import pytest
+from fastapi.testclient import TestClient
 
+from app.api import webhooks as webhooks_api
 from app.billing.webhooks import construct_event, verify_signature
+from app.db.phase2_store import BillingAccountRepository, ProcessedStripeEventRepository
+from app.main import app
+
+client = TestClient(app)
 
 
 def test_signature_verification() -> None:
@@ -38,3 +45,119 @@ def test_construct_event_with_real_signature() -> None:
     header = f"t={timestamp},v1={sig}"
     event = construct_event(payload=payload, stripe_signature_header=header, secret=secret)
     assert event is not None
+
+
+def test_webhook_route_rejects_invalid_signature(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(webhooks_api, "settings", SimpleNamespace(stripe_webhook_secret="whsec_test"))
+    monkeypatch.setattr(
+        webhooks_api,
+        "construct_event",
+        lambda payload, stripe_signature_header, secret: (_ for _ in ()).throw(ValueError("bad signature")),
+    )
+
+    response = client.post(
+        "/v1/webhooks/stripe",
+        headers={"Stripe-Signature": "invalid"},
+        content=b"{}",
+    )
+
+    assert response.status_code == 400
+    assert response.json()["title"] == "Invalid Stripe Webhook"
+
+
+def test_webhook_route_processes_duplicate_replays(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(webhooks_api, "settings", SimpleNamespace(stripe_webhook_secret="whsec_test"))
+    event = {
+        "id": "evt_duplicate",
+        "type": "invoice.paid",
+        "data": {
+            "object": {
+                "id": "in_duplicate",
+                "customer": "cus_duplicate",
+                "status": "paid",
+                "amount_paid": 1500,
+                "amount_due": 0,
+                "metadata": {
+                    "org_id": "org-duplicate",
+                    "owner_user_id": "duplicate-owner",
+                },
+            }
+        },
+    }
+    monkeypatch.setattr(webhooks_api, "construct_event", lambda payload, stripe_signature_header, secret: event)
+
+    first = client.post("/v1/webhooks/stripe", headers={"Stripe-Signature": "valid"}, content=b"{}")
+    second = client.post("/v1/webhooks/stripe", headers={"Stripe-Signature": "valid"}, content=b"{}")
+
+    assert first.status_code == 200
+    assert first.json()["status"] == "processed"
+    assert first.json()["duplicate"] is False
+    assert second.status_code == 200
+    assert second.json()["status"] == "duplicate"
+    assert second.json()["duplicate"] is True
+    account = BillingAccountRepository().get_by_org("org-duplicate")
+    assert account is not None
+    assert account["recent_invoices"][0]["invoice_id"] == "in_duplicate"
+
+
+def test_webhook_route_reclaims_failed_event_once_then_stays_duplicate(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(webhooks_api, "settings", SimpleNamespace(stripe_webhook_secret="whsec_test"))
+    events = {
+        "failed": {
+            "id": "evt_retry",
+            "type": "customer.subscription.updated",
+            "data": {
+                "object": {
+                    "id": "sub_retry",
+                    "customer": "cus_retry",
+                    "status": "active",
+                    "items": {"data": [{"price": {"id": "price_museum", "unit_amount": 50000}}]},
+                    "metadata": {},
+                }
+            },
+        },
+        "processed": {
+            "id": "evt_retry",
+            "type": "customer.subscription.updated",
+            "data": {
+                "object": {
+                    "id": "sub_retry",
+                    "customer": "cus_retry",
+                    "status": "active",
+                    "items": {"data": [{"price": {"id": "price_museum", "unit_amount": 50000}}]},
+                    "metadata": {
+                        "org_id": "org-retry",
+                        "owner_user_id": "retry-owner",
+                        "included_minutes_monthly": "500",
+                        "overage_price_id": "price_museum_overage",
+                        "overage_rate_usd_per_minute": "0.4",
+                    },
+                }
+            },
+        },
+    }
+    state = {"attempt": 0}
+
+    def fake_construct_event(payload, stripe_signature_header, secret):
+        state["attempt"] += 1
+        if state["attempt"] == 1:
+            return events["failed"]
+        return events["processed"]
+
+    monkeypatch.setattr(webhooks_api, "construct_event", fake_construct_event)
+
+    first = client.post("/v1/webhooks/stripe", headers={"Stripe-Signature": "valid"}, content=b"{}")
+    second = client.post("/v1/webhooks/stripe", headers={"Stripe-Signature": "valid"}, content=b"{}")
+    third = client.post("/v1/webhooks/stripe", headers={"Stripe-Signature": "valid"}, content=b"{}")
+
+    assert first.status_code == 503
+    assert second.status_code == 200
+    assert second.json()["status"] == "processed"
+    assert third.status_code == 200
+    assert third.json()["status"] == "duplicate"
+    processed_event = ProcessedStripeEventRepository().get_event("evt_retry")
+    assert processed_event is not None
+    assert processed_event["processing_status"] == "processed"
+    account = BillingAccountRepository().get_by_org("org-retry")
+    assert account is not None
+    assert account["subscription_price_id"] == "price_museum"
