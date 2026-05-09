@@ -54,11 +54,11 @@ def _event_timestamp(event: Any) -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _subscription_price(resource: Any) -> tuple[str, float]:
+def _subscription_price(resource: Any) -> tuple[str, float | None]:
     items_container = _field(resource, "items") or {}
     items = _field(items_container, "data") or []
     if not items:
-        return "", 0.0
+        return "", None
     first_item = items[0]
     price = _field(first_item, "price") or {}
     price_id = str(_field(price, "id") or "").strip()
@@ -66,7 +66,7 @@ def _subscription_price(resource: Any) -> tuple[str, float]:
     if unit_amount is None:
         unit_amount = _field(price, "unit_amount")
     if unit_amount in (None, ""):
-        return price_id, 0.0
+        return price_id, None
     return price_id, round(float(unit_amount) / 100.0, 4)
 
 
@@ -184,7 +184,11 @@ class StripeWebhookService:
             "stripe_subscription_id": str(_field(resource, "id") or "").strip(),
             "subscription_status": str(_field(resource, "status") or "").strip(),
             "subscription_price_id": subscription_price_id or account_before.get("subscription_price_id"),
-            "subscription_price_usd": subscription_price_usd or account_before.get("subscription_price_usd"),
+            "subscription_price_usd": (
+                subscription_price_usd
+                if subscription_price_usd is not None
+                else account_before.get("subscription_price_usd")
+            ),
             "included_minutes_monthly": _metadata(resource).get("included_minutes_monthly")
             or account_before.get("included_minutes_monthly"),
             "overage_price_id": _metadata(resource).get("overage_price_id") or account_before.get("overage_price_id"),

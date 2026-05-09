@@ -200,7 +200,10 @@ def create_billing_portal_session(customer_id: str, return_url: str | None = Non
     if not effective_return_url:
         raise ValueError("STRIPE_BILLING_PORTAL_RETURN_URL is required for billing portal sessions")
 
-    return stripe.billing_portal.Session.create(
-        customer=customer_id,
-        return_url=effective_return_url,
-    )
+    try:
+        return stripe.billing_portal.Session.create(
+            customer=customer_id,
+            return_url=effective_return_url,
+        )
+    except stripe.StripeError as exc:
+        raise ValueError("Stripe billing portal session is unavailable.") from exc

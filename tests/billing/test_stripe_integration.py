@@ -3,6 +3,7 @@
 import os
 
 import pytest
+import stripe
 
 from app.config import Settings
 from app.billing.stripe_client import (
@@ -28,6 +29,16 @@ def test_stripe_identifiers_must_be_resource_ids() -> None:
 def test_billing_portal_requires_return_url() -> None:
     with pytest.raises(ValueError):
         create_billing_portal_session(customer_id="cus_test", return_url="   ")
+
+
+def test_billing_portal_normalizes_stripe_errors(monkeypatch) -> None:
+    def raise_stripe_error(**kwargs):
+        raise stripe.StripeError("portal unavailable")
+
+    monkeypatch.setattr("app.billing.stripe_client.stripe.billing_portal.Session.create", raise_stripe_error)
+
+    with pytest.raises(ValueError, match="Stripe billing portal session is unavailable"):
+        create_billing_portal_session(customer_id="cus_test", return_url="https://app.example.test/billing")
 
 
 def test_resolve_billing_pricing_metadata_returns_tier_specific_subscription_prices(monkeypatch) -> None:

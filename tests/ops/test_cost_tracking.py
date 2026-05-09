@@ -255,6 +255,32 @@ def test_cost_snapshot_excludes_non_completed_jobs_even_with_reconciliation(monk
     assert payload["recent_anomalies"] == []
 
 
+def test_cost_financials_preserve_zero_valued_pricing_snapshots(monkeypatch) -> None:
+    monkeypatch.setattr("app.services.cost_ops.monthly_limit_for_tier", lambda plan_tier: 100)
+
+    from app.services.cost_ops import _job_financials, _job_overage_rate_usd_per_minute
+
+    job = {
+        "plan_tier": "pro",
+        "billing_pricing_snapshot": {
+            "subscription_price_usd": 0.0,
+            "included_minutes_monthly": 100,
+            "overage_rate_usd_per_minute": 0.0,
+        },
+        "cost_reconciliation_summary": {
+            "actual_total_cost_usd": 1.0,
+            "actual_charge_total_usd": 0.0,
+            "actual_usage_minutes": 10,
+        },
+    }
+    pricing_metadata = _pricing_metadata(pro=900.0, museum=1500.0)
+
+    assert _job_overage_rate_usd_per_minute(job, pricing_metadata=pricing_metadata) == 0.0
+    financials = _job_financials(job, pricing_metadata=pricing_metadata)
+    assert financials["revenue_total_usd"] == 0.0
+    assert financials["gross_margin_percent"] == -100.0
+
+
 def test_negative_cost_delta_does_not_emit_anomaly(monkeypatch) -> None:
     monkeypatch.setattr(
         "app.services.cost_ops.resolve_billing_pricing_metadata",

@@ -46,9 +46,11 @@ def test_billing_summary_and_portal_session_are_org_scoped(monkeypatch) -> None:
         lambda customer_id, return_url: {"url": f"https://billing.example.test/{customer_id}"},
     )
 
-    headers = fake_auth_header("billing-owner-alpha", role="member", tier="museum", org_id="org-alpha")
-    summary = client.get("/v1/users/me/billing", headers=headers)
-    portal = client.post("/v1/users/me/billing/portal-session", headers=headers)
+    member_headers = fake_auth_header("billing-owner-alpha", role="member", tier="museum", org_id="org-alpha")
+    admin_headers = fake_auth_header("billing-owner-alpha", role="admin", tier="museum", org_id="org-alpha")
+    summary = client.get("/v1/users/me/billing", headers=member_headers)
+    member_portal = client.post("/v1/users/me/billing/portal-session", headers=member_headers)
+    admin_portal = client.post("/v1/users/me/billing/portal-session", headers=admin_headers)
 
     assert summary.status_code == 200
     summary_payload = summary.json()
@@ -58,8 +60,9 @@ def test_billing_summary_and_portal_session_are_org_scoped(monkeypatch) -> None:
     assert summary_payload["recent_invoices"] == [{"invoice_id": "in_alpha", "status": "paid"}]
     assert summary_payload["museum_quote"] == {"quote_id": "qt_alpha", "status": "open"}
 
-    assert portal.status_code == 200
-    assert portal.json()["url"] == "https://billing.example.test/cus_alpha"
+    assert member_portal.status_code == 403
+    assert admin_portal.status_code == 200
+    assert admin_portal.json()["url"] == "https://billing.example.test/cus_alpha"
 
 
 def test_pricebook_activation_requires_platform_admin() -> None:

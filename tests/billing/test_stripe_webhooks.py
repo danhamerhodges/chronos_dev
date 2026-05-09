@@ -145,6 +145,41 @@ def test_webhook_route_handles_stripe_object_metadata(monkeypatch: pytest.Monkey
     assert account["recent_invoices"][0]["invoice_id"] == "in_sdk_metadata"
 
 
+def test_subscription_webhook_preserves_zero_priced_updates(monkeypatch: pytest.MonkeyPatch) -> None:
+    BillingAccountRepository().upsert_by_org(
+        org_id="org-zero-price",
+        owner_user_id="zero-price-owner",
+        patch={
+            "stripe_customer_id": "cus_zero_price",
+            "subscription_price_id": "price_paid",
+            "subscription_price_usd": 29.0,
+        },
+    )
+    monkeypatch.setattr(webhooks_api, "settings", SimpleNamespace(stripe_webhook_secret="whsec_test"))
+    event = {
+        "id": "evt_zero_price",
+        "type": "customer.subscription.updated",
+        "data": {
+            "object": {
+                "id": "sub_zero_price",
+                "customer": "cus_zero_price",
+                "status": "active",
+                "items": {"data": [{"price": {"id": "price_free", "unit_amount": 0}}]},
+                "metadata": {"org_id": "org-zero-price", "owner_user_id": "zero-price-owner"},
+            }
+        },
+    }
+    monkeypatch.setattr(webhooks_api, "construct_event", lambda payload, stripe_signature_header, secret: event)
+
+    response = client.post("/v1/webhooks/stripe", headers={"Stripe-Signature": "valid"}, content=b"{}")
+
+    assert response.status_code == 200
+    account = BillingAccountRepository().get_by_org("org-zero-price")
+    assert account is not None
+    assert account["subscription_price_id"] == "price_free"
+    assert account["subscription_price_usd"] == 0.0
+
+
 def test_webhook_route_reclaims_failed_event_once_then_stays_duplicate(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(webhooks_api, "settings", SimpleNamespace(stripe_webhook_secret="whsec_test"))
     events = {

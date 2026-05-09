@@ -79,12 +79,18 @@ def _job_pricing_snapshot(job: dict[str, Any]) -> dict[str, Any]:
 
 def _job_overage_rate_usd_per_minute(job: dict[str, Any], *, pricing_metadata: BillingPricingMetadata) -> float:
     pricing_snapshot = _job_pricing_snapshot(job)
-    stored_rate = float(pricing_snapshot.get("overage_rate_usd_per_minute", 0.0) or 0.0)
-    if stored_rate > 0:
-        return stored_rate
+    if (
+        "overage_rate_usd_per_minute" in pricing_snapshot
+        and pricing_snapshot["overage_rate_usd_per_minute"] is not None
+    ):
+        return float(pricing_snapshot["overage_rate_usd_per_minute"])
     billing_breakdown = (job.get("cost_estimate_summary") or {}).get("billing_breakdown_usd") or {}
-    estimated_rate = float(billing_breakdown.get("overage_rate_usd_per_minute", 0.0) or 0.0)
-    return estimated_rate if estimated_rate > 0 else pricing_metadata.overage_rate_usd_per_minute
+    if (
+        "overage_rate_usd_per_minute" in billing_breakdown
+        and billing_breakdown["overage_rate_usd_per_minute"] is not None
+    ):
+        return float(billing_breakdown["overage_rate_usd_per_minute"])
+    return pricing_metadata.overage_rate_usd_per_minute
 
 
 def _included_minutes(job: dict[str, Any], reconciliation_summary: dict[str, Any], *, pricing_metadata: BillingPricingMetadata) -> int:
@@ -117,11 +123,13 @@ def _job_financials(
         reconciliation_summary,
         pricing_metadata=pricing_metadata,
     )
-    subscription_price_usd = float(
-        pricing_snapshot.get("subscription_price_usd")
-        or pricing_metadata.subscription_price_usd_for_tier(plan_tier)
-        or 0.0
-    )
+    if (
+        "subscription_price_usd" in pricing_snapshot
+        and pricing_snapshot["subscription_price_usd"] is not None
+    ):
+        subscription_price_usd = float(pricing_snapshot["subscription_price_usd"])
+    else:
+        subscription_price_usd = float(pricing_metadata.subscription_price_usd_for_tier(plan_tier) or 0.0)
     included_revenue_usd = round((subscription_price_usd / monthly_limit) * included_minutes, 4)
     revenue_total_usd = round(included_revenue_usd + actual_charge_total_usd, 4)
     gross_margin_percent = (

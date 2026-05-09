@@ -182,7 +182,7 @@ def get_billing_summary(user: AuthenticatedUser = Depends(require_permission("bi
 
 @router.post("/v1/users/me/billing/portal-session", response_model=BillingPortalSessionResponse)
 def create_billing_portal_session(
-    user: AuthenticatedUser = Depends(require_permission("billing:read")),
+    user: AuthenticatedUser = Depends(require_permission("billing:write")),
 ) -> BillingPortalSessionResponse:
     apply_rate_limit(user, "/v1/users/me/billing/portal-session")
     try:

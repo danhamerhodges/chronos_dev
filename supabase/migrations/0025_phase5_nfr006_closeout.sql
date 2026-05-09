@@ -17,14 +17,30 @@ ALTER TABLE public.billing_accounts
   ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
 UPDATE public.billing_accounts
-SET org_id = COALESCE(public.user_profiles.org_id, 'org-default')
+SET org_id = public.user_profiles.org_id
 FROM public.user_profiles
 WHERE public.billing_accounts.owner_user_id = public.user_profiles.id
   AND public.billing_accounts.org_id IS NULL;
 
-UPDATE public.billing_accounts
-SET org_id = 'org-default'
-WHERE public.billing_accounts.org_id IS NULL;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM public.billing_accounts
+    WHERE org_id IS NULL
+  ) THEN
+    RAISE EXCEPTION 'billing_accounts org_id backfill has unresolved rows';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM public.billing_accounts
+    GROUP BY org_id
+    HAVING COUNT(*) > 1
+  ) THEN
+    RAISE EXCEPTION 'billing_accounts org_id backfill would violate one account per org';
+  END IF;
+END $$;
 
 ALTER TABLE public.billing_accounts
   ALTER COLUMN org_id SET NOT NULL;

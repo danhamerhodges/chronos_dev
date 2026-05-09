@@ -3112,6 +3112,18 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
                     cache_summary = excluded.cache_summary,
                     gpu_summary = excluded.gpu_summary,
                     cost_summary = excluded.cost_summary,
+                    cost_estimate_summary = case
+                        when public.media_jobs.cost_estimate_summary is null
+                             or public.media_jobs.cost_estimate_summary = '{}'::jsonb
+                        then excluded.cost_estimate_summary
+                        else public.media_jobs.cost_estimate_summary
+                    end,
+                    billing_pricing_snapshot = case
+                        when public.media_jobs.billing_pricing_snapshot is null
+                             or public.media_jobs.billing_pricing_snapshot = '{}'::jsonb
+                        then excluded.billing_pricing_snapshot
+                        else public.media_jobs.billing_pricing_snapshot
+                    end,
                     cost_reconciliation_summary = excluded.cost_reconciliation_summary,
                     slo_summary = excluded.slo_summary,
                     updated_at = excluded.updated_at

@@ -156,3 +156,6 @@ def test_nfr006_closeout_migration_hardens_billing_control_plane_rls() -> None:
     assert "REVOKE ALL ON public.billing_audit_events FROM anon, authenticated" in sql
     assert "REVOKE ALL ON public.processed_stripe_events FROM anon, authenticated" in sql
     assert "CREATE POLICY billing_accounts_org_read" in sql
+    assert "'org-default'" not in sql
+    assert "RAISE EXCEPTION 'billing_accounts org_id backfill has unresolved rows'" in sql
+    assert "RAISE EXCEPTION 'billing_accounts org_id backfill would violate one account per org'" in sql
