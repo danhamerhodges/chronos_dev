@@ -5,7 +5,7 @@ import logging
 
 import pytest
 
-from app.observability.logging import JsonFormatter
+from app.observability.logging import JsonFormatter, configure_logging
 from app.observability.slo import PHASE1_SLOS, SLA_LINKAGE, SLO_REPORTING_RETENTION_DAYS, error_budget
 
 
@@ -31,3 +31,9 @@ def test_json_formatter_redacts_sensitive_tokens() -> None:
 
     assert "sb_publishable_abc123" not in payload["message"]
     assert "[REDACTED]" in payload["message"]
+
+
+def test_configure_logging_suppresses_stripe_sdk_info_logs() -> None:
+    configure_logging()
+
+    assert logging.getLogger("stripe").getEffectiveLevel() == logging.WARNING

@@ -24,6 +24,25 @@ def test_standard_redaction_masks_tokens_and_email_addresses() -> None:
     assert "[REDACTED_EMAIL]" in payload["message"]
 
 
+def test_standard_redaction_masks_stripe_resource_ids() -> None:
+    formatter = JsonFormatter(redaction_mode="standard")
+    record = logging.LogRecord(
+        "stripe",
+        logging.INFO,
+        __file__,
+        1,
+        "Request to Stripe api url=https://api.stripe.com/v1/prices/price_123 customer=cus_123 invoice=in_123",
+        args=(),
+        exc_info=None,
+    )
+    payload = json.loads(formatter.format(record))
+
+    assert "price_123" not in payload["message"]
+    assert "cus_123" not in payload["message"]
+    assert "in_123" not in payload["message"]
+    assert payload["message"].count("[REDACTED_STRIPE_ID]") == 3
+
+
 def test_strict_redaction_masks_gcs_paths() -> None:
     formatter = JsonFormatter(redaction_mode="strict")
     record = logging.LogRecord(
