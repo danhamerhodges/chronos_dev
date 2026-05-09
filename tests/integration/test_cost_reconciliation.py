@@ -80,7 +80,7 @@ def test_terminal_reconciliation_uses_post_consumption_billing_state() -> None:
     assert payload["status"] == "completed"
     assert payload["cost_estimate_summary"]["billing_breakdown_usd"]["estimated_charge_total_usd"] == 0.0
     assert payload["cost_reconciliation_summary"]["actual_usage_minutes"] == 3
-    assert payload["cost_reconciliation_summary"]["actual_charge_total_usd"] == 1.5
+    assert payload["cost_reconciliation_summary"]["actual_charge_total_usd"] == 1.0
 
 
 def test_terminal_job_still_completes_when_cost_signal_refresh_fails(monkeypatch) -> None:

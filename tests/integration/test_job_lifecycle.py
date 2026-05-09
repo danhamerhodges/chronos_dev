@@ -276,7 +276,7 @@ def test_process_job_reports_output_delivery_failures_without_overwriting_manife
     assert finalized["last_error"] == "Output delivery packaging failed: zip signing failed"
     assert "Output delivery packaging failed after processing completed." in finalized["warnings"]
     assert finalized["current_operation"] == "Output delivery packaging failed"
-    assert billed == [{"user_id": "delivery-user", "plan_tier": "pro", "minutes": 0}]
+    assert billed == [{"user_id": "delivery-user", "plan_tier": "pro", "minutes": 0, "org_id": None}]
 
 
 def test_process_job_rejects_invalid_plan_tier_before_runtime_processing(monkeypatch) -> None:
