@@ -14,6 +14,19 @@ from app.main import app
 client = TestClient(app)
 
 
+class _StripeObjectLikeMetadata:
+    def __init__(self, payload: dict[str, str]) -> None:
+        self._data = dict(payload)
+
+    def __getitem__(self, key):
+        if key in self._data:
+            return self._data[key]
+        raise KeyError(key)
+
+    def to_dict_recursive(self) -> dict[str, str]:
+        return dict(self._data)
+
+
 def test_signature_verification() -> None:
     payload = b"{}"
     secret = "unit_test_secret"
@@ -98,6 +111,38 @@ def test_webhook_route_processes_duplicate_replays(monkeypatch: pytest.MonkeyPat
     account = BillingAccountRepository().get_by_org("org-duplicate")
     assert account is not None
     assert account["recent_invoices"][0]["invoice_id"] == "in_duplicate"
+
+
+def test_webhook_route_handles_stripe_object_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(webhooks_api, "settings", SimpleNamespace(stripe_webhook_secret="whsec_test"))
+    stripe_resource = SimpleNamespace(
+        id="in_sdk_metadata",
+        customer="cus_sdk_metadata",
+        status="paid",
+        amount_paid=2500,
+        amount_due=0,
+        metadata=_StripeObjectLikeMetadata(
+            {
+                "org_id": "org-sdk-metadata",
+                "owner_user_id": "sdk-owner",
+            }
+        ),
+    )
+    event = {
+        "id": "evt_sdk_metadata",
+        "type": "invoice.paid",
+        "data": {"object": stripe_resource},
+    }
+    monkeypatch.setattr(webhooks_api, "construct_event", lambda payload, stripe_signature_header, secret: event)
+
+    response = client.post("/v1/webhooks/stripe", headers={"Stripe-Signature": "valid"}, content=b"{}")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "processed"
+    assert response.json()["org_id"] == "org-sdk-metadata"
+    account = BillingAccountRepository().get_by_org("org-sdk-metadata")
+    assert account is not None
+    assert account["recent_invoices"][0]["invoice_id"] == "in_sdk_metadata"
 
 
 def test_webhook_route_reclaims_failed_event_once_then_stays_duplicate(monkeypatch: pytest.MonkeyPatch) -> None:

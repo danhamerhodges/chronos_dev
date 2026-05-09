@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any
 
@@ -31,7 +32,19 @@ def _field(resource: Any, field_name: str) -> Any:
 
 def _metadata(resource: Any) -> dict[str, Any]:
     metadata = _field(resource, "metadata")
-    return dict(metadata or {})
+    if not metadata:
+        return {}
+    if isinstance(metadata, Mapping):
+        return dict(metadata)
+    for method_name in ("to_dict_recursive", "to_dict"):
+        converter = getattr(metadata, method_name, None)
+        if callable(converter):
+            converted = converter()
+            return dict(converted or {})
+    raw_data = getattr(metadata, "_data", None)
+    if isinstance(raw_data, Mapping):
+        return dict(raw_data)
+    return {}
 
 
 def _event_timestamp(event: Any) -> str:
