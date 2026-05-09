@@ -64,6 +64,10 @@ class Settings:
     )
     stripe_billing_portal_return_url: str = os.getenv("STRIPE_BILLING_PORTAL_RETURN_URL", "")
     commercial_pricebook_json: str = os.getenv("COMMERCIAL_PRICEBOOK_JSON", "")
+    commercial_pricebook_bootstrap_enabled: bool = _as_bool(
+        os.getenv("COMMERCIAL_PRICEBOOK_BOOTSTRAP_ENABLED", "false"),
+        default=False,
+    )
     hobbyist_monthly_limit_minutes: int = int(os.getenv("HOBBYIST_MONTHLY_LIMIT_MINUTES", "60"))
     pro_monthly_limit_minutes: int = int(os.getenv("PRO_MONTHLY_LIMIT_MINUTES", "600"))
     museum_monthly_limit_minutes: int = int(os.getenv("MUSEUM_MONTHLY_LIMIT_MINUTES", "2000"))
@@ -148,8 +152,8 @@ class Settings:
                 raw_json=self.commercial_pricebook_json,
                 recurring_price_ids_by_tier={
                     "hobbyist": self.stripe_hobbyist_price_id,
-                    "pro": self.stripe_pro_price_id,
-                    "museum": self.stripe_museum_price_id,
+                    "pro": effective_pro_price_id,
+                    "museum": effective_museum_price_id,
                 },
             )
         if self.output_delivery_signing_secret:

@@ -823,3 +823,45 @@ class CostOpsSnapshotResponse(StrictModel):
     operational_efficiency: OperationalEfficiencyResponse
     recent_anomalies: list[CostAnomalyResponse] = Field(default_factory=list)
     recommendations: list[CostRecommendationResponse] = Field(default_factory=list)
+
+
+class PricebookActivationRequest(StrictModel):
+    bootstrap_from_environment: bool = False
+    change_summary: str = ""
+    payload: dict[str, Any] | None = None
+
+
+class PricebookActivationResponse(StrictModel):
+    version: str
+    source: str
+    active: bool = True
+    activated_at: str
+
+
+class BillingMuseumQuoteResponse(StrictModel):
+    quote_id: str
+    status: str
+
+
+class BillingSummaryResponse(StrictModel):
+    org_id: str
+    user_id: str
+    plan_tier: str
+    subscription_status: str | None = None
+    stripe_customer_id: str | None = None
+    portal_available: bool = False
+    effective_pricing: EffectivePricingResponse
+    recent_invoices: list[dict[str, Any]] = Field(default_factory=list)
+    museum_quote: BillingMuseumQuoteResponse | None = None
+
+
+class BillingPortalSessionResponse(StrictModel):
+    url: str
+
+
+class StripeWebhookResponse(StrictModel):
+    event_id: str
+    event_type: str
+    status: Literal["processed", "duplicate"]
+    duplicate: bool = False
+    org_id: str | None = None

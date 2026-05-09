@@ -1,0 +1,8 @@
+.gcloudignore
+.git
+.gitignore
+#!include:.gitignore
+
+.tmp/
+uv.lock
+supabase/.temp/

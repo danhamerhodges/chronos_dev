@@ -1,4 +1,4 @@
-"""Maps to: ENG-002, ENG-004, ENG-010, ENG-011, NFR-007, SEC-009, FR-001, ENG-016"""
+"""Maps to: ENG-002, ENG-004, ENG-010, ENG-011, NFR-006, NFR-007, SEC-009, FR-001, ENG-016"""
 
 from types import SimpleNamespace
 
@@ -7,6 +7,7 @@ import pytest
 from app.db.phase2_store import (
     JobRepository,
     ManifestRepository,
+    ProcessedStripeEventRepository,
     UploadRepository,
     UserProfileRepository,
     WebhookSubscriptionRepository,
@@ -257,6 +258,21 @@ def test_memory_webhook_subscription_repository_filters_enabled_events() -> None
 
     assert len(subscriptions) == 1
     assert subscriptions[0]["webhook_url"] == "https://hooks.example.test/jobs"
+
+
+def test_processed_stripe_event_failed_reclaim_is_single_winner() -> None:
+    repo = ProcessedStripeEventRepository()
+
+    claimed = repo.claim_event(stripe_event_id="evt_retry", event_type="invoice.paid", org_id="org-retry")
+    assert claimed is not None
+    repo.mark_failed("evt_retry", summary_metadata={"reason": "transient"})
+
+    reclaimed = repo.claim_event(stripe_event_id="evt_retry", event_type="invoice.paid", org_id="org-retry")
+    duplicate = repo.claim_event(stripe_event_id="evt_retry", event_type="invoice.paid", org_id="org-retry")
+
+    assert reclaimed is not None
+    assert reclaimed["processing_status"] == "claimed"
+    assert duplicate is None
 
 
 def test_supabase_webhook_subscription_repository_uses_direct_db_for_enabled_list(monkeypatch) -> None:

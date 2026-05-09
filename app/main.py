@@ -29,6 +29,7 @@ from app.api.problem_details import (
 from app.api.uploads import router as uploads_router
 from app.api.users import router as users_router
 from app.api.version import router as version_router
+from app.api.webhooks import router as webhooks_router
 from app.config import settings
 from app.observability.logging import configure_logging
 from app.observability.monitoring import record_http_request
@@ -80,6 +81,7 @@ def create_app() -> FastAPI:
     app.include_router(deletion_proofs_router, tags=["deletion-proofs"])
     app.include_router(manifests_router, tags=["manifests"])
     app.include_router(users_router, tags=["users"])
+    app.include_router(webhooks_router, tags=["webhooks"])
     app.include_router(logs_router, tags=["security"])
 
     if settings.test_auth_override:

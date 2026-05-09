@@ -1,4 +1,4 @@
-"""Maps to: NFR-003, ENG-013"""
+"""Maps to: NFR-003, NFR-006, ENG-013"""
 
 from fastapi.testclient import TestClient
 
@@ -42,6 +42,10 @@ def _cost_metric_lines(metrics_text: str) -> list[str]:
 
 
 def test_cost_snapshot_reports_totals_and_margin(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.cost_estimation.resolve_billing_pricing_metadata",
+        lambda: _pricing_metadata(pro=120.0, museum=500.0),
+    )
     monkeypatch.setattr(
         "app.services.cost_ops.resolve_billing_pricing_metadata",
         lambda: _pricing_metadata(pro=900.0, museum=1500.0),
@@ -89,9 +93,9 @@ def test_cost_snapshot_reports_totals_and_margin(monkeypatch) -> None:
         "api": 0.0,
         "actual_charge_total": 0.0,
     }
-    assert payload["gross_margin_summary"]["revenue_total_usd"] == 3.0
+    assert payload["gross_margin_summary"]["revenue_total_usd"] == 4.0
     assert payload["gross_margin_summary"]["cost_total_usd"] == 0.5
-    assert payload["gross_margin_summary"]["gross_margin_percent"] == 83.33
+    assert payload["gross_margin_summary"]["gross_margin_percent"] == 87.5
     assert payload["gross_margin_summary"]["below_target"] is False
     assert payload["operational_efficiency"]["gpu_utilization_percent"] == 72.5
 
@@ -109,8 +113,12 @@ def test_cost_snapshot_ignores_terminal_pool_gpu_snapshot_without_historical_sam
 
 def test_cost_snapshot_flags_margin_breach_and_incident(monkeypatch) -> None:
     monkeypatch.setattr(
+        "app.services.cost_estimation.resolve_billing_pricing_metadata",
+        lambda: _pricing_metadata(pro=6.0, museum=12.0),
+    )
+    monkeypatch.setattr(
         "app.services.cost_ops.resolve_billing_pricing_metadata",
-        lambda: _pricing_metadata(pro=60.0, museum=120.0),
+        lambda: _pricing_metadata(pro=6.0, museum=12.0),
     )
     monkeypatch.setattr(
         "app.services.job_runtime.calculate_operational_cost_summary",
@@ -247,6 +255,32 @@ def test_cost_snapshot_excludes_non_completed_jobs_even_with_reconciliation(monk
     assert payload["recent_anomalies"] == []
 
 
+def test_cost_financials_preserve_zero_valued_pricing_snapshots(monkeypatch) -> None:
+    monkeypatch.setattr("app.services.cost_ops.monthly_limit_for_tier", lambda plan_tier: 100)
+
+    from app.services.cost_ops import _job_financials, _job_overage_rate_usd_per_minute
+
+    job = {
+        "plan_tier": "pro",
+        "billing_pricing_snapshot": {
+            "subscription_price_usd": 0.0,
+            "included_minutes_monthly": 100,
+            "overage_rate_usd_per_minute": 0.0,
+        },
+        "cost_reconciliation_summary": {
+            "actual_total_cost_usd": 1.0,
+            "actual_charge_total_usd": 0.0,
+            "actual_usage_minutes": 10,
+        },
+    }
+    pricing_metadata = _pricing_metadata(pro=900.0, museum=1500.0)
+
+    assert _job_overage_rate_usd_per_minute(job, pricing_metadata=pricing_metadata) == 0.0
+    financials = _job_financials(job, pricing_metadata=pricing_metadata)
+    assert financials["revenue_total_usd"] == 0.0
+    assert financials["gross_margin_percent"] == -100.0
+
+
 def test_negative_cost_delta_does_not_emit_anomaly(monkeypatch) -> None:
     monkeypatch.setattr(
         "app.services.cost_ops.resolve_billing_pricing_metadata",
@@ -292,8 +326,12 @@ def test_cost_snapshot_returns_503_when_pricing_is_unavailable(monkeypatch) -> N
 
 def test_cost_snapshot_uses_reconciled_usage_split_for_revenue(monkeypatch) -> None:
     monkeypatch.setattr(
+        "app.services.cost_estimation.resolve_billing_pricing_metadata",
+        lambda: _pricing_metadata(pro=12.0, museum=50.0),
+    )
+    monkeypatch.setattr(
         "app.services.cost_ops.resolve_billing_pricing_metadata",
-        lambda: _pricing_metadata(pro=120.0, museum=500.0),
+        lambda: _pricing_metadata(pro=12.0, museum=50.0),
     )
     billing = BillingService()
     monthly_limit = monthly_limit_for_tier("pro")
@@ -316,6 +354,55 @@ def test_cost_snapshot_uses_reconciled_usage_split_for_revenue(monkeypatch) -> N
     assert response.status_code == 200
     payload = response.json()
     assert payload["recent_anomalies"][0]["anomaly_types"] == ["gross_margin"]
-    assert payload["gross_margin_summary"]["revenue_total_usd"] == 1.7
-    assert payload["cost_totals_usd"]["actual_charge_total"] == 1.5
+    assert payload["gross_margin_summary"]["revenue_total_usd"] == 1.2
+    assert payload["cost_totals_usd"]["actual_charge_total"] == 1.0
     assert created["job_id"]
+
+
+def test_cost_snapshot_uses_launch_time_pricing_snapshot_after_later_price_change(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.cost_estimation.resolve_billing_pricing_metadata",
+        lambda: _pricing_metadata(pro=900.0, museum=1500.0),
+    )
+    monkeypatch.setattr(
+        "app.services.cost_ops.resolve_billing_pricing_metadata",
+        lambda: _pricing_metadata(pro=60.0, museum=120.0),
+    )
+    monkeypatch.setattr(
+        "app.services.cost_ops.current_runtime_snapshot",
+        lambda: {
+            "queue_depth": 0,
+            "queue_age_seconds": 0.0,
+            "desired_warm_instances": 1,
+            "active_warm_instances": 1,
+            "busy_instances": 0,
+            "idle_instances": 1,
+            "utilization_percent": 72.5,
+            "alert_routes": {"pagerduty": "memory", "slack": "memory"},
+            "incidents": [],
+            "alerts": [],
+            "training_calendar_url": None,
+        },
+    )
+    monkeypatch.setattr(
+        "app.services.job_runtime.calculate_operational_cost_summary",
+        lambda **kwargs: {
+            "gpu_seconds": 60,
+            "storage_operations": 2,
+            "api_calls": 1,
+            "total_cost_usd": 0.5,
+        },
+    )
+
+    create_seed_job(
+        user_id="ops-snapshot-user",
+        tier="pro",
+        payload=valid_job_request(estimated_duration_seconds=60, fidelity_tier="Restore"),
+    )
+
+    run_all_jobs()
+    response = client.get("/v1/ops/costs", headers=fake_auth_header("ops-admin", role="admin", tier="pro"))
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["gross_margin_summary"]["revenue_total_usd"] == 30.0

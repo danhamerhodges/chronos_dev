@@ -34,6 +34,7 @@ class JobService:
         *,
         user_id: str,
         plan_tier: str,
+        org_id: str | None = None,
         payload: dict[str, object],
         access_token: str | None = None,
     ) -> dict[str, object]:
@@ -53,6 +54,7 @@ class JobService:
             estimate = self._estimator.estimate_launch(
                 user_id=user_id,
                 plan_tier=plan_tier,
+                org_id=org_id,
                 payload=payload,
                 access_token=access_token,
             )
@@ -96,6 +98,7 @@ class JobService:
             estimate = self._estimator.estimate_launch(
                 user_id=user_id,
                 plan_tier=plan_tier,
+                org_id=org_id,
                 payload=payload,
                 access_token=access_token,
             )
@@ -146,6 +149,7 @@ class JobService:
             estimated_duration_seconds=int(payload["estimated_duration_seconds"]),
             segments=segments,
             cost_estimate_summary=estimate.summary,
+            billing_pricing_snapshot=estimate.pricing_snapshot,
             access_token=access_token,
         )
         if publish_immediately:

@@ -1,4 +1,4 @@
-"""Maps to: ENG-010, ENG-016, SEC-013, FR-006"""
+"""Maps to: ENG-010, ENG-016, SEC-013, FR-006, NFR-006"""
 
 from pathlib import Path
 
@@ -33,6 +33,7 @@ def test_expected_migrations_present() -> None:
         "0022_phase4_preview_sessions_rls.sql",
         "0023_phase4_preview_session_stabilization.sql",
         "0024_phase5_preview_review_gate.sql",
+        "0025_phase5_nfr006_closeout.sql",
     ]
 
 
@@ -142,3 +143,19 @@ def test_preview_review_gate_migration_adds_review_and_launch_columns() -> None:
     assert "ADD COLUMN IF NOT EXISTS launched_at TIMESTAMPTZ" in sql
     assert "CHECK (review_status IN ('pending', 'approved', 'rejected'))" in sql
     assert "CHECK (launch_status IN ('not_launched', 'launch_pending', 'launched'))" in sql
+
+
+def test_nfr006_closeout_migration_hardens_billing_control_plane_rls() -> None:
+    root = Path(__file__).resolve().parents[2]
+    sql = (root / "supabase" / "migrations" / "0025_phase5_nfr006_closeout.sql").read_text(encoding="utf-8")
+
+    assert "ALTER TABLE public.commercial_pricebook_revisions ENABLE ROW LEVEL SECURITY" in sql
+    assert "ALTER TABLE public.billing_audit_events ENABLE ROW LEVEL SECURITY" in sql
+    assert "ALTER TABLE public.processed_stripe_events ENABLE ROW LEVEL SECURITY" in sql
+    assert "REVOKE ALL ON public.commercial_pricebook_revisions FROM anon, authenticated" in sql
+    assert "REVOKE ALL ON public.billing_audit_events FROM anon, authenticated" in sql
+    assert "REVOKE ALL ON public.processed_stripe_events FROM anon, authenticated" in sql
+    assert "CREATE POLICY billing_accounts_org_read" in sql
+    assert "'org-default'" not in sql
+    assert "RAISE EXCEPTION 'billing_accounts org_id backfill has unresolved rows'" in sql
+    assert "RAISE EXCEPTION 'billing_accounts org_id backfill would violate one account per org'" in sql

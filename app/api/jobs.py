@@ -33,6 +33,7 @@ def estimate_job(
     estimate = _job_service.estimate_job(
         user_id=user.user_id,
         plan_tier=user.plan_tier,
+        org_id=user.org_id,
         payload=payload.model_dump(),
         access_token=user.access_token,
     )

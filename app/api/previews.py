@@ -29,6 +29,7 @@ def create_preview(
     preview = _preview_service.create_preview(
         upload_id=payload.upload_id,
         owner_user_id=user.user_id,
+        org_id=user.org_id,
         plan_tier=user.plan_tier,
         access_token=user.access_token,
     )

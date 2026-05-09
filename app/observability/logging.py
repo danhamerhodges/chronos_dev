@@ -15,6 +15,7 @@ _STANDARD_REDACTION_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"(apikey=)[^&\s]+"), r"\1[REDACTED]"),
     (re.compile(r"('apikey',\s*b')[^']+"), r"\1[REDACTED]"),
     (re.compile(r"('authorization',\s*b'Bearer\s+)[^']+"), r"\1[REDACTED]"),
+    (re.compile(r"\b(?:cus|evt|in|price|prod|qt|sub)_[A-Za-z0-9]+\b"), "[REDACTED_STRIPE_ID]"),
     (re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"), "[REDACTED_EMAIL]"),
     (re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"), "[REDACTED_IP]"),
     (re.compile(r"/Users/[^/\s]+"), "/Users/[REDACTED_USER]"),
@@ -64,5 +65,6 @@ def configure_logging() -> None:
     handler.setFormatter(JsonFormatter())
     root.handlers = [handler]
 
-    for logger_name in ("httpx", "httpcore", "hpack", "urllib3", "stripe"):
+    for logger_name in ("httpx", "httpcore", "hpack", "urllib3"):
         logging.getLogger(logger_name).setLevel(logging.INFO)
+    logging.getLogger("stripe").setLevel(logging.WARNING)

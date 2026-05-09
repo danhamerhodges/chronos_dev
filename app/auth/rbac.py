@@ -13,9 +13,23 @@ class Role:
 ADMIN = Role(name="admin")
 ANALYST = Role(name="analyst")
 MEMBER = Role(name="member")
+PLATFORM_ADMIN = Role(name="platform_admin")
 
 
 ROLE_PERMISSIONS: dict[str, set[str]] = {
+    PLATFORM_ADMIN.name: {
+        "jobs:read",
+        "jobs:write",
+        "billing:read",
+        "billing:write",
+        "users:read",
+        "users:write",
+        "logs:read",
+        "logs:write",
+        "compliance:write",
+        "ops:read",
+        "ops:write",
+    },
     ADMIN.name: {
         "jobs:read",
         "jobs:write",
