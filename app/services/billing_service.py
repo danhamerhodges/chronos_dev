@@ -78,8 +78,8 @@ class CommercialPricingUnavailableError(RuntimeError):
 def _recurring_price_ids_by_tier() -> dict[str, str]:
     return {
         "hobbyist": settings.stripe_hobbyist_price_id.strip(),
-        "pro": settings.stripe_pro_price_id.strip(),
-        "museum": settings.stripe_museum_price_id.strip(),
+        "pro": (settings.stripe_pro_price_id or settings.stripe_price_id).strip(),
+        "museum": (settings.stripe_museum_price_id or settings.stripe_price_id).strip(),
     }
 
 
@@ -95,8 +95,8 @@ def _commercial_pricebook_entry(plan_tier: str) -> tuple[str, CommercialPriceboo
             pricebook = cached_commercial_pricebook(
                 settings.commercial_pricebook_json,
                 settings.stripe_hobbyist_price_id.strip(),
-                settings.stripe_pro_price_id.strip(),
-                settings.stripe_museum_price_id.strip(),
+                _recurring_price_ids_by_tier()["pro"],
+                _recurring_price_ids_by_tier()["museum"],
             )
         entry = resolve_pricebook_entry(
             pricebook=pricebook,

@@ -152,8 +152,8 @@ class Settings:
                 raw_json=self.commercial_pricebook_json,
                 recurring_price_ids_by_tier={
                     "hobbyist": self.stripe_hobbyist_price_id,
-                    "pro": self.stripe_pro_price_id,
-                    "museum": self.stripe_museum_price_id,
+                    "pro": effective_pro_price_id,
+                    "museum": effective_museum_price_id,
                 },
             )
         if self.output_delivery_signing_secret:

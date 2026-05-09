@@ -12,8 +12,8 @@ from app.db.phase2_store import CommercialPricebookRevisionRepository
 def _recurring_price_ids_by_tier() -> dict[str, str]:
     return {
         "hobbyist": settings.stripe_hobbyist_price_id.strip(),
-        "pro": settings.stripe_pro_price_id.strip(),
-        "museum": settings.stripe_museum_price_id.strip(),
+        "pro": (settings.stripe_pro_price_id or settings.stripe_price_id).strip(),
+        "museum": (settings.stripe_museum_price_id or settings.stripe_price_id).strip(),
     }
 
 
