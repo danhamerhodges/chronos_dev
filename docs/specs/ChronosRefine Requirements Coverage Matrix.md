@@ -282,12 +282,12 @@ After updating the matrix, recalculate:
 
 ---
 
-## Current Progress Snapshot (2026-04-06)
+## Current Progress Snapshot (2026-05-09)
 
 Source evidence:
 - `README.md` (Phase 1 baseline scope)
 - `docs/phase1_readiness_report.md` (Phase 1 exit-gate report)
-- `git log --oneline --decorate -n 8` and `git ls-remote --heads origin main`
+- `git log --oneline --decorate -n 12` and `git ls-remote --heads origin main`
 - PR merge history on `main` (`709687a` for Phase 2, `a5b0f6c` for Phase 3, `5ac15cd` docs follow-up)
 - Current test coverage + traceability headers under `tests/`
 - `python3 scripts/ops/verify_cloud_run_runtime.py --service chronos-phase1-app --project chronos-dev-489301 --region us-central1`
@@ -296,6 +296,7 @@ Source evidence:
 - Packet 5A hosted-closeout evidence summarized in `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md`
 - Packet 5B hosted-closeout evidence summarized in `docs/specs/chronosrefine_phase5_packet5b_closeout_note.md`
 - Packet 5C hosted-closeout evidence summarized in `docs/specs/chronosrefine_phase5_packet5c_closeout_note.md`
+- Packet 5D hosted-closeout evidence summarized in `docs/specs/chronosrefine_phase5_packet5d_closeout_note.md`, including final serving revision `chronos-phase1-app-00079-46f`
 
 | Phase | Requirements | Status | Notes |
 |---|---:|---|---|
