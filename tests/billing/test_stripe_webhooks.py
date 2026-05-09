@@ -1,5 +1,6 @@
 """Maps to: NFR-012, NFR-006"""
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 import os
 
@@ -178,6 +179,69 @@ def test_subscription_webhook_preserves_zero_priced_updates(monkeypatch: pytest.
     assert account is not None
     assert account["subscription_price_id"] == "price_free"
     assert account["subscription_price_usd"] == 0.0
+
+
+def test_webhook_prefers_customer_org_binding_over_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    BillingAccountRepository().upsert_by_org(
+        org_id="org-bound-customer",
+        owner_user_id="bound-owner",
+        patch={"stripe_customer_id": "cus_bound"},
+    )
+    monkeypatch.setattr(webhooks_api, "settings", SimpleNamespace(stripe_webhook_secret="whsec_test"))
+    event = {
+        "id": "evt_bound_customer",
+        "type": "invoice.paid",
+        "created": 1700000000,
+        "data": {
+            "object": {
+                "id": "in_bound_customer",
+                "customer": "cus_bound",
+                "status": "paid",
+                "amount_paid": 1500,
+                "amount_due": 0,
+                "metadata": {"org_id": "org-stale-metadata", "owner_user_id": "metadata-owner"},
+            }
+        },
+    }
+    monkeypatch.setattr(webhooks_api, "construct_event", lambda payload, stripe_signature_header, secret: event)
+
+    response = client.post("/v1/webhooks/stripe", headers={"Stripe-Signature": "valid"}, content=b"{}")
+
+    assert response.status_code == 200
+    assert response.json()["org_id"] == "org-bound-customer"
+    bound_account = BillingAccountRepository().get_by_org("org-bound-customer")
+    stale_account = BillingAccountRepository().get_by_org("org-stale-metadata")
+    assert bound_account is not None
+    assert bound_account["recent_invoices"][0]["invoice_id"] == "in_bound_customer"
+    assert stale_account is None
+
+
+def test_webhook_last_synced_at_uses_event_timestamp(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(webhooks_api, "settings", SimpleNamespace(stripe_webhook_secret="whsec_test"))
+    event_created = 1700000000
+    event = {
+        "id": "evt_event_timestamp",
+        "type": "customer.subscription.updated",
+        "created": event_created,
+        "data": {
+            "object": {
+                "id": "sub_event_timestamp",
+                "customer": "cus_event_timestamp",
+                "created": 1600000000,
+                "status": "active",
+                "items": {"data": [{"price": {"id": "price_museum", "unit_amount": 50000}}]},
+                "metadata": {"org_id": "org-event-timestamp", "owner_user_id": "timestamp-owner"},
+            }
+        },
+    }
+    monkeypatch.setattr(webhooks_api, "construct_event", lambda payload, stripe_signature_header, secret: event)
+
+    response = client.post("/v1/webhooks/stripe", headers={"Stripe-Signature": "valid"}, content=b"{}")
+
+    assert response.status_code == 200
+    account = BillingAccountRepository().get_by_org("org-event-timestamp")
+    assert account is not None
+    assert account["last_synced_at"] == datetime.fromtimestamp(event_created, tz=timezone.utc).isoformat()
 
 
 def test_webhook_route_reclaims_failed_event_once_then_stays_duplicate(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -36,3 +36,19 @@ def test_usage_endpoint_exposes_threshold_alerts_and_effective_pricing() -> None
         "overage_rate_usd_per_minute": 0.4,
         "entitlement_source": "commercial_pricebook",
     }
+
+
+def test_overage_approval_pricing_failures_return_billing_unavailable(monkeypatch) -> None:
+    def raise_pricing_unavailable(*args, **kwargs):
+        raise ValueError("pricebook unavailable")
+
+    monkeypatch.setattr("app.api.users.effective_pricing_for_plan", raise_pricing_unavailable)
+
+    response = client.post(
+        "/v1/users/me/approve-overage",
+        headers=fake_auth_header("usage-pricing-failure", tier="museum"),
+        json={"approval_scope": "single_job", "requested_minutes": 30},
+    )
+
+    assert response.status_code == 503
+    assert response.json()["title"] == "Billing Pricing Unavailable"

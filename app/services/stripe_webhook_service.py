@@ -96,6 +96,7 @@ class StripeWebhookService:
             raise BillingWebhookProcessingError("Stripe webhook event is missing required identifiers.")
         event_object = _field(_field(event, "data") or {}, "object") or {}
         org_id = self._resolve_org_id(event_object)
+        event_timestamp = _event_timestamp(event)
         claimed = self._processed.claim_event(
             stripe_event_id=event_id,
             event_type=event_type,
@@ -111,11 +112,26 @@ class StripeWebhookService:
             }
         try:
             if event_type.startswith("customer.subscription."):
-                org_id = self._process_subscription_event(event_id=event_id, resource=event_object, org_id=org_id)
+                org_id = self._process_subscription_event(
+                    event_id=event_id,
+                    resource=event_object,
+                    org_id=org_id,
+                    event_timestamp=event_timestamp,
+                )
             elif event_type.startswith("invoice."):
-                org_id = self._process_invoice_event(event_id=event_id, resource=event_object, org_id=org_id)
+                org_id = self._process_invoice_event(
+                    event_id=event_id,
+                    resource=event_object,
+                    org_id=org_id,
+                    event_timestamp=event_timestamp,
+                )
             elif event_type.startswith("quote."):
-                org_id = self._process_quote_event(event_id=event_id, resource=event_object, org_id=org_id)
+                org_id = self._process_quote_event(
+                    event_id=event_id,
+                    resource=event_object,
+                    org_id=org_id,
+                    event_timestamp=event_timestamp,
+                )
         except Exception as exc:
             self._processed.mark_failed(
                 event_id,
@@ -141,13 +157,12 @@ class StripeWebhookService:
     def _resolve_org_id(self, resource: Any) -> str | None:
         metadata = _metadata(resource)
         metadata_org_id = str(metadata.get("org_id") or "").strip()
-        if metadata_org_id:
-            return metadata_org_id
         customer_id = str(_field(resource, "customer") or "").strip()
-        if not customer_id:
-            return None
-        account = self._accounts.get_by_customer_id(customer_id)
-        return str((account or {}).get("org_id") or "").strip() or None
+        customer_org_id = None
+        if customer_id:
+            account = self._accounts.get_by_customer_id(customer_id)
+            customer_org_id = str((account or {}).get("org_id") or "").strip() or None
+        return customer_org_id or metadata_org_id or None
 
     def _owner_user_id(self, *, org_id: str | None, resource: Any) -> str:
         metadata = _metadata(resource)
@@ -174,7 +189,14 @@ class StripeWebhookService:
             "Stripe webhook metadata must resolve an org_id before billing state can be updated."
         )
 
-    def _process_subscription_event(self, *, event_id: str, resource: Any, org_id: str | None) -> str:
+    def _process_subscription_event(
+        self,
+        *,
+        event_id: str,
+        resource: Any,
+        org_id: str | None,
+        event_timestamp: str,
+    ) -> str:
         resolved_org_id = self._required_org_id(resource=resource, org_id=org_id)
         owner_user_id = self._owner_user_id(org_id=resolved_org_id, resource=resource)
         account_before = self._accounts.get_by_org(resolved_org_id) or {}
@@ -194,7 +216,7 @@ class StripeWebhookService:
             "overage_price_id": _metadata(resource).get("overage_price_id") or account_before.get("overage_price_id"),
             "overage_rate_usd_per_minute": _metadata(resource).get("overage_rate_usd_per_minute")
             or account_before.get("overage_rate_usd_per_minute"),
-            "last_synced_at": _event_timestamp(resource),
+            "last_synced_at": event_timestamp,
         }
         account_after = self._accounts.upsert_by_org(
             org_id=resolved_org_id,
@@ -218,7 +240,14 @@ class StripeWebhookService:
         )
         return resolved_org_id
 
-    def _process_invoice_event(self, *, event_id: str, resource: Any, org_id: str | None) -> str:
+    def _process_invoice_event(
+        self,
+        *,
+        event_id: str,
+        resource: Any,
+        org_id: str | None,
+        event_timestamp: str,
+    ) -> str:
         resolved_org_id = self._required_org_id(resource=resource, org_id=org_id)
         owner_user_id = self._owner_user_id(org_id=resolved_org_id, resource=resource)
         account_before = self._accounts.get_by_org(resolved_org_id) or {}
@@ -232,7 +261,7 @@ class StripeWebhookService:
             patch={
                 "stripe_customer_id": str(_field(resource, "customer") or "").strip() or account_before.get("stripe_customer_id"),
                 "recent_invoices": updated_invoices,
-                "last_synced_at": _event_timestamp(resource),
+                "last_synced_at": event_timestamp,
             },
         )
         self._audit.append_event(
@@ -246,7 +275,14 @@ class StripeWebhookService:
         )
         return resolved_org_id
 
-    def _process_quote_event(self, *, event_id: str, resource: Any, org_id: str | None) -> str:
+    def _process_quote_event(
+        self,
+        *,
+        event_id: str,
+        resource: Any,
+        org_id: str | None,
+        event_timestamp: str,
+    ) -> str:
         resolved_org_id = self._required_org_id(resource=resource, org_id=org_id)
         owner_user_id = self._owner_user_id(org_id=resolved_org_id, resource=resource)
         metadata = _metadata(resource)
@@ -265,7 +301,7 @@ class StripeWebhookService:
                     "overage_price_id": metadata.get("overage_price_id"),
                     "overage_rate_usd_per_minute": metadata.get("overage_rate_usd_per_minute"),
                 },
-                "last_synced_at": _event_timestamp(resource),
+                "last_synced_at": event_timestamp,
             },
         )
         self._audit.append_event(

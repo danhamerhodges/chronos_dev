@@ -126,11 +126,6 @@ def approve_overage(
             org_id=user.org_id,
             access_token=user.access_token,
         )
-        effective_pricing = effective_pricing_for_plan(
-            user.plan_tier,
-            org_id=user.org_id,
-            access_token=user.access_token,
-        )
     except ValueError as exc:
         raise ProblemException(
             title="Invalid Overage Approval",
@@ -145,6 +140,18 @@ def approve_overage(
             ],
         ) from exc
     except CommercialPricingUnavailableError as exc:
+        raise ProblemException(
+            title="Billing Pricing Unavailable",
+            detail="Commercial pricing configuration is temporarily unavailable. Retry once pricing metadata is available.",
+            status_code=503,
+        ) from exc
+    try:
+        effective_pricing = effective_pricing_for_plan(
+            user.plan_tier,
+            org_id=user.org_id,
+            access_token=user.access_token,
+        )
+    except (CommercialPricingUnavailableError, ValueError) as exc:
         raise ProblemException(
             title="Billing Pricing Unavailable",
             detail="Commercial pricing configuration is temporarily unavailable. Retry once pricing metadata is available.",
