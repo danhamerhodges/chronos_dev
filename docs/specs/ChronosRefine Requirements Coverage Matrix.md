@@ -172,11 +172,11 @@ If an ID/title conflicts with the above, this matrix must be updated immediately
 | Req ID | Requirement Name | Dependencies | Test Files | Verification | Risk |
 |---|---|---|---|---|---|
 | **FR-006** | Preview Generation | FR-001, FR-002, ENG-007, ENG-014 | `tests/api/test_preview_sessions.py`, `tests/api/test_async_processing.py`, `tests/api/test_cost_estimation.py`, `tests/integration/test_preview_pipeline.py`, `tests/integration/test_processing_launch_flow.py`, `tests/integration/test_configuration_job_handoff.py`, `tests/processing/test_preview_generation.py`, `tests/processing/test_scene_detection.py`, `tests/ui/test_preview_modal.spec.ts`, `tests/accessibility/test_preview_review_modal_a11y.spec.ts`, `tests/load/test_preview_performance.py` | Automated | Medium |
-| **SEC-001** | Authentication & Authorization | FR-005, ENG-010 | `tests/security/test_deletion_proof.py` | Automated | High |
+| **SEC-001** | Authentication & Authorization | FR-005, ENG-010 | `tests/security/test_authentication.py`, `tests/security/test_authorization.py`, `tests/security/test_rbac.py`, `tests/security/test_mfa.py`, `tests/security/test_session_management.py` | Automated | High |
 | **SEC-002** | Data Encryption | FR-002, ENG-007 | `tests/quality/test_uncertainty.py` | Automated | Medium |
 | **SEC-003** | Data Classification | ENG-010, SEC-008 | `tests/security/test_manifest_redaction.py` | Automated | Medium |
-| **SEC-004** | Access Control | ENG-016 | `tests/security/test_encryption.py` | Automated | High |
-| **SEC-005** | Transformation Manifest Retention | SEC-013 | `tests/security/test_access_control.py` | Automated | Medium |
+| **SEC-004** | Access Control | ENG-016 | `tests/security/test_iam_policies.py`, `tests/security/test_rate_limiting.py`, `tests/security/test_multi_tenancy.py`, `tests/security/test_access_logging.py` | Automated | High |
+| **SEC-005** | Transformation Manifest Retention | SEC-013 | `tests/security/test_manifest_retention.py`, `tests/security/test_manifest_redaction.py`, `tests/compliance/test_gdpr_manifest_retention.py` | Automated | Medium |
 | **SEC-006** | GDPR Compliance | OPS-002, SEC-005 | `tests/compliance/test_gdpr_compliance.py`, `tests/compliance/test_gdpr_log_deletion.py`, `tests/api/test_deletion_proof.py` | Automated + Manual | Low |
 | **NFR-004** | Reliability & Availability | ENG-008, ENG-012, ENG-016, OPS-001, OPS-004 | `tests/ops/test_availability_slo.py`, `tests/ops/test_database_performance.py`, `tests/ops/test_job_retry.py`, `tests/load/test_scalability.py` | Automated + Manual | Medium |
 | **NFR-005** | Museum SLA & Disaster Recovery | OPS-001, OPS-003 | `tests/ops/test_availability.py`, `tests/ops/test_failover.py`, `tests/ops/test_disaster_recovery.py` | Automated + Manual | Medium |
