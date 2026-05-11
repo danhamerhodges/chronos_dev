@@ -40,6 +40,10 @@ def _isoformat(value: datetime) -> str:
     return value.isoformat()
 
 
+def _classification_plan_tier(job: dict[str, Any]) -> str:
+    return str(job.get("plan_tier") or "hobbyist")
+
+
 def _canonical_json(payload: dict[str, Any]) -> bytes:
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
 
@@ -121,7 +125,7 @@ class OutputDeliveryService:
             self._record_uri_only_classification(
                 artifact_type=ARTIFACT_PROCESSED_OUTPUT,
                 object_uri=str(job["result_uri"]),
-                plan_tier=str(job["plan_tier"]),
+                plan_tier=_classification_plan_tier(job),
                 anchor_time=generated_at,
             )
         deletion_proof = self._build_deletion_proof(
@@ -332,7 +336,7 @@ class OutputDeliveryService:
         classification = self._record_uri_only_classification(
             artifact_type=ARTIFACT_DELETION_PROOF,
             object_uri=pdf_uri,
-            plan_tier=str(job["plan_tier"]),
+            plan_tier=_classification_plan_tier(job),
             anchor_time=generated_at,
         )
         return {
@@ -412,7 +416,7 @@ class OutputDeliveryService:
         classification = self._record_uri_only_classification(
             artifact_type=ARTIFACT_EXPORT_PACKAGE,
             object_uri=package_uri,
-            plan_tier=str(job["plan_tier"]),
+            plan_tier=_classification_plan_tier(job),
             anchor_time=generated_at,
         )
         payload.update(classification.persistence_fields)
