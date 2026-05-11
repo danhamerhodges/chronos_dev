@@ -237,6 +237,7 @@ class Phase2Store:
     usage: dict[str, dict[str, Any]] = field(default_factory=dict)
     billing_accounts: dict[str, dict[str, Any]] = field(default_factory=dict)
     billing_audit_events: list[dict[str, Any]] = field(default_factory=list)
+    data_classification_audit_events: list[dict[str, Any]] = field(default_factory=list)
     commercial_pricebook_revisions: dict[str, dict[str, Any]] = field(default_factory=dict)
     processed_stripe_events: dict[str, dict[str, Any]] = field(default_factory=dict)
     upload_sessions: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -265,6 +266,7 @@ def reset_phase2_store() -> None:
     _STORE.usage.clear()
     _STORE.billing_accounts.clear()
     _STORE.billing_audit_events.clear()
+    _STORE.data_classification_audit_events.clear()
     _STORE.commercial_pricebook_revisions.clear()
     _STORE.processed_stripe_events.clear()
     _STORE.upload_sessions.clear()
@@ -650,6 +652,10 @@ class _MemoryUploadRepository:
         mime_type: str,
         size_bytes: int,
         checksum_sha256: str | None,
+        classification_label: str | None = None,
+        retention_days: int | None = None,
+        retention_expires_at: str | None = None,
+        classification_policy_version: str | None = None,
         access_token: str | None = None,
     ) -> dict[str, Any]:
         del access_token
@@ -665,6 +671,10 @@ class _MemoryUploadRepository:
             "mime_type": mime_type,
             "size_bytes": size_bytes,
             "checksum_sha256": checksum_sha256,
+            "classification_label": classification_label or "Confidential",
+            "retention_days": retention_days,
+            "retention_expires_at": retention_expires_at,
+            "classification_policy_version": classification_policy_version or "v0-backfill",
             "created_at": _utc_now(),
         }
         with _UPLOAD_STORE_LOCK:
@@ -1165,8 +1175,17 @@ class _MemoryWebhookSubscriptionRepository:
 
 
 class _MemoryManifestRepository:
-    def upsert_manifest_for_worker(self, *, job_id: str, manifest: dict[str, Any]) -> dict[str, Any]:
-        _STORE.job_manifests[job_id] = dict(manifest)
+    def upsert_manifest_for_worker(
+        self,
+        *,
+        job_id: str,
+        manifest: dict[str, Any],
+        classification: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        _STORE.job_manifests[job_id] = {
+            "payload": dict(manifest),
+            **(classification or {}),
+        }
         return dict(manifest)
 
     def get_manifest(
@@ -1183,7 +1202,9 @@ class _MemoryManifestRepository:
         if owner_user_id and job["owner_user_id"] != owner_user_id:
             return None
         manifest = _STORE.job_manifests.get(job_id)
-        return dict(manifest) if manifest else None
+        if not manifest:
+            return None
+        return dict(manifest.get("payload") or manifest)
 
 
 class _MemoryJobExportPackageRepository:
@@ -1259,6 +1280,20 @@ class _MemoryJobDeletionProofRepository:
                 continue
             return dict(proof)
         return None
+
+
+class _MemoryDataClassificationAuditRepository:
+    def record_event(self, *, payload: dict[str, Any]) -> dict[str, Any]:
+        record = {
+            "id": str(uuid4()),
+            **payload,
+            "created_at": _utc_now(),
+        }
+        _STORE.data_classification_audit_events.append(record)
+        return dict(record)
+
+    def list_events(self) -> list[dict[str, Any]]:
+        return [dict(item) for item in _STORE.data_classification_audit_events]
 
 
 class _MemoryRuntimeOpsRepository:
@@ -2106,6 +2141,10 @@ class _SupabaseUploadRepository(_SupabaseRepositoryBase):
         mime_type: str,
         size_bytes: int,
         checksum_sha256: str | None,
+        classification_label: str | None = None,
+        retention_days: int | None = None,
+        retention_expires_at: str | None = None,
+        classification_policy_version: str | None = None,
         access_token: str | None = None,
     ) -> dict[str, Any]:
         row = self._client.rest_upsert(
@@ -2122,6 +2161,10 @@ class _SupabaseUploadRepository(_SupabaseRepositoryBase):
                 "mime_type": mime_type,
                 "size_bytes": size_bytes,
                 "checksum_sha256": checksum_sha256,
+                "classification_label": classification_label or "Confidential",
+                "retention_days": retention_days,
+                "retention_expires_at": retention_expires_at,
+                "classification_policy_version": classification_policy_version or "v0-backfill",
             },
             on_conflict="external_upload_id",
             headers=self._client.user_scoped_headers(self._require_access_token(access_token)),
@@ -2137,6 +2180,10 @@ class _SupabaseUploadRepository(_SupabaseRepositoryBase):
             "mime_type": row.get("mime_type", ""),
             "size_bytes": row.get("size_bytes", 0),
             "checksum_sha256": row.get("checksum_sha256"),
+            "classification_label": row.get("classification_label", "Confidential"),
+            "retention_days": row.get("retention_days"),
+            "retention_expires_at": row.get("retention_expires_at"),
+            "classification_policy_version": row.get("classification_policy_version", "v0-backfill"),
             "created_at": row["created_at"],
         }
 
@@ -2179,6 +2226,10 @@ class _SupabasePreviewSessionRepository(_SupabaseRepositoryBase):
             "preview_root_uri": row["preview_root_uri"],
             "expires_at": row["expires_at"],
             "deleted_at": row.get("deleted_at"),
+            "classification_label": row.get("classification_label", "Confidential"),
+            "retention_days": row.get("retention_days"),
+            "retention_expires_at": row.get("retention_expires_at"),
+            "classification_policy_version": row.get("classification_policy_version", "v0-backfill"),
             "created_at": row["created_at"],
             "updated_at": row.get("updated_at") or row["created_at"],
         }
@@ -3486,19 +3537,27 @@ class _SupabaseWebhookSubscriptionRepository(_SupabaseRepositoryBase):
 
 
 class _SupabaseManifestRepository(_SupabaseRepositoryBase):
-    def upsert_manifest_for_worker(self, *, job_id: str, manifest: dict[str, Any]) -> dict[str, Any]:
+    def upsert_manifest_for_worker(
+        self,
+        *,
+        job_id: str,
+        manifest: dict[str, Any],
+        classification: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         from psycopg.types.json import Jsonb
 
+        classification_fields = classification or {}
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 insert into public.job_manifests (
                     id, job_id, external_job_id, owner_user_id, external_user_id,
-                    manifest_uri, manifest_sha256, payload, generated_at, size_bytes
+                    manifest_uri, manifest_sha256, payload, generated_at, size_bytes,
+                    classification_label, retention_days, retention_expires_at, classification_policy_version
                 )
                 select
                     %s, public.media_jobs.id, public.media_jobs.external_job_id, public.media_jobs.owner_user_id,
-                    public.media_jobs.external_user_id, %s, %s, %s, %s, %s
+                    public.media_jobs.external_user_id, %s, %s, %s, %s, %s, %s, %s, %s, %s
                 from public.media_jobs
                 where public.media_jobs.external_job_id = %s
                 on conflict (job_id) do update
@@ -3507,6 +3566,10 @@ class _SupabaseManifestRepository(_SupabaseRepositoryBase):
                     payload = excluded.payload,
                     generated_at = excluded.generated_at,
                     size_bytes = excluded.size_bytes,
+                    classification_label = excluded.classification_label,
+                    retention_days = excluded.retention_days,
+                    retention_expires_at = excluded.retention_expires_at,
+                    classification_policy_version = excluded.classification_policy_version,
                     updated_at = now()
                 returning *
                 """,
@@ -3517,6 +3580,10 @@ class _SupabaseManifestRepository(_SupabaseRepositoryBase):
                     Jsonb(manifest),
                     manifest["generated_at"],
                     manifest.get("size_bytes", 0),
+                    classification_fields.get("classification_label", "Internal"),
+                    classification_fields.get("retention_days"),
+                    classification_fields.get("retention_expires_at"),
+                    classification_fields.get("classification_policy_version", "v0-backfill"),
                     job_id,
                 ),
             )
@@ -3584,11 +3651,13 @@ class _SupabaseJobExportPackageRepository(_SupabaseRepositoryBase):
                     id, job_id, external_job_id, owner_user_id, external_user_id, variant,
                     package_uri, file_name, size_bytes, sha256, package_contents,
                     artifact_metadata, encoding_metadata, external_deletion_proof_id,
-                    available_until, generated_at, deleted_at, updated_at
+                    available_until, generated_at, deleted_at,
+                    classification_label, retention_days, retention_expires_at, classification_policy_version,
+                    updated_at
                 )
                 select
                     %s, public.media_jobs.id, public.media_jobs.external_job_id, public.media_jobs.owner_user_id,
-                    public.media_jobs.external_user_id, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now()
+                    public.media_jobs.external_user_id, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now()
                 from public.media_jobs
                 where public.media_jobs.external_job_id = %s
                 on conflict (job_id, variant) do update
@@ -3603,6 +3672,10 @@ class _SupabaseJobExportPackageRepository(_SupabaseRepositoryBase):
                     available_until = excluded.available_until,
                     generated_at = excluded.generated_at,
                     deleted_at = excluded.deleted_at,
+                    classification_label = excluded.classification_label,
+                    retention_days = excluded.retention_days,
+                    retention_expires_at = excluded.retention_expires_at,
+                    classification_policy_version = excluded.classification_policy_version,
                     updated_at = now()
                 returning *
                 """,
@@ -3620,6 +3693,10 @@ class _SupabaseJobExportPackageRepository(_SupabaseRepositoryBase):
                     payload["available_until"],
                     payload["generated_at"],
                     payload.get("deleted_at"),
+                    payload.get("classification_label", "Confidential"),
+                    payload.get("retention_days"),
+                    payload.get("retention_expires_at"),
+                    payload.get("classification_policy_version", "v0-backfill"),
                     payload["job_id"],
                 ),
             )
@@ -3699,6 +3776,10 @@ class _SupabaseJobDeletionProofRepository(_SupabaseRepositoryBase):
             "pdf_uri": row["pdf_uri"],
             "verification_summary": row.get("verification_summary") or {},
             "proof_payload": row.get("proof_payload") or {},
+            "classification_label": row.get("classification_label", "Compliance"),
+            "retention_days": row.get("retention_days"),
+            "retention_expires_at": row.get("retention_expires_at"),
+            "classification_policy_version": row.get("classification_policy_version", "v0-backfill"),
             "created_at": row["created_at"],
             "updated_at": row.get("updated_at") or row["created_at"],
         }
@@ -3712,11 +3793,13 @@ class _SupabaseJobDeletionProofRepository(_SupabaseRepositoryBase):
                 insert into public.job_deletion_proofs (
                     id, job_id, external_job_id, owner_user_id, external_user_id,
                     external_deletion_proof_id, generated_at, signature_algorithm, signature,
-                    proof_sha256, verification_summary, proof_payload, pdf_uri, updated_at
+                    proof_sha256, verification_summary, proof_payload, pdf_uri,
+                    classification_label, retention_days, retention_expires_at, classification_policy_version,
+                    updated_at
                 )
                 select
                     %s, public.media_jobs.id, public.media_jobs.external_job_id, public.media_jobs.owner_user_id,
-                    public.media_jobs.external_user_id, %s, %s, %s, %s, %s, %s, %s, %s, now()
+                    public.media_jobs.external_user_id, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now()
                 from public.media_jobs
                 where public.media_jobs.external_job_id = %s
                 on conflict (external_deletion_proof_id) do update
@@ -3727,6 +3810,10 @@ class _SupabaseJobDeletionProofRepository(_SupabaseRepositoryBase):
                     verification_summary = excluded.verification_summary,
                     proof_payload = excluded.proof_payload,
                     pdf_uri = excluded.pdf_uri,
+                    classification_label = excluded.classification_label,
+                    retention_days = excluded.retention_days,
+                    retention_expires_at = excluded.retention_expires_at,
+                    classification_policy_version = excluded.classification_policy_version,
                     updated_at = now()
                 returning *
                 """,
@@ -3740,6 +3827,10 @@ class _SupabaseJobDeletionProofRepository(_SupabaseRepositoryBase):
                     Jsonb(payload.get("verification_summary") or {}),
                     Jsonb(payload.get("proof_payload") or {}),
                     payload["pdf_uri"],
+                    payload.get("classification_label", "Compliance"),
+                    payload.get("retention_days"),
+                    payload.get("retention_expires_at"),
+                    payload.get("classification_policy_version", "v0-backfill"),
                     payload["job_id"],
                 ),
             )
@@ -3811,6 +3902,45 @@ class _SupabaseJobDeletionProofRepository(_SupabaseRepositoryBase):
         if owner_user_id and row["external_user_id"] != owner_user_id:
             return None
         return self._proof_from_row(row)
+
+
+class _SupabaseDataClassificationAuditRepository(_SupabaseRepositoryBase):
+    def record_event(self, *, payload: dict[str, Any]) -> dict[str, Any]:
+        from psycopg.types.json import Jsonb
+
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into public.data_classification_audit_events (
+                    id, artifact_type, classification_label, object_uri, object_hash,
+                    retention_days, retention_expires_at, policy_version, event_type, metadata
+                )
+                values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                returning *
+                """,
+                (
+                    str(uuid4()),
+                    payload["artifact_type"],
+                    payload["classification_label"],
+                    payload["object_uri"],
+                    payload["object_hash"],
+                    payload.get("retention_days"),
+                    payload.get("retention_expires_at"),
+                    payload["policy_version"],
+                    payload["event_type"],
+                    Jsonb(payload.get("metadata") or {}),
+                ),
+            )
+            row = cur.fetchone()
+        if row is None:
+            raise RuntimeError("Data classification audit event insert failed")
+        return dict(row)
+
+    def list_events(self) -> list[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("select * from public.data_classification_audit_events order by created_at")
+            rows = cur.fetchall()
+        return [dict(row) for row in rows]
 
 
 class _SupabaseRuntimeOpsRepository(_SupabaseRepositoryBase):
@@ -4006,6 +4136,14 @@ def _job_export_package_backend() -> _MemoryJobExportPackageRepository | _Supaba
 
 def _job_deletion_proof_backend() -> _MemoryJobDeletionProofRepository | _SupabaseJobDeletionProofRepository:
     return _SupabaseJobDeletionProofRepository() if phase2_backend_name() == "supabase" else _MemoryJobDeletionProofRepository()
+
+
+def _data_classification_audit_backend() -> _MemoryDataClassificationAuditRepository | _SupabaseDataClassificationAuditRepository:
+    return (
+        _SupabaseDataClassificationAuditRepository()
+        if phase2_backend_name() == "supabase"
+        else _MemoryDataClassificationAuditRepository()
+    )
 
 
 def _runtime_ops_backend() -> _MemoryRuntimeOpsRepository | _SupabaseRuntimeOpsRepository:
@@ -4247,6 +4385,10 @@ class UploadRepository:
         mime_type: str,
         size_bytes: int,
         checksum_sha256: str | None,
+        classification_label: str | None = None,
+        retention_days: int | None = None,
+        retention_expires_at: str | None = None,
+        classification_policy_version: str | None = None,
         access_token: str | None = None,
     ) -> dict[str, Any]:
         return self._backend.upsert_pointer(
@@ -4259,6 +4401,10 @@ class UploadRepository:
             mime_type=mime_type,
             size_bytes=size_bytes,
             checksum_sha256=checksum_sha256,
+            classification_label=classification_label,
+            retention_days=retention_days,
+            retention_expires_at=retention_expires_at,
+            classification_policy_version=classification_policy_version,
             access_token=access_token,
         )
 
@@ -4489,8 +4635,14 @@ class ManifestRepository:
     def __init__(self) -> None:
         self._backend = _manifest_backend()
 
-    def upsert_manifest_for_worker(self, *, job_id: str, manifest: dict[str, Any]) -> dict[str, Any]:
-        return self._backend.upsert_manifest_for_worker(job_id=job_id, manifest=manifest)
+    def upsert_manifest_for_worker(
+        self,
+        *,
+        job_id: str,
+        manifest: dict[str, Any],
+        classification: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self._backend.upsert_manifest_for_worker(job_id=job_id, manifest=manifest, classification=classification)
 
     def get_manifest(
         self,
@@ -4552,6 +4704,41 @@ class JobDeletionProofRepository:
         access_token: str | None = None,
     ) -> dict[str, Any] | None:
         return self._backend.get_proof_for_job(job_id, owner_user_id=owner_user_id, access_token=access_token)
+
+
+class DataClassificationAuditRepository:
+    def __init__(self) -> None:
+        self._backend = _data_classification_audit_backend()
+
+    def record_event(
+        self,
+        *,
+        artifact_type: str,
+        classification_label: str,
+        object_uri: str,
+        object_hash: str,
+        retention_days: int | None,
+        retention_expires_at: str | None,
+        policy_version: str,
+        event_type: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self._backend.record_event(
+            payload={
+                "artifact_type": artifact_type,
+                "classification_label": classification_label,
+                "object_uri": object_uri,
+                "object_hash": object_hash,
+                "retention_days": retention_days,
+                "retention_expires_at": retention_expires_at,
+                "policy_version": policy_version,
+                "event_type": event_type,
+                "metadata": metadata or {},
+            }
+        )
+
+    def list_events(self) -> list[dict[str, Any]]:
+        return self._backend.list_events()
 
 
 class WebhookSubscriptionRepository:
