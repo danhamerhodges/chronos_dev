@@ -715,13 +715,23 @@ def _finalize_job(repo: JobRepository, job_id: str, *, trusted_token: str | None
         evaluate_runtime_snapshot(released_pool, cache_summary)
         if status in {JobStatus.COMPLETED, JobStatus.PARTIAL}:
             try:
-                manifest_payload = finalize_manifest_payload(
+                manifest_result = finalize_manifest_payload(
                     manifest_id=job_id,
                     generated_at=finalized["updated_at"],
                     job=finalized,
                     segments=repo.list_segments(job_id),
                 )
-                ManifestRepository().upsert_manifest_for_worker(job_id=job_id, manifest=manifest_payload)
+                if "payload" in manifest_result:
+                    manifest_payload = manifest_result["payload"]
+                    manifest_classification = manifest_result.get("classification")
+                else:
+                    manifest_payload = manifest_result
+                    manifest_classification = None
+                ManifestRepository().upsert_manifest_for_worker(
+                    job_id=job_id,
+                    manifest=manifest_payload,
+                    classification=manifest_classification,
+                )
                 finalized = repo.update_job_for_worker(
                     job_id,
                     patch={

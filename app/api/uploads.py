@@ -57,6 +57,7 @@ def finalize_upload(
         upload_id,
         owner_user_id=user.user_id,
         payload=payload.model_dump(),
+        plan_tier=user.plan_tier,
         access_token=user.access_token,
     )
     return UploadResponse.model_validate(upload)

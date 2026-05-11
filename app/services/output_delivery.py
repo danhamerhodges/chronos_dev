@@ -14,6 +14,12 @@ from app.api.problem_details import ProblemException
 from app.config import settings
 from app.db.phase2_store import JobDeletionProofRepository, JobExportPackageRepository, JobRepository
 from app.models.status import JobStatus
+from app.services.data_classification import (
+    ARTIFACT_DELETION_PROOF,
+    ARTIFACT_EXPORT_PACKAGE,
+    ARTIFACT_PROCESSED_OUTPUT,
+    DataClassificationService,
+)
 from app.services.billing_service import (
     CommercialPricingUnavailableError,
     max_retention_days_for_plan as configured_retention_days_for_plan,
@@ -97,6 +103,7 @@ class OutputDeliveryService:
         self._packages = JobExportPackageRepository()
         self._proofs = JobDeletionProofRepository()
         self._callouts = UncertaintyCalloutService()
+        self._classification = DataClassificationService()
 
     def materialize_delivery_artifacts(
         self,
@@ -110,6 +117,13 @@ class OutputDeliveryService:
 
         generated_at = _utc_now()
         callouts = self._callouts.build_callouts(job, segments)
+        if job.get("result_uri"):
+            self._record_uri_only_classification(
+                artifact_type=ARTIFACT_PROCESSED_OUTPUT,
+                object_uri=str(job["result_uri"]),
+                plan_tier=str(job["plan_tier"]),
+                anchor_time=generated_at,
+            )
         deletion_proof = self._build_deletion_proof(
             job=job,
             manifest_payload=manifest_payload,
@@ -314,6 +328,13 @@ class OutputDeliveryService:
         }
         proof_sha256 = _sha256_hex(proof_payload)
         signature = _sign_value(f"{deletion_proof_id}:{proof_sha256}")
+        pdf_uri = self._bucket_uri(f"deletion-proofs/{job['job_id']}/{deletion_proof_id}.pdf")
+        classification = self._record_uri_only_classification(
+            artifact_type=ARTIFACT_DELETION_PROOF,
+            object_uri=pdf_uri,
+            plan_tier=str(job["plan_tier"]),
+            anchor_time=generated_at,
+        )
         return {
             "deletion_proof_id": deletion_proof_id,
             "job_id": job["job_id"],
@@ -328,8 +349,9 @@ class OutputDeliveryService:
                 "manifest_sha256": manifest_payload["manifest_sha256"],
                 "original_checksum": job["source_asset_checksum"],
             },
-            "pdf_uri": self._bucket_uri(f"deletion-proofs/{job['job_id']}/{deletion_proof_id}.pdf"),
+            "pdf_uri": pdf_uri,
             "proof_payload": proof_payload,
+            **classification.persistence_fields,
         }
 
     def _build_export_package(
@@ -387,6 +409,13 @@ class OutputDeliveryService:
             "deletion_proof_id": deletion_proof["deletion_proof_id"],
             "available_until": _isoformat(generated_at + timedelta(days=max_retention_days_for_plan(str(job["plan_tier"])))),
         }
+        classification = self._record_uri_only_classification(
+            artifact_type=ARTIFACT_EXPORT_PACKAGE,
+            object_uri=package_uri,
+            plan_tier=str(job["plan_tier"]),
+            anchor_time=generated_at,
+        )
+        payload.update(classification.persistence_fields)
         payload["sha256"] = _sha256_hex(payload)
         payload["size_bytes"] = self._estimate_package_size(
             duration_seconds=int(job["estimated_duration_seconds"]),
@@ -399,6 +428,28 @@ class OutputDeliveryService:
             "generated_at": _isoformat(generated_at),
             "deleted_at": None,
         }
+
+    def _record_uri_only_classification(
+        self,
+        *,
+        artifact_type: str,
+        object_uri: str,
+        plan_tier: str,
+        anchor_time: datetime,
+    ):
+        classification = self._classification.classify(
+            artifact_type=artifact_type,
+            object_uri=object_uri,
+            plan_tier=plan_tier,
+            anchor_time=anchor_time,
+        )
+        self._classification.record_event(classification, event_type="classification_assigned")
+        self._classification.record_event(
+            classification,
+            event_type="gcs_metadata_patch_skipped",
+            metadata={"reason": "no_real_gcs_write_path"},
+        )
+        return classification
 
     def _estimate_package_size(
         self,
