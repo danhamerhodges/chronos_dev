@@ -228,9 +228,14 @@ def test_manifest_local_store_uses_configured_bucket_for_classification_uri(monk
         replace(transformation_manifest.settings, environment="test", gcs_bucket_name="chronos-manifest-test"),
     )
 
-    uri, size_bytes = GcsManifestStore().store(job_id="manifest-job", payload={"manifest_id": "manifest-1"})
+    uri, size_bytes = GcsManifestStore().store(
+        job_id="manifest-job",
+        payload={"manifest_id": "manifest-1"},
+        retention_class="90d",
+        object_basename="manifest-1",
+    )
 
-    assert uri.startswith("gs://chronos-manifest-test/manifests/manifest-job/")
+    assert uri.startswith("gs://chronos-manifest-test/manifests/90d/manifest-job/")
     assert uri.endswith(".json")
     assert size_bytes > 0
 
@@ -313,9 +318,17 @@ def test_manifest_finalize_uses_configured_bucket_for_store_and_patch(monkeypatc
     patched: dict[str, Any] = {}
 
     class Store:
-        def store(self, *, job_id: str, payload: dict[str, Any]) -> tuple[str, int]:
-            del payload
-            return f"gs://chronos-manifest-test/manifests/{job_id}/manifest.json", 128
+        def store(
+            self,
+            *,
+            job_id: str,
+            payload: dict[str, Any],
+            retention_class: str,
+            object_basename: str,
+            variant: str = "full",
+        ) -> tuple[str, int]:
+            del payload, variant
+            return f"gs://chronos-manifest-test/manifests/{retention_class}/{job_id}/{object_basename}.json", 128
 
         def patch_object_metadata(self, *, object_uri: str, metadata: dict[str, str]) -> bool:
             patched.update({"object_uri": object_uri, "metadata": metadata})
@@ -335,7 +348,7 @@ def test_manifest_finalize_uses_configured_bucket_for_store_and_patch(monkeypatc
         store=Store(),
     )
 
-    assert result["payload"]["manifest_uri"] == "gs://chronos-manifest-test/manifests/manifest-job/manifest.json"
+    assert result["payload"]["manifest_uri"].startswith("gs://chronos-manifest-test/manifests/90d/manifest-job/")
     assert patched["object_uri"] == result["payload"]["manifest_uri"]
     assert patched["metadata"]["classification_label"] == "Internal"
 

@@ -58,7 +58,7 @@ from app.services.runtime_ops import (
     reset_runtime_ops_state,
     store_segment_cache,
 )
-from app.services.transformation_manifest import finalize_manifest_payload
+from app.services.transformation_manifest import delete_manifest_objects, finalize_manifest_payload
 
 RETRY_BACKOFF_SECONDS = (1, 2, 4)
 _WEBHOOK_DELIVERIES: list[dict[str, Any]] = []
@@ -724,14 +724,30 @@ def _finalize_job(repo: JobRepository, job_id: str, *, trusted_token: str | None
                 if "payload" in manifest_result:
                     manifest_payload = manifest_result["payload"]
                     manifest_classification = manifest_result.get("classification")
+                    manifest_retention = manifest_result.get("retention")
+                    manifest_redaction = manifest_result.get("redaction")
+                    manifest_deletion = manifest_result.get("deletion")
                 else:
                     manifest_payload = manifest_result
                     manifest_classification = None
-                ManifestRepository().upsert_manifest_for_worker(
+                    manifest_retention = None
+                    manifest_redaction = None
+                    manifest_deletion = None
+                manifest_repo = ManifestRepository()
+                manifest_repo.upsert_manifest_for_worker(
                     job_id=job_id,
                     manifest=manifest_payload,
                     classification=manifest_classification,
+                    retention=manifest_retention,
+                    redaction=manifest_redaction,
                 )
+                if manifest_deletion and manifest_deletion.get("object_uris"):
+                    try:
+                        delete_manifest_objects(object_uris=manifest_deletion["object_uris"])
+                    except Exception:
+                        manifest_repo.mark_retention_delete_failed(job_id=job_id)
+                        raise
+                    manifest_repo.mark_retention_delete_deleted(job_id=job_id)
                 finalized = repo.update_job_for_worker(
                     job_id,
                     patch={

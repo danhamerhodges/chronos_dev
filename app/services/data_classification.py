@@ -101,9 +101,15 @@ class DataClassificationService:
         object_uri: str,
         plan_tier: str,
         anchor_time: str | datetime,
+        retention_days_override: int | None = None,
+        use_retention_override: bool = False,
     ) -> ClassificationRecord:
         label = classification_label_for_artifact(artifact_type)
-        retention_days = retention_days_for_artifact(artifact_type=artifact_type, plan_tier=plan_tier)
+        retention_days = (
+            retention_days_override
+            if use_retention_override
+            else retention_days_for_artifact(artifact_type=artifact_type, plan_tier=plan_tier)
+        )
         retention_expires_at = _retention_expires_at(anchor_time=anchor_time, retention_days=retention_days)
         return ClassificationRecord(
             artifact_type=artifact_type,
