@@ -20,7 +20,8 @@ claim global `SEC-002` closeout.
 - `tests/security/test_encryption_in_transit.py` verifies the canonical TLS 1.3 cipher-suite contract and
   documents that SSL Labs A+ scan, TLS 1.0/1.1 rejection evidence, and TLS handshake p95 evidence remain
   hosted gates. Packet 5I does not emulate live protocol negotiation because cipher negotiation is enforced
-  by the edge or certificate-terminating platform in hosted environments.
+  by the edge or certificate-terminating platform in hosted environments. Deprecated protocol evidence must
+  cover TLS 1.0 and TLS 1.1 individually.
 - `tests/security/test_tls_configuration.py` verifies the HSTS one-year max-age contract and keeps
   certificate auto-renewal scenarios outside local-only closeout. `includeSubDomains` and `preload` are part
   of the Packet 5I HSTS contract.

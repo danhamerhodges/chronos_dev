@@ -39,7 +39,7 @@ def test_deprecated_tls_rejection_remains_hosted_runtime_evidence(version: str) 
     note = PACKET_NOTE.read_text()
 
     assert "TLS 1.0/1.1" in spec
-    assert version in DEPRECATED_TLS_VERSIONS
+    assert version in note
     assert "TLS 1.0/1.1 rejection evidence" in note
     assert "does not emulate live protocol negotiation" in note
 

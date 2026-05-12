@@ -21,9 +21,10 @@ REQUIRED_BUCKET_ROLES = ("uploads", "outputs", "backups")
 REQUIRED_DEFAULT_ENCRYPTION = "AES256"
 
 
-def _bucket_encryption_satisfies_sec002_at_rest(bucket_config: dict[str, object]) -> bool:
+def _bucket_encryption_satisfies_sec002_at_rest(bucket_config: dict[str, object], *, expected_role: str) -> bool:
+    bucket_role = str(bucket_config.get("bucket_role", ""))
     encryption = str(bucket_config.get("default_encryption", "")).upper()
-    return encryption == REQUIRED_DEFAULT_ENCRYPTION
+    return bucket_role == expected_role and encryption == REQUIRED_DEFAULT_ENCRYPTION
 
 
 @pytest.mark.parametrize("bucket_role", REQUIRED_BUCKET_ROLES)
@@ -33,18 +34,27 @@ def test_sec002_requires_aes256_for_each_gcs_bucket(bucket_role: str) -> None:
     assert "AES-256 encryption verified for **all 3 GCS buckets**" in spec
     assert bucket_role in ("uploads", "outputs", "backups")
     assert _bucket_encryption_satisfies_sec002_at_rest(
-        {"bucket_role": bucket_role, "default_encryption": "AES256", "kms_key_name": None}
+        {"bucket_role": bucket_role, "default_encryption": "AES256", "kms_key_name": None},
+        expected_role=bucket_role,
     )
 
 
 def test_aes256_bucket_verifier_accepts_cmek_and_rejects_unencrypted_configs() -> None:
-    assert not _bucket_encryption_satisfies_sec002_at_rest({"bucket_role": "uploads", "default_encryption": "NONE"})
+    assert not _bucket_encryption_satisfies_sec002_at_rest(
+        {"bucket_role": "uploads", "default_encryption": "NONE"},
+        expected_role="uploads",
+    )
     assert _bucket_encryption_satisfies_sec002_at_rest(
         {
             "bucket_role": "outputs",
             "default_encryption": "AES256",
             "kms_key_name": "projects/chronos/locations/global/keyRings/museum/cryptoKeys/cmek",
-        }
+        },
+        expected_role="outputs",
+    )
+    assert not _bucket_encryption_satisfies_sec002_at_rest(
+        {"bucket_role": "backups", "default_encryption": "AES256"},
+        expected_role="uploads",
     )
 
 
@@ -57,7 +67,7 @@ def test_sec002_encryption_checks_are_disabled_by_default() -> None:
 
 
 def test_sec002_does_not_add_ungated_live_gcp_bucket_checks() -> None:
-    terraform_sources = "\n".join(path.read_text() for path in TERRAFORM_DIR.glob("*.tf"))
+    terraform_sources = "\n".join(path.read_text() for path in TERRAFORM_DIR.rglob("*.tf"))
 
     assert "manage_sec002_encryption_checks" in terraform_sources
     assert 'data "google_storage_bucket"' not in terraform_sources
