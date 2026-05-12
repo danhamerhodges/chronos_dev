@@ -31,7 +31,7 @@ from app.services.data_classification import (
     retention_days_for_artifact,
 )
 from app.services.output_delivery import max_retention_days_for_plan
-from app.services.transformation_manifest import GcsManifestStore
+from app.services.transformation_manifest import GcsManifestStore, finalize_manifest_payload
 from app.services.upload_service import ResumableUploadProbe, UploadService
 from tests.helpers.auth import fake_auth_header
 from tests.helpers.jobs import create_seed_job, run_all_jobs
@@ -84,6 +84,28 @@ def _upload_payload() -> dict[str, object]:
         "mime_type": "video/quicktime",
         "size_bytes": 1024,
         "checksum_sha256": "abc12345def67890",
+    }
+
+
+def _manifest_job_payload() -> dict[str, object]:
+    return {
+        "job_id": "manifest-job",
+        "owner_user_id": "manifest-owner",
+        "era_profile": {"detected_era": "1990s"},
+        "plan_tier": "pro",
+        "effective_fidelity_tier": "Restore",
+        "effective_fidelity_profile": {"tier": "Restore", "identity_lock": False},
+        "reproducibility_mode": "deterministic",
+        "status": "completed",
+        "quality_summary": {},
+        "reproducibility_summary": {"mode": "deterministic", "verification_status": "verified"},
+        "stage_timings": {},
+        "gpu_summary": {},
+        "cost_summary": {},
+        "cache_summary": {},
+        "slo_summary": {"target_total_ms": 120000},
+        "warnings": [],
+        "result_uri": "gs://chronos-outputs/jobs/manifest-job/result.mp4",
     }
 
 
@@ -197,6 +219,22 @@ def test_manifest_patch_skips_in_local_mode(monkeypatch: pytest.MonkeyPatch) -> 
     assert patched is False
 
 
+def test_manifest_local_store_uses_configured_bucket_for_classification_uri(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import transformation_manifest
+
+    monkeypatch.setattr(
+        transformation_manifest,
+        "settings",
+        replace(transformation_manifest.settings, environment="test", gcs_bucket_name="chronos-manifest-test"),
+    )
+
+    uri, size_bytes = GcsManifestStore().store(job_id="manifest-job", payload={"manifest_id": "manifest-1"})
+
+    assert uri.startswith("gs://chronos-manifest-test/manifests/manifest-job/")
+    assert uri.endswith(".json")
+    assert size_bytes > 0
+
+
 def test_manifest_patch_requires_hosted_bucket(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.services import transformation_manifest
 
@@ -267,6 +305,39 @@ def test_manifest_patch_failure_raises_problem(monkeypatch: pytest.MonkeyPatch) 
             object_uri="gs://chronos-staging/manifests/job-1/manifest.json",
             metadata={"classification_label": "Internal"},
         )
+
+
+def test_manifest_finalize_uses_configured_bucket_for_store_and_patch(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.services import transformation_manifest
+
+    patched: dict[str, Any] = {}
+
+    class Store:
+        def store(self, *, job_id: str, payload: dict[str, Any]) -> tuple[str, int]:
+            del payload
+            return f"gs://chronos-manifest-test/manifests/{job_id}/manifest.json", 128
+
+        def patch_object_metadata(self, *, object_uri: str, metadata: dict[str, str]) -> bool:
+            patched.update({"object_uri": object_uri, "metadata": metadata})
+            return True
+
+    monkeypatch.setattr(
+        transformation_manifest,
+        "settings",
+        replace(transformation_manifest.settings, environment="staging", gcs_bucket_name="chronos-manifest-test"),
+    )
+
+    result = finalize_manifest_payload(
+        manifest_id="manifest-id",
+        generated_at="2026-05-11T12:00:00+00:00",
+        job=_manifest_job_payload(),
+        segments=[],
+        store=Store(),
+    )
+
+    assert result["payload"]["manifest_uri"] == "gs://chronos-manifest-test/manifests/manifest-job/manifest.json"
+    assert patched["object_uri"] == result["payload"]["manifest_uri"]
+    assert patched["metadata"]["classification_label"] == "Internal"
 
 
 def test_uri_only_artifacts_emit_skipped_metadata_events() -> None:

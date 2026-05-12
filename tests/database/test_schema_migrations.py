@@ -173,6 +173,7 @@ def test_sec003_data_classification_migration_adds_backfill_safe_controls() -> N
     assert "ADD COLUMN IF NOT EXISTS classification_label TEXT NOT NULL DEFAULT 'Compliance'" in sql
     assert "ADD COLUMN IF NOT EXISTS classification_policy_version TEXT NOT NULL DEFAULT 'v0-backfill'" in sql
     assert "CREATE TABLE IF NOT EXISTS public.data_classification_audit_events" in sql
+    assert "ALTER TABLE public.preview_sessions" not in sql
     assert "ALTER TABLE public.data_classification_audit_events ENABLE ROW LEVEL SECURITY" in sql
     assert "REVOKE ALL ON public.data_classification_audit_events FROM anon, authenticated" in sql
     assert "data_classification_audit_artifact_type_check" in sql

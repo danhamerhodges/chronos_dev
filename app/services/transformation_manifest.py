@@ -59,22 +59,33 @@ class GcsManifestStore:
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
         bucket = settings.gcs_bucket_name
         object_name = f"{_MANIFEST_PREFIX}/{job_id}/{uuid.uuid4().hex}.json"
-        if bucket:
-            access_token = self._token_provider.access_token()
-            if access_token:
-                response = httpx.post(
-                    _GCS_UPLOAD_URL.format(bucket=bucket),
-                    params={"uploadType": "media", "name": object_name},
-                    headers={
-                        "Authorization": f"Bearer {access_token}",
-                        "Content-Type": "application/json",
-                    },
-                    content=encoded,
-                    timeout=10.0,
-                )
-                response.raise_for_status()
-                return f"gs://{bucket}/{object_name}", len(encoded)
-        return f"gs://chronos/manifests/{job_id}.json", len(encoded)
+        if is_local_environment(settings.environment):
+            return f"gs://{bucket or 'chronos'}/{object_name}", len(encoded)
+        if not bucket:
+            raise ProblemException(
+                title="Manifest Storage Unavailable",
+                detail="GCS bucket configuration is required to store transformation manifests.",
+                status_code=500,
+            )
+        access_token = self._token_provider.access_token()
+        if not access_token:
+            raise ProblemException(
+                title="Manifest Storage Unavailable",
+                detail="GCP access token is required to store transformation manifests.",
+                status_code=500,
+            )
+        response = httpx.post(
+            _GCS_UPLOAD_URL.format(bucket=bucket),
+            params={"uploadType": "media", "name": object_name},
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+            },
+            content=encoded,
+            timeout=10.0,
+        )
+        response.raise_for_status()
+        return f"gs://{bucket}/{object_name}", len(encoded)
 
     def patch_object_metadata(self, *, object_uri: str, metadata: dict[str, str]) -> bool:
         if is_local_environment(settings.environment):

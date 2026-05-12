@@ -2226,10 +2226,6 @@ class _SupabasePreviewSessionRepository(_SupabaseRepositoryBase):
             "preview_root_uri": row["preview_root_uri"],
             "expires_at": row["expires_at"],
             "deleted_at": row.get("deleted_at"),
-            "classification_label": row.get("classification_label", "Confidential"),
-            "retention_days": row.get("retention_days"),
-            "retention_expires_at": row.get("retention_expires_at"),
-            "classification_policy_version": row.get("classification_policy_version", "v0-backfill"),
             "created_at": row["created_at"],
             "updated_at": row.get("updated_at") or row["created_at"],
         }
