@@ -10,6 +10,11 @@ resource "google_storage_bucket" "manifest_retention" {
 
   lifecycle {
     prevent_destroy = true
+
+    precondition {
+      condition     = var.manifest_lifecycle_bucket_name != ""
+      error_message = "manifest_lifecycle_bucket_name must be set before enabling SEC-005 manifest lifecycle management."
+    }
   }
 
   lifecycle_rule {

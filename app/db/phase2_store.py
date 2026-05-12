@@ -1270,6 +1270,18 @@ class _MemoryManifestRepository:
         record["retention_delete_status"] = "failed"
         record["retention_delete_attempted_at"] = failed_at or _utc_now()
 
+    def get_retention_delete_record_for_worker(self, *, job_id: str) -> dict[str, Any] | None:
+        record = _STORE.job_manifests.get(job_id)
+        if record is None or record.get("retention_delete_status") not in {"pending", "failed"}:
+            return None
+        return {
+            "job_id": job_id,
+            "manifest_uri": record.get("payload", {}).get("manifest_uri"),
+            "redacted_manifest_uri": record.get("redacted_manifest_uri"),
+            "retention_delete_status": record.get("retention_delete_status"),
+            "retention_delete_attempted_at": record.get("retention_delete_attempted_at"),
+        }
+
 
 class _MemoryJobExportPackageRepository:
     def upsert_package_for_worker(self, *, payload: dict[str, Any]) -> dict[str, Any]:
@@ -3798,6 +3810,30 @@ class _SupabaseManifestRepository(_SupabaseRepositoryBase):
                 (failed_at, job_id),
             )
 
+    def get_retention_delete_record_for_worker(self, *, job_id: str) -> dict[str, Any] | None:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                select external_job_id, manifest_uri, redacted_manifest_uri,
+                       retention_delete_status, retention_delete_attempted_at
+                from public.job_manifests
+                where external_job_id = %s
+                  and retention_delete_status in ('pending', 'failed')
+                limit 1
+                """,
+                (job_id,),
+            )
+            row = cur.fetchone()
+        if row is None:
+            return None
+        return {
+            "job_id": row["external_job_id"],
+            "manifest_uri": row.get("manifest_uri"),
+            "redacted_manifest_uri": row.get("redacted_manifest_uri"),
+            "retention_delete_status": row.get("retention_delete_status"),
+            "retention_delete_attempted_at": row.get("retention_delete_attempted_at"),
+        }
+
 
 class _SupabaseJobExportPackageRepository(_SupabaseRepositoryBase):
     def _package_from_row(self, row: dict[str, Any]) -> dict[str, Any]:
@@ -4878,6 +4914,9 @@ class ManifestRepository:
 
     def mark_retention_delete_failed(self, *, job_id: str, failed_at: str | None = None) -> None:
         return self._backend.mark_retention_delete_failed(job_id=job_id, failed_at=failed_at)
+
+    def get_retention_delete_record_for_worker(self, *, job_id: str) -> dict[str, Any] | None:
+        return self._backend.get_retention_delete_record_for_worker(job_id=job_id)
 
 
 class JobExportPackageRepository:

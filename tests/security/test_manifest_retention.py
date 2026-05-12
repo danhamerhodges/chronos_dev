@@ -245,6 +245,15 @@ def test_memory_manifest_repository_hides_expired_and_deleted_records() -> None:
         retention={"retention_expires_at": None, "retention_delete_status": "pending"},
     )
     assert manifest_repo.get_manifest("expired-manifest", owner_user_id="manifest-owner") is None
+    retry_record = manifest_repo.get_retention_delete_record_for_worker(job_id="expired-manifest")
+    assert retry_record is not None
+    assert retry_record["retention_delete_status"] == "pending"
+    assert retry_record["manifest_uri"] == payload["manifest_uri"]
+    manifest_repo.mark_retention_delete_failed(job_id="expired-manifest", failed_at="2026-05-11T00:00:00+00:00")
+    assert manifest_repo.get_manifest("expired-manifest", owner_user_id="manifest-owner") is None
+    retry_record = manifest_repo.get_retention_delete_record_for_worker(job_id="expired-manifest")
+    assert retry_record is not None
+    assert retry_record["retention_delete_status"] == "failed"
 
 
 def test_supabase_rest_manifest_filter_includes_retention_guards() -> None:
@@ -277,3 +286,5 @@ def test_gcs_lifecycle_rules_target_only_finite_manifest_prefixes() -> None:
     assert "manifests/0d/" not in lifecycle_tf
     assert "manifests/indefinite/" not in lifecycle_tf
     assert "authoritative" in lifecycle_tf
+    assert "precondition" in lifecycle_tf
+    assert 'var.manifest_lifecycle_bucket_name != ""' in lifecycle_tf
