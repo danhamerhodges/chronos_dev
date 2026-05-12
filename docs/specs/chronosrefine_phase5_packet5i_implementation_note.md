@@ -15,12 +15,15 @@ claim global `SEC-002` closeout.
 
 - `tests/security/test_encryption_at_rest.py` verifies the required uploads, outputs, and backups bucket
   roles use the AES-256 default-encryption contract and that Packet 5I encryption checks are disabled by
-  default.
+  default. CMEK-backed buckets are still AES-256 encrypted at rest; Packet 5I defers CMEK key-management
+  behavior rather than treating CMEK as non-compliant.
 - `tests/security/test_encryption_in_transit.py` verifies the canonical TLS 1.3 cipher-suite contract and
   documents that SSL Labs A+ scan, TLS 1.0/1.1 rejection evidence, and TLS handshake p95 evidence remain
-  hosted gates.
+  hosted gates. Packet 5I does not emulate live protocol negotiation because cipher negotiation is enforced
+  by the edge or certificate-terminating platform in hosted environments.
 - `tests/security/test_tls_configuration.py` verifies the HSTS one-year max-age contract and keeps
-  certificate auto-renewal scenarios outside local-only closeout.
+  certificate auto-renewal scenarios outside local-only closeout. `includeSubDomains` and `preload` are part
+  of the Packet 5I HSTS contract.
 - Packet 5I does not claim certificate-renewal closeout.
 - `infra/terraform/variables.tf` adds `manage_sec002_encryption_checks`, disabled by default, so future
   Terraform inspection resources can be introduced without breaking unauthenticated local/CI plans.

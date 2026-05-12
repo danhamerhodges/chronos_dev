@@ -21,16 +21,24 @@ def _hsts_header_is_sec002_compliant(header_value: str) -> bool:
         for part in header_value.split(";")
         if part.strip()
     }
-    return f"max-age={REQUIRED_HSTS_MAX_AGE_SECONDS}" in directives
+    return {
+        f"max-age={REQUIRED_HSTS_MAX_AGE_SECONDS}",
+        "includesubdomains",
+        "preload",
+    }.issubset(directives)
 
 
 def test_hsts_contract_requires_one_year_max_age() -> None:
     spec = SECURITY_SPEC.read_text()
+    note = PACKET_NOTE.read_text()
 
     assert "HSTS" in spec
     assert "1-year max-age = 31536000 seconds" in spec
-    assert _hsts_header_is_sec002_compliant("max-age=31536000; includeSubDomains")
-    assert not _hsts_header_is_sec002_compliant("max-age=86400; includeSubDomains")
+    assert "includeSubDomains" in note
+    assert "preload" in note
+    assert _hsts_header_is_sec002_compliant("max-age=31536000; includeSubDomains; preload")
+    assert not _hsts_header_is_sec002_compliant("max-age=31536000; preload")
+    assert not _hsts_header_is_sec002_compliant("max-age=86400; includeSubDomains; preload")
 
 
 def test_certificate_auto_renewal_remains_hosted_evidence_gate() -> None:

@@ -23,21 +23,25 @@ REQUIRED_TLS13_CIPHERS = (
 DEPRECATED_TLS_VERSIONS = ("TLS 1.0", "TLS 1.1")
 
 
-def _tls_policy_accepts(version: str, cipher_suite: str) -> bool:
-    return version == REQUIRED_TLS_VERSION and cipher_suite in REQUIRED_TLS13_CIPHERS
-
-
 @pytest.mark.parametrize("cipher_suite", REQUIRED_TLS13_CIPHERS)
-def test_sec002_accepts_only_required_tls13_cipher_suites(cipher_suite: str) -> None:
+def test_sec002_spec_lists_required_tls13_cipher_suites(cipher_suite: str) -> None:
     spec = SECURITY_SPEC.read_text()
+    note = PACKET_NOTE.read_text()
 
+    assert REQUIRED_TLS_VERSION in spec
     assert cipher_suite in spec
-    assert _tls_policy_accepts(REQUIRED_TLS_VERSION, cipher_suite)
+    assert "edge or certificate-terminating platform" in note
 
 
 @pytest.mark.parametrize("version", DEPRECATED_TLS_VERSIONS)
-def test_sec002_rejects_deprecated_tls_versions(version: str) -> None:
-    assert not _tls_policy_accepts(version, REQUIRED_TLS13_CIPHERS[0])
+def test_deprecated_tls_rejection_remains_hosted_runtime_evidence(version: str) -> None:
+    spec = SECURITY_SPEC.read_text()
+    note = PACKET_NOTE.read_text()
+
+    assert "TLS 1.0/1.1" in spec
+    assert version in DEPRECATED_TLS_VERSIONS
+    assert "TLS 1.0/1.1 rejection evidence" in note
+    assert "does not emulate live protocol negotiation" in note
 
 
 def test_tls13_closeout_requires_hosted_ssl_labs_and_runtime_evidence() -> None:
@@ -50,4 +54,3 @@ def test_tls13_closeout_requires_hosted_ssl_labs_and_runtime_evidence() -> None:
     assert "SSL Labs A+ scan" in note
     assert "TLS 1.0/1.1 rejection evidence" in note
     assert "TLS handshake p95 evidence" in note
-
