@@ -88,3 +88,19 @@ resource "google_project_iam_member" "build_run_builder" {
   role     = "roles/run.builder"
   member   = "serviceAccount:${each.value}"
 }
+
+# google_project_iam_audit_config is authoritative for this service. Before
+# hosted apply, inspect existing audit configs with:
+# gcloud projects get-iam-policy PROJECT_ID --format=json
+resource "google_project_iam_audit_config" "storage_data_access" {
+  project = var.project_id
+  service = "storage.googleapis.com"
+
+  audit_log_config {
+    log_type = "DATA_READ"
+  }
+
+  audit_log_config {
+    log_type = "DATA_WRITE"
+  }
+}

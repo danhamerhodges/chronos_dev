@@ -91,6 +91,10 @@ class ReplayableSessionClient:
             return None
         return {"size_bytes": self.object_size, "mime_type": "video/quicktime"}
 
+    def patch_object_metadata(self, *, bucket_name: str, object_path: str, metadata: dict[str, str]) -> bool:
+        del bucket_name, object_path, metadata
+        return False
+
 
 @pytest.mark.parametrize(
     ("percent_complete", "next_byte_offset"),

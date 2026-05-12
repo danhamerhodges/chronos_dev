@@ -7,15 +7,19 @@ import json
 import uuid
 from datetime import datetime
 from typing import Any, Protocol
+from urllib.parse import quote
 
 import httpx
 
 from app.api.contracts import TransformationManifestResponse
 from app.config import settings
+from app.api.problem_details import ProblemException
+from app.services.data_classification import ARTIFACT_TRANSFORMATION_MANIFEST, DataClassificationService, is_local_environment
 from app.services.reproducibility import environment_fingerprint
 from app.services.vertex_gemini import GoogleAccessTokenProvider
 
 _GCS_UPLOAD_URL = "https://storage.googleapis.com/upload/storage/v1/b/{bucket}/o"
+_GCS_OBJECT_METADATA_URL = "https://storage.googleapis.com/storage/v1/b/{bucket}/o/{object_path}"
 _MANIFEST_PREFIX = "manifests"
 
 
@@ -55,22 +59,75 @@ class GcsManifestStore:
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
         bucket = settings.gcs_bucket_name
         object_name = f"{_MANIFEST_PREFIX}/{job_id}/{uuid.uuid4().hex}.json"
-        if bucket:
-            access_token = self._token_provider.access_token()
-            if access_token:
-                response = httpx.post(
-                    _GCS_UPLOAD_URL.format(bucket=bucket),
-                    params={"uploadType": "media", "name": object_name},
-                    headers={
-                        "Authorization": f"Bearer {access_token}",
-                        "Content-Type": "application/json",
-                    },
-                    content=encoded,
-                    timeout=10.0,
-                )
-                response.raise_for_status()
-                return f"gs://{bucket}/{object_name}", len(encoded)
-        return f"gs://chronos/manifests/{job_id}.json", len(encoded)
+        if is_local_environment(settings.environment):
+            return f"gs://{bucket or 'chronos'}/{object_name}", len(encoded)
+        if not bucket:
+            raise ProblemException(
+                title="Manifest Storage Unavailable",
+                detail="GCS bucket configuration is required to store transformation manifests.",
+                status_code=500,
+            )
+        access_token = self._token_provider.access_token()
+        if not access_token:
+            raise ProblemException(
+                title="Manifest Storage Unavailable",
+                detail="GCP access token is required to store transformation manifests.",
+                status_code=500,
+            )
+        response = httpx.post(
+            _GCS_UPLOAD_URL.format(bucket=bucket),
+            params={"uploadType": "media", "name": object_name},
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+            },
+            content=encoded,
+            timeout=10.0,
+        )
+        response.raise_for_status()
+        return f"gs://{bucket}/{object_name}", len(encoded)
+
+    def patch_object_metadata(self, *, object_uri: str, metadata: dict[str, str]) -> bool:
+        if is_local_environment(settings.environment):
+            return False
+        if not settings.gcs_bucket_name:
+            raise ProblemException(
+                title="Manifest Storage Unavailable",
+                detail="GCS bucket configuration is required to classify transformation manifests.",
+                status_code=500,
+            )
+        bucket, object_path = _parse_gs_uri(object_uri)
+        if not bucket or not object_path:
+            raise ProblemException(
+                title="Manifest Storage Unavailable",
+                detail="Transformation manifest classification requires a valid GCS object URI.",
+                status_code=500,
+            )
+        access_token = self._token_provider.access_token()
+        if not access_token:
+            raise ProblemException(
+                title="Manifest Storage Unavailable",
+                detail="GCP access token is required to classify transformation manifests.",
+                status_code=500,
+            )
+        try:
+            response = httpx.patch(
+                _GCS_OBJECT_METADATA_URL.format(bucket=bucket, object_path=quote(object_path, safe="")),
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json; charset=UTF-8",
+                },
+                json={"metadata": metadata},
+                timeout=10.0,
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise ProblemException(
+                title="Manifest Storage Unavailable",
+                detail="Transformation manifest classification metadata could not be applied.",
+                status_code=500,
+            ) from exc
+        return True
 
 
 def manifest_sha256(payload: dict[str, Any]) -> str:
@@ -83,6 +140,14 @@ def _coerce_timestamp(value: str | datetime) -> str:
     if isinstance(value, datetime):
         return value.isoformat()
     return value
+
+
+def _parse_gs_uri(object_uri: str) -> tuple[str, str]:
+    if not object_uri.startswith("gs://"):
+        return "", ""
+    without_scheme = object_uri.removeprefix("gs://")
+    bucket, _, object_path = without_scheme.partition("/")
+    return bucket, object_path
 
 
 def build_manifest_payload(
@@ -191,5 +256,29 @@ def finalize_manifest_payload(
     manifest_uri, size_bytes = store_impl.store(job_id=job["job_id"], payload=payload)
     payload["manifest_uri"] = manifest_uri
     payload["size_bytes"] = size_bytes
+    classification_service = DataClassificationService()
+    classification = classification_service.classify(
+        artifact_type=ARTIFACT_TRANSFORMATION_MANIFEST,
+        object_uri=manifest_uri,
+        plan_tier=str(job["plan_tier"]),
+        anchor_time=payload["generated_at"],
+    )
+    classification_service.record_event(classification, event_type="classification_assigned")
+    patcher = getattr(store_impl, "patch_object_metadata", None)
+    if patcher is None:
+        classification_service.record_event(classification, event_type="gcs_metadata_patch_skipped")
+    else:
+        try:
+            patched = bool(patcher(object_uri=manifest_uri, metadata=classification.metadata))
+        except ProblemException:
+            classification_service.record_event(classification, event_type="gcs_metadata_patch_failed")
+            raise
+        classification_service.record_event(
+            classification,
+            event_type="gcs_metadata_patched" if patched else "gcs_metadata_patch_skipped",
+        )
     validated = TransformationManifestResponse.model_validate(payload)
-    return validated.model_dump()
+    return {
+        "payload": validated.model_dump(),
+        "classification": classification.persistence_fields,
+    }

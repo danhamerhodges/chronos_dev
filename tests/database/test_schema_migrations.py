@@ -34,6 +34,7 @@ def test_expected_migrations_present() -> None:
         "0023_phase4_preview_session_stabilization.sql",
         "0024_phase5_preview_review_gate.sql",
         "0025_phase5_nfr006_closeout.sql",
+        "0026_phase5_sec003_data_classification.sql",
     ]
 
 
@@ -159,3 +160,22 @@ def test_nfr006_closeout_migration_hardens_billing_control_plane_rls() -> None:
     assert "'org-default'" not in sql
     assert "RAISE EXCEPTION 'billing_accounts org_id backfill has unresolved rows'" in sql
     assert "RAISE EXCEPTION 'billing_accounts org_id backfill would violate one account per org'" in sql
+
+
+def test_sec003_data_classification_migration_adds_backfill_safe_controls() -> None:
+    root = Path(__file__).resolve().parents[2]
+    sql = (root / "supabase" / "migrations" / "0026_phase5_sec003_data_classification.sql").read_text(
+        encoding="utf-8"
+    )
+
+    assert "ADD COLUMN IF NOT EXISTS classification_label TEXT NOT NULL DEFAULT 'Confidential'" in sql
+    assert "ADD COLUMN IF NOT EXISTS classification_label TEXT NOT NULL DEFAULT 'Internal'" in sql
+    assert "ADD COLUMN IF NOT EXISTS classification_label TEXT NOT NULL DEFAULT 'Compliance'" in sql
+    assert "ADD COLUMN IF NOT EXISTS classification_policy_version TEXT NOT NULL DEFAULT 'v0-backfill'" in sql
+    assert "CREATE TABLE IF NOT EXISTS public.data_classification_audit_events" in sql
+    assert "ALTER TABLE public.preview_sessions" not in sql
+    assert "ALTER TABLE public.data_classification_audit_events ENABLE ROW LEVEL SECURITY" in sql
+    assert "REVOKE ALL ON public.data_classification_audit_events FROM anon, authenticated" in sql
+    assert "data_classification_audit_artifact_type_check" in sql
+    assert "data_classification_audit_label_check" in sql
+    assert "data_classification_audit_event_type_check" in sql

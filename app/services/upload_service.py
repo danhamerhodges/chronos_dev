@@ -14,6 +14,7 @@ from app.api.problem_details import ProblemException
 from app.config import settings
 from app.db.phase2_store import UploadRepository
 from app.models.status import UploadStatus
+from app.services.data_classification import ARTIFACT_SOURCE_UPLOAD, DataClassificationService, is_local_environment
 from app.services.vertex_gemini import GoogleAccessTokenProvider
 
 _GCS_RESUMABLE_UPLOAD_URL = "https://storage.googleapis.com/upload/storage/v1/b/{bucket}/o"
@@ -143,6 +144,43 @@ class GcsUploadSessionClient:
             "mime_type": payload.get("contentType") or "",
         }
 
+    def patch_object_metadata(self, *, bucket_name: str, object_path: str, metadata: dict[str, str]) -> bool:
+        if not bucket_name:
+            if not is_local_environment(settings.environment):
+                raise ProblemException(
+                    title="Upload Storage Unavailable",
+                    detail="GCS bucket configuration is required to classify uploaded objects.",
+                    status_code=500,
+                )
+            return False
+        access_token = self._token_provider.access_token()
+        if not access_token:
+            if not is_local_environment(settings.environment):
+                raise ProblemException(
+                    title="Upload Storage Unavailable",
+                    detail="GCP access token is required to classify uploaded objects.",
+                    status_code=500,
+                )
+            return False
+        try:
+            response = httpx.patch(
+                _GCS_OBJECT_METADATA_URL.format(bucket=bucket_name, object_path=quote(object_path, safe="")),
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json; charset=UTF-8",
+                },
+                json={"metadata": metadata},
+                timeout=10.0,
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise ProblemException(
+                title="Upload Storage Unavailable",
+                detail="Uploaded object classification metadata could not be applied.",
+                status_code=500,
+            ) from exc
+        return True
+
     def probe_resumable_session(self, *, session_url: str, size_bytes: int) -> ResumableUploadProbe:
         if not session_url:
             return ResumableUploadProbe(next_byte_offset=0, upload_complete=False, session_expired=True)
@@ -224,9 +262,11 @@ class UploadService:
         *,
         repository: UploadRepository | None = None,
         session_client: GcsUploadSessionClient | None = None,
+        classification_service: DataClassificationService | None = None,
     ) -> None:
         self._repo = repository or UploadRepository()
         self._session_client = session_client or GcsUploadSessionClient()
+        self._classification = classification_service or DataClassificationService()
 
     def create_upload(
         self,
@@ -350,6 +390,7 @@ class UploadService:
         *,
         owner_user_id: str,
         payload: dict[str, object],
+        plan_tier: str,
         access_token: str,
     ) -> dict[str, object]:
         session = self._repo.get_session(upload_id, owner_user_id=owner_user_id, access_token=access_token)
@@ -447,6 +488,27 @@ class UploadService:
             ) from exc
 
         checksum_sha256 = finalized_checksum or session.get("checksum_sha256")
+        classified_at = datetime_now_iso()
+        classification = self._classification.classify(
+            artifact_type=ARTIFACT_SOURCE_UPLOAD,
+            object_uri=str(session["media_uri"]),
+            plan_tier=plan_tier,
+            anchor_time=classified_at,
+        )
+        self._classification.record_event(classification, event_type="classification_assigned")
+        try:
+            patched = self._session_client.patch_object_metadata(
+                bucket_name=str(session["bucket_name"]),
+                object_path=str(session["object_path"]),
+                metadata=classification.metadata,
+            )
+        except ProblemException:
+            self._classification.record_event(classification, event_type="gcs_metadata_patch_failed")
+            raise
+        self._classification.record_event(
+            classification,
+            event_type="gcs_metadata_patched" if patched else "gcs_metadata_patch_skipped",
+        )
         self._repo.upsert_pointer(
             upload_id=upload_id,
             owner_user_id=owner_user_id,
@@ -457,6 +519,7 @@ class UploadService:
             mime_type=str(session["mime_type"]),
             size_bytes=finalized_size,
             checksum_sha256=checksum_sha256,
+            **classification.persistence_fields,
             access_token=access_token,
         )
         updated = self._repo.update_session(
