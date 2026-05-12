@@ -1,4 +1,4 @@
-"""Maps to: ENG-010, ENG-016, SEC-013, FR-006, NFR-006"""
+"""Maps to: ENG-010, ENG-016, SEC-013, FR-006, NFR-006, SEC-005"""
 
 from pathlib import Path
 
@@ -35,6 +35,7 @@ def test_expected_migrations_present() -> None:
         "0024_phase5_preview_review_gate.sql",
         "0025_phase5_nfr006_closeout.sql",
         "0026_phase5_sec003_data_classification.sql",
+        "0027_phase5_sec005_manifest_retention.sql",
     ]
 
 
@@ -58,6 +59,28 @@ def test_manifest_rls_migration_covers_owner_reads() -> None:
     assert "CREATE POLICY job_manifests_owner_select" in sql
     assert "FOR SELECT" in sql
     assert "public.media_jobs.owner_user_id = auth.uid()" in sql
+
+
+def test_sec005_manifest_retention_migration_is_backend_only_and_backfill_safe() -> None:
+    root = Path(__file__).resolve().parents[2]
+    sql = (root / "supabase" / "migrations" / "0027_phase5_sec005_manifest_retention.sql").read_text(encoding="utf-8")
+
+    assert "CREATE TABLE IF NOT EXISTS public.org_data_retention_settings" in sql
+    assert "CHECK (plan_tier = 'museum')" in sql
+    assert "manifest_retention_days IN (0, 90, 365, 1825)" in sql
+    assert "ALTER TABLE public.org_data_retention_settings ENABLE ROW LEVEL SECURITY" in sql
+    assert "REVOKE ALL ON TABLE public.org_data_retention_settings FROM anon" in sql
+    assert "REVOKE ALL ON TABLE public.org_data_retention_settings FROM authenticated" in sql
+    assert "ADD COLUMN IF NOT EXISTS redacted_payload JSONB" in sql
+    assert "ADD COLUMN IF NOT EXISTS redacted_manifest_uri TEXT" in sql
+    assert "ADD COLUMN IF NOT EXISTS manifest_redaction_enabled BOOLEAN NOT NULL DEFAULT FALSE" in sql
+    assert "ADD COLUMN IF NOT EXISTS retention_class TEXT NOT NULL DEFAULT 'v0-backfill'" in sql
+    assert "ADD COLUMN IF NOT EXISTS retention_policy_source TEXT NOT NULL DEFAULT 'v0-backfill'" in sql
+    assert "ADD COLUMN IF NOT EXISTS retention_deleted_at TIMESTAMPTZ" in sql
+    assert "ADD COLUMN IF NOT EXISTS retention_delete_status TEXT" in sql
+    assert "ADD COLUMN IF NOT EXISTS retention_delete_attempted_at TIMESTAMPTZ" in sql
+    assert "'0d', '7d', '90d', '365d', '1825d', 'indefinite', 'v0-backfill'" in sql
+    assert "retention_delete_status IN ('pending', 'deleted', 'failed')" in sql
 
 
 def test_runtime_ops_migration_covers_gpu_leases_and_incidents() -> None:
