@@ -1,4 +1,4 @@
-"""Maps to: ENG-011, ENG-012"""
+"""Maps to: ENG-011, ENG-012, SEC-005"""
 
 from types import SimpleNamespace
 
@@ -277,6 +277,211 @@ def test_process_job_reports_output_delivery_failures_without_overwriting_manife
     assert "Output delivery packaging failed after processing completed." in finalized["warnings"]
     assert finalized["current_operation"] == "Output delivery packaging failed"
     assert billed == [{"user_id": "delivery-user", "plan_tier": "pro", "minutes": 0, "org_id": None}]
+
+
+def test_zero_day_manifest_delete_runs_after_manifest_persistence(monkeypatch) -> None:
+    class StubRepo:
+        def __init__(self) -> None:
+            self.job = {
+                "job_id": "job-zero-day",
+                "status": "processing",
+                "owner_user_id": "retention-user",
+                "org_id": "retention-org",
+                "plan_tier": "museum",
+                "fidelity_tier": "Restore",
+                "reproducibility_mode": "perceptual_equivalence",
+                "estimated_duration_seconds": 27,
+                "updated_at": "2026-05-11T00:00:00+00:00",
+                "warnings": [],
+                "manifest_available": False,
+                "stage_timings": {},
+                "gpu_summary": {},
+            }
+
+        def get_job_for_worker(self, job_id: str) -> dict[str, object]:
+            assert job_id == "job-zero-day"
+            return dict(self.job)
+
+        def update_job_for_worker(self, job_id: str, *, patch: dict[str, object]) -> dict[str, object]:
+            assert job_id == "job-zero-day"
+            self.job.update(patch)
+            return dict(self.job)
+
+        def list_segments(self, job_id: str) -> list[dict[str, object]]:
+            assert job_id == "job-zero-day"
+            return []
+
+    events: list[str] = []
+
+    manifest_result = {
+        "payload": {
+            "manifest_uri": "gs://chronos/manifests/0d/job-zero-day/manifest.json",
+            "manifest_sha256": "manifest-hash",
+            "generated_at": "2026-05-11T00:00:00+00:00",
+            "size_bytes": 256,
+        },
+        "classification": {"retention_delete_status": "pending", "retention_class": "0d"},
+        "retention": {"retention_delete_status": "pending", "retention_class": "0d"},
+        "redaction": {},
+        "deletion": {"object_uris": ["gs://chronos/manifests/0d/job-zero-day/manifest.json"]},
+    }
+    monkeypatch.setattr(job_runtime, "finalize_manifest_payload", lambda **kwargs: manifest_result)
+
+    class ManifestRepo:
+        def upsert_manifest_for_worker(self, **kwargs) -> None:
+            events.append("upsert")
+
+        def mark_retention_delete_deleted(self, *, job_id: str) -> None:
+            events.append(f"mark_deleted:{job_id}")
+
+        def mark_retention_delete_failed(self, *, job_id: str) -> None:
+            events.append(f"mark_failed:{job_id}")
+
+    monkeypatch.setattr(
+        job_runtime,
+        "ManifestRepository",
+        lambda: ManifestRepo(),
+    )
+    monkeypatch.setattr(
+        job_runtime,
+        "delete_manifest_objects",
+        lambda *, object_uris: events.append(f"delete:{object_uris[0]}"),
+    )
+    monkeypatch.setattr(
+        job_runtime,
+        "OutputDeliveryService",
+        lambda: SimpleNamespace(materialize_delivery_artifacts=lambda **kwargs: None),
+    )
+    monkeypatch.setattr(
+        job_runtime,
+        "release_gpu",
+        lambda job_id, gpu_runtime_seconds: {
+            "desired_warm_instances": 1,
+            "active_warm_instances": 1,
+            "busy_instances": 0,
+            "utilization_percent": 0.0,
+        },
+    )
+    monkeypatch.setattr(job_runtime, "record_job_stage_timings", lambda *args, **kwargs: None)
+    monkeypatch.setattr(job_runtime, "evaluate_runtime_snapshot", lambda *args, **kwargs: None)
+    monkeypatch.setattr(job_runtime, "record_job_runtime_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        job_runtime,
+        "BillingService",
+        lambda: SimpleNamespace(
+            snapshot=lambda **kwargs: SimpleNamespace(used_minutes=0, monthly_limit_minutes=500),
+            consume_minutes=lambda **kwargs: SimpleNamespace(used_minutes=0, monthly_limit_minutes=500),
+        ),
+    )
+
+    finalized, billed_minutes = job_runtime._finalize_job(StubRepo(), "job-zero-day", trusted_token="trusted")
+
+    assert billed_minutes is True
+    assert finalized["manifest_available"] is True
+    assert events == [
+        "upsert",
+        "delete:gs://chronos/manifests/0d/job-zero-day/manifest.json",
+        "mark_deleted:job-zero-day",
+    ]
+
+
+def test_zero_day_manifest_delete_failure_marks_failed_without_deleted_at(monkeypatch) -> None:
+    class StubRepo:
+        def __init__(self) -> None:
+            self.job = {
+                "job_id": "job-zero-day-fail",
+                "status": "processing",
+                "owner_user_id": "retention-user",
+                "org_id": "retention-org",
+                "plan_tier": "museum",
+                "fidelity_tier": "Restore",
+                "reproducibility_mode": "perceptual_equivalence",
+                "estimated_duration_seconds": 27,
+                "updated_at": "2026-05-11T00:00:00+00:00",
+                "warnings": [],
+                "manifest_available": False,
+                "stage_timings": {},
+                "gpu_summary": {},
+            }
+
+        def get_job_for_worker(self, job_id: str) -> dict[str, object]:
+            assert job_id == "job-zero-day-fail"
+            return dict(self.job)
+
+        def update_job_for_worker(self, job_id: str, *, patch: dict[str, object]) -> dict[str, object]:
+            assert job_id == "job-zero-day-fail"
+            self.job.update(patch)
+            return dict(self.job)
+
+        def list_segments(self, job_id: str) -> list[dict[str, object]]:
+            assert job_id == "job-zero-day-fail"
+            return []
+
+    events: list[str] = []
+    manifest_result = {
+        "payload": {
+            "manifest_uri": "gs://chronos/manifests/0d/job-zero-day-fail/manifest.json",
+            "manifest_sha256": "manifest-hash",
+            "generated_at": "2026-05-11T00:00:00+00:00",
+            "size_bytes": 256,
+        },
+        "classification": {"retention_delete_status": "pending", "retention_class": "0d"},
+        "retention": {"retention_delete_status": "pending", "retention_class": "0d"},
+        "redaction": {},
+        "deletion": {"object_uris": ["gs://chronos/manifests/0d/job-zero-day-fail/manifest.json"]},
+    }
+
+    class ManifestRepo:
+        def upsert_manifest_for_worker(self, **kwargs) -> None:
+            events.append("upsert")
+            assert "retention_deleted_at" not in kwargs["retention"]
+
+        def mark_retention_delete_deleted(self, *, job_id: str) -> None:
+            events.append(f"mark_deleted:{job_id}")
+
+        def mark_retention_delete_failed(self, *, job_id: str) -> None:
+            events.append(f"mark_failed:{job_id}")
+
+    monkeypatch.setattr(job_runtime, "finalize_manifest_payload", lambda **kwargs: manifest_result)
+    monkeypatch.setattr(job_runtime, "ManifestRepository", lambda: ManifestRepo())
+    monkeypatch.setattr(
+        job_runtime,
+        "delete_manifest_objects",
+        lambda *, object_uris: (_ for _ in ()).throw(RuntimeError("delete failed")),
+    )
+    monkeypatch.setattr(
+        job_runtime,
+        "OutputDeliveryService",
+        lambda: SimpleNamespace(materialize_delivery_artifacts=lambda **kwargs: None),
+    )
+    monkeypatch.setattr(
+        job_runtime,
+        "release_gpu",
+        lambda job_id, gpu_runtime_seconds: {
+            "desired_warm_instances": 1,
+            "active_warm_instances": 1,
+            "busy_instances": 0,
+            "utilization_percent": 0.0,
+        },
+    )
+    monkeypatch.setattr(job_runtime, "record_job_stage_timings", lambda *args, **kwargs: None)
+    monkeypatch.setattr(job_runtime, "evaluate_runtime_snapshot", lambda *args, **kwargs: None)
+    monkeypatch.setattr(job_runtime, "record_job_runtime_event", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        job_runtime,
+        "BillingService",
+        lambda: SimpleNamespace(
+            snapshot=lambda **kwargs: SimpleNamespace(used_minutes=0, monthly_limit_minutes=500),
+            consume_minutes=lambda **kwargs: SimpleNamespace(used_minutes=0, monthly_limit_minutes=500),
+        ),
+    )
+
+    finalized, billed_minutes = job_runtime._finalize_job(StubRepo(), "job-zero-day-fail", trusted_token="trusted")
+
+    assert billed_minutes is True
+    assert finalized["status"] == "failed"
+    assert finalized["manifest_available"] is False
+    assert events == ["upsert", "mark_failed:job-zero-day-fail"]
 
 
 def test_process_job_rejects_invalid_plan_tier_before_runtime_processing(monkeypatch) -> None:
