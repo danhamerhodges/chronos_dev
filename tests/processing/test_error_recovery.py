@@ -6,13 +6,13 @@ import app.services.job_runtime as job_runtime
 from app.main import app
 from app.services.job_runtime import configure_segment_failures
 from tests.helpers.auth import fake_auth_header
-from tests.helpers.jobs import run_all_jobs, valid_job_request
+from tests.helpers.jobs import create_seed_job, run_all_jobs
 
 client = TestClient(app)
 
 
 def test_transient_failure_retries_and_recovers_segment() -> None:
-    created = client.post("/v1/jobs", headers=fake_auth_header("retry-user"), json=valid_job_request()).json()
+    created = create_seed_job(user_id="retry-user")
     configure_segment_failures(created["job_id"], 0, ["transient", "network"])
 
     run_all_jobs()
@@ -29,11 +29,7 @@ def test_transient_failure_retry_branch_honors_backoff_sleep(monkeypatch) -> Non
     sleeps: list[int] = []
     monkeypatch.setattr(job_runtime, "_sleep_for_retry", lambda seconds: sleeps.append(seconds))
 
-    created = client.post(
-        "/v1/jobs",
-        headers=fake_auth_header("retry-sleep-user"),
-        json=valid_job_request(),
-    ).json()
+    created = create_seed_job(user_id="retry-sleep-user")
     configure_segment_failures(created["job_id"], 0, ["transient", "network"])
 
     run_all_jobs()

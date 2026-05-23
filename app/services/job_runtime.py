@@ -58,7 +58,7 @@ from app.services.runtime_ops import (
     reset_runtime_ops_state,
     store_segment_cache,
 )
-from app.services.transformation_manifest import finalize_manifest_payload
+from app.services.transformation_manifest import delete_manifest_objects, finalize_manifest_payload
 
 RETRY_BACKOFF_SECONDS = (1, 2, 4)
 _WEBHOOK_DELIVERIES: list[dict[str, Any]] = []
@@ -84,11 +84,13 @@ def _consume_usage_and_reconcile(
     before_snapshot = billing.snapshot(
         user_id=str(job["owner_user_id"]),
         plan_tier=str(job["plan_tier"]),
+        org_id=str(job.get("org_id") or "") or None,
     )
     after_snapshot = billing.consume_minutes(
         user_id=str(job["owner_user_id"]),
         plan_tier=str(job["plan_tier"]),
         minutes=actual_usage_minutes,
+        org_id=str(job.get("org_id") or "") or None,
     )
     reconciliation_summary = CostEstimationService().reconcile_estimate(
         estimate_summary=job.get("cost_estimate_summary"),
@@ -282,6 +284,7 @@ def process_job(job_id: str, *, trusted_token: str | None = None) -> dict[str, A
                 user_id=failed["owner_user_id"],
                 plan_tier=validated_plan_tier,
                 minutes=0,
+                org_id=str(failed.get("org_id") or "") or None,
             )
         record_job_runtime_event("failed")
         _publish_progress(failed, segment_index=0, trusted_token=trusted_token)
@@ -712,13 +715,39 @@ def _finalize_job(repo: JobRepository, job_id: str, *, trusted_token: str | None
         evaluate_runtime_snapshot(released_pool, cache_summary)
         if status in {JobStatus.COMPLETED, JobStatus.PARTIAL}:
             try:
-                manifest_payload = finalize_manifest_payload(
+                manifest_result = finalize_manifest_payload(
                     manifest_id=job_id,
                     generated_at=finalized["updated_at"],
                     job=finalized,
                     segments=repo.list_segments(job_id),
                 )
-                ManifestRepository().upsert_manifest_for_worker(job_id=job_id, manifest=manifest_payload)
+                if "payload" in manifest_result:
+                    manifest_payload = manifest_result["payload"]
+                    manifest_classification = manifest_result.get("classification")
+                    manifest_retention = manifest_result.get("retention")
+                    manifest_redaction = manifest_result.get("redaction")
+                    manifest_deletion = manifest_result.get("deletion")
+                else:
+                    manifest_payload = manifest_result
+                    manifest_classification = None
+                    manifest_retention = None
+                    manifest_redaction = None
+                    manifest_deletion = None
+                manifest_repo = ManifestRepository()
+                manifest_repo.upsert_manifest_for_worker(
+                    job_id=job_id,
+                    manifest=manifest_payload,
+                    classification=manifest_classification,
+                    retention=manifest_retention,
+                    redaction=manifest_redaction,
+                )
+                if manifest_deletion and manifest_deletion.get("object_uris"):
+                    try:
+                        delete_manifest_objects(object_uris=manifest_deletion["object_uris"])
+                    except Exception:
+                        manifest_repo.mark_retention_delete_failed(job_id=job_id)
+                        raise
+                    manifest_repo.mark_retention_delete_deleted(job_id=job_id)
                 finalized = repo.update_job_for_worker(
                     job_id,
                     patch={

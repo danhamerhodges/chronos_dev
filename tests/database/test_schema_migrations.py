@@ -1,4 +1,4 @@
-"""Maps to: ENG-010, ENG-016, SEC-013"""
+"""Maps to: ENG-010, ENG-016, SEC-013, FR-006, NFR-006, SEC-005"""
 
 from pathlib import Path
 
@@ -32,6 +32,10 @@ def test_expected_migrations_present() -> None:
         "0021_phase4_preview_sessions.sql",
         "0022_phase4_preview_sessions_rls.sql",
         "0023_phase4_preview_session_stabilization.sql",
+        "0024_phase5_preview_review_gate.sql",
+        "0025_phase5_nfr006_closeout.sql",
+        "0026_phase5_sec003_data_classification.sql",
+        "0027_phase5_sec005_manifest_retention.sql",
     ]
 
 
@@ -55,6 +59,28 @@ def test_manifest_rls_migration_covers_owner_reads() -> None:
     assert "CREATE POLICY job_manifests_owner_select" in sql
     assert "FOR SELECT" in sql
     assert "public.media_jobs.owner_user_id = auth.uid()" in sql
+
+
+def test_sec005_manifest_retention_migration_is_backend_only_and_backfill_safe() -> None:
+    root = Path(__file__).resolve().parents[2]
+    sql = (root / "supabase" / "migrations" / "0027_phase5_sec005_manifest_retention.sql").read_text(encoding="utf-8")
+
+    assert "CREATE TABLE IF NOT EXISTS public.org_data_retention_settings" in sql
+    assert "CHECK (plan_tier = 'museum')" in sql
+    assert "manifest_retention_days IN (0, 90, 365, 1825)" in sql
+    assert "ALTER TABLE public.org_data_retention_settings ENABLE ROW LEVEL SECURITY" in sql
+    assert "REVOKE ALL ON TABLE public.org_data_retention_settings FROM anon" in sql
+    assert "REVOKE ALL ON TABLE public.org_data_retention_settings FROM authenticated" in sql
+    assert "ADD COLUMN IF NOT EXISTS redacted_payload JSONB" in sql
+    assert "ADD COLUMN IF NOT EXISTS redacted_manifest_uri TEXT" in sql
+    assert "ADD COLUMN IF NOT EXISTS manifest_redaction_enabled BOOLEAN NOT NULL DEFAULT FALSE" in sql
+    assert "ADD COLUMN IF NOT EXISTS retention_class TEXT NOT NULL DEFAULT 'v0-backfill'" in sql
+    assert "ADD COLUMN IF NOT EXISTS retention_policy_source TEXT NOT NULL DEFAULT 'v0-backfill'" in sql
+    assert "ADD COLUMN IF NOT EXISTS retention_deleted_at TIMESTAMPTZ" in sql
+    assert "ADD COLUMN IF NOT EXISTS retention_delete_status TEXT" in sql
+    assert "ADD COLUMN IF NOT EXISTS retention_delete_attempted_at TIMESTAMPTZ" in sql
+    assert "'0d', '7d', '90d', '365d', '1825d', 'indefinite', 'v0-backfill'" in sql
+    assert "retention_delete_status IN ('pending', 'deleted', 'failed')" in sql
 
 
 def test_runtime_ops_migration_covers_gpu_leases_and_incidents() -> None:
@@ -127,3 +153,52 @@ def test_preview_session_stabilization_migration_adds_snapshot_identity_fields()
     assert "ADD COLUMN IF NOT EXISTS configuration_cache_fingerprint TEXT" in sql
     assert "CREATE UNIQUE INDEX IF NOT EXISTS idx_preview_sessions_owner_upload_snapshot" in sql
     assert "CREATE INDEX IF NOT EXISTS idx_preview_sessions_owner_reuse" in sql
+
+
+def test_preview_review_gate_migration_adds_review_and_launch_columns() -> None:
+    root = Path(__file__).resolve().parents[2]
+    sql = (root / "supabase" / "migrations" / "0024_phase5_preview_review_gate.sql").read_text(encoding="utf-8")
+
+    assert "ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'pending'" in sql
+    assert "ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ" in sql
+    assert "ADD COLUMN IF NOT EXISTS launch_status TEXT NOT NULL DEFAULT 'not_launched'" in sql
+    assert "ADD COLUMN IF NOT EXISTS launched_job_id UUID REFERENCES public.media_jobs (id)" in sql
+    assert "ADD COLUMN IF NOT EXISTS launched_external_job_id TEXT" in sql
+    assert "ADD COLUMN IF NOT EXISTS launched_at TIMESTAMPTZ" in sql
+    assert "CHECK (review_status IN ('pending', 'approved', 'rejected'))" in sql
+    assert "CHECK (launch_status IN ('not_launched', 'launch_pending', 'launched'))" in sql
+
+
+def test_nfr006_closeout_migration_hardens_billing_control_plane_rls() -> None:
+    root = Path(__file__).resolve().parents[2]
+    sql = (root / "supabase" / "migrations" / "0025_phase5_nfr006_closeout.sql").read_text(encoding="utf-8")
+
+    assert "ALTER TABLE public.commercial_pricebook_revisions ENABLE ROW LEVEL SECURITY" in sql
+    assert "ALTER TABLE public.billing_audit_events ENABLE ROW LEVEL SECURITY" in sql
+    assert "ALTER TABLE public.processed_stripe_events ENABLE ROW LEVEL SECURITY" in sql
+    assert "REVOKE ALL ON public.commercial_pricebook_revisions FROM anon, authenticated" in sql
+    assert "REVOKE ALL ON public.billing_audit_events FROM anon, authenticated" in sql
+    assert "REVOKE ALL ON public.processed_stripe_events FROM anon, authenticated" in sql
+    assert "CREATE POLICY billing_accounts_org_read" in sql
+    assert "'org-default'" not in sql
+    assert "RAISE EXCEPTION 'billing_accounts org_id backfill has unresolved rows'" in sql
+    assert "RAISE EXCEPTION 'billing_accounts org_id backfill would violate one account per org'" in sql
+
+
+def test_sec003_data_classification_migration_adds_backfill_safe_controls() -> None:
+    root = Path(__file__).resolve().parents[2]
+    sql = (root / "supabase" / "migrations" / "0026_phase5_sec003_data_classification.sql").read_text(
+        encoding="utf-8"
+    )
+
+    assert "ADD COLUMN IF NOT EXISTS classification_label TEXT NOT NULL DEFAULT 'Confidential'" in sql
+    assert "ADD COLUMN IF NOT EXISTS classification_label TEXT NOT NULL DEFAULT 'Internal'" in sql
+    assert "ADD COLUMN IF NOT EXISTS classification_label TEXT NOT NULL DEFAULT 'Compliance'" in sql
+    assert "ADD COLUMN IF NOT EXISTS classification_policy_version TEXT NOT NULL DEFAULT 'v0-backfill'" in sql
+    assert "CREATE TABLE IF NOT EXISTS public.data_classification_audit_events" in sql
+    assert "ALTER TABLE public.preview_sessions" not in sql
+    assert "ALTER TABLE public.data_classification_audit_events ENABLE ROW LEVEL SECURITY" in sql
+    assert "REVOKE ALL ON public.data_classification_audit_events FROM anon, authenticated" in sql
+    assert "data_classification_audit_artifact_type_check" in sql
+    assert "data_classification_audit_label_check" in sql
+    assert "data_classification_audit_event_type_check" in sql

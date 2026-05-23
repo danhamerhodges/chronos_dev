@@ -3,6 +3,7 @@
 import os
 
 import pytest
+import stripe
 
 from app.config import Settings
 from app.billing.stripe_client import (
@@ -28,6 +29,16 @@ def test_stripe_identifiers_must_be_resource_ids() -> None:
 def test_billing_portal_requires_return_url() -> None:
     with pytest.raises(ValueError):
         create_billing_portal_session(customer_id="cus_test", return_url="   ")
+
+
+def test_billing_portal_normalizes_stripe_errors(monkeypatch) -> None:
+    def raise_stripe_error(**kwargs):
+        raise stripe.StripeError("portal unavailable")
+
+    monkeypatch.setattr("app.billing.stripe_client.stripe.billing_portal.Session.create", raise_stripe_error)
+
+    with pytest.raises(ValueError, match="Stripe billing portal session is unavailable"):
+        create_billing_portal_session(customer_id="cus_test", return_url="https://app.example.test/billing")
 
 
 def test_resolve_billing_pricing_metadata_returns_tier_specific_subscription_prices(monkeypatch) -> None:
@@ -96,6 +107,43 @@ def test_resolve_billing_pricing_metadata_supports_shared_price_fallback(monkeyp
     assert metadata.subscription_price_usd_for_tier("pro") == 29.0
     assert metadata.subscription_price_usd_for_tier("museum") == 29.0
     assert metadata.subscription_price_usd_for_tier("hobbyist") == 0.0
+
+
+def test_resolve_billing_pricing_metadata_supports_stripe_objects_without_get(monkeypatch) -> None:
+    class FakeStripePrice:
+        def __init__(self, *, unit_amount: int | None = None, unit_amount_decimal: str | None = None) -> None:
+            self.unit_amount = unit_amount
+            self.unit_amount_decimal = unit_amount_decimal
+
+    monkeypatch.setattr(
+        "app.billing.stripe_client.load_stripe_config",
+        lambda: StripeConfig(
+            secret_key="sk_test_x",
+            product_id="prod_sub",
+            price_id="price_shared",
+            overage_product_id="prod_overage",
+            overage_price_id="price_overage",
+            hobbyist_price_id="price_hobbyist",
+            pro_price_id="price_pro",
+            museum_price_id="price_museum",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.billing.stripe_client.stripe.Price.retrieve",
+        lambda price_id: {
+            "price_hobbyist": FakeStripePrice(unit_amount=0),
+            "price_pro": FakeStripePrice(unit_amount=2900),
+            "price_museum": FakeStripePrice(unit_amount=50000),
+            "price_overage": FakeStripePrice(unit_amount_decimal="75"),
+            "price_shared": FakeStripePrice(unit_amount=2900),
+        }[price_id],
+    )
+
+    metadata = resolve_billing_pricing_metadata(cache_ttl_seconds=1)
+
+    assert metadata.subscription_price_usd_for_tier("pro") == 29.0
+    assert metadata.subscription_price_usd_for_tier("museum") == 500.0
+    assert metadata.overage_rate_usd_per_minute == 0.75
 
 
 def test_settings_reject_duplicate_dedicated_paid_tier_price_ids() -> None:

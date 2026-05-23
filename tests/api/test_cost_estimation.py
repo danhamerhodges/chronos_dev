@@ -1,12 +1,18 @@
-"""Maps to: ENG-013"""
+"""
+Maps to:
+- ENG-013
+- FR-006
+- NFR-006
+"""
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services.billing_service import BillingService, monthly_limit_for_tier
+from app.services.billing_service import BillingService, EffectivePricingSnapshot, monthly_limit_for_tier
 from tests.helpers.auth import fake_auth_header
 from tests.helpers.jobs import valid_job_request
+from tests.helpers.previews import seed_completed_upload, seed_detection, save_configuration_with_approved_preview
 
 client = TestClient(app)
 
@@ -28,6 +34,28 @@ def test_estimate_route_returns_full_breakdown_for_valid_launch_payload() -> Non
     assert payload["usage_snapshot"]["estimated_next_job_minutes"] == 5
     assert payload["launch_blocker"] == "none"
     assert payload["estimator_version"] == "packet4e-v1"
+    assert len(payload["configuration_fingerprint"]) == 64
+    assert payload["effective_pricing"]["entitlement_source"] == "commercial_pricebook"
+    assert payload["effective_pricing"]["included_minutes_monthly"] == 60
+    assert payload["usage_snapshot"]["effective_pricing"]["subscription_price_id"] == "price_pro"
+
+
+def test_estimate_route_accepts_launch_context_without_preview_enforcement() -> None:
+    response = client.post(
+        "/v1/jobs/estimate",
+        headers=fake_auth_header("estimate-user-with-context", tier="pro"),
+        json=valid_job_request(
+            launch_context={
+                "source": "approved_preview",
+                "upload_id": "upload-estimate-context",
+                "configuration_fingerprint": "a" * 64,
+            }
+        ),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["launch_blocker"] == "none"
 
 
 def test_estimate_route_returns_overage_blocker_instead_of_403() -> None:
@@ -66,6 +94,13 @@ def test_estimate_route_returns_503_when_pricing_metadata_is_unavailable(monkeyp
 
 
 def test_launch_route_returns_503_when_pricing_metadata_is_invalid(monkeypatch) -> None:
+    seed_completed_upload(upload_id="launch-pricing-upload", owner_user_id="launch-pricing-unavailable")
+    seed_detection(upload_id="launch-pricing-upload", owner_user_id="launch-pricing-unavailable")
+    configuration = save_configuration_with_approved_preview(
+        client,
+        upload_id="launch-pricing-upload",
+        owner_user_id="launch-pricing-unavailable",
+    )
     monkeypatch.setattr(
         "app.services.cost_estimation.resolve_billing_pricing_metadata",
         lambda: (_ for _ in ()).throw(ValueError("Stripe overage price is missing unit_amount metadata.")),
@@ -74,7 +109,7 @@ def test_launch_route_returns_503_when_pricing_metadata_is_invalid(monkeypatch) 
     response = client.post(
         "/v1/jobs",
         headers=fake_auth_header("launch-pricing-unavailable", tier="pro"),
-        json=valid_job_request(estimated_duration_seconds=180, fidelity_tier="Restore"),
+        json=configuration["job_payload_preview"],
     )
 
     assert response.status_code == 503
@@ -106,3 +141,33 @@ def test_estimate_route_covers_all_three_plan_tiers(
     payload = response.json()
     assert payload["usage_snapshot"]["plan_tier"] == tier
     assert payload["estimated_usage_minutes"] == expected_minutes
+
+
+def test_estimate_route_uses_pricebook_backed_overage_rate(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.cost_estimation.effective_pricing_for_plan",
+        lambda plan_tier, pricing_metadata=None: EffectivePricingSnapshot(
+            pricebook_version="test-pricebook-v2",
+            subscription_price_id="price_pro",
+            subscription_price_usd=29.0,
+            included_minutes_monthly=60,
+            overage_enabled=True,
+            overage_price_id="price_pro_overage",
+            overage_rate_usd_per_minute=1.23,
+        ),
+    )
+    service = BillingService()
+    limit = monthly_limit_for_tier("pro")
+    service.consume_minutes(user_id="estimate-pricing-user", plan_tier="pro", minutes=limit)
+
+    response = client.post(
+        "/v1/jobs/estimate",
+        headers=fake_auth_header("estimate-pricing-user", tier="pro"),
+        json=valid_job_request(estimated_duration_seconds=120, fidelity_tier="Restore"),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["billing_breakdown_usd"]["overage_rate_usd_per_minute"] == 1.23
+    assert payload["billing_breakdown_usd"]["estimated_charge_total_usd"] == 3.69
+    assert payload["effective_pricing"]["overage_rate_usd_per_minute"] == 1.23

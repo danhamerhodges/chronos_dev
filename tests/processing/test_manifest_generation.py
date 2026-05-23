@@ -7,13 +7,13 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.services.transformation_manifest import build_manifest_payload
 from tests.helpers.auth import fake_auth_header
-from tests.helpers.jobs import run_all_jobs, valid_job_request
+from tests.helpers.jobs import create_seed_job, run_all_jobs
 
 client = TestClient(app)
 
 
 def test_completed_job_generates_manifest_with_required_fields() -> None:
-    created = client.post("/v1/jobs", headers=fake_auth_header("manifest-user", tier="pro"), json=valid_job_request()).json()
+    created = create_seed_job(user_id="manifest-user", tier="pro")
 
     run_all_jobs()
     response = client.get(f"/v1/manifests/{created['job_id']}", headers=fake_auth_header("manifest-user", tier="pro"))

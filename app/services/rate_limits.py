@@ -36,7 +36,7 @@ def enforce_rate_limit(*, user_id: str, plan_tier: str, route: str) -> None:
             title="Rate Limit Exceeded",
             detail=f"Rate limit exceeded for {route}. Retry in under a minute.",
             status_code=429,
+            headers={"Retry-After": str(_WINDOW_SECONDS)},
         )
     timestamps.append(now)
     _RATE_BUCKETS[bucket_key] = timestamps
-

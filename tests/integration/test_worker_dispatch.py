@@ -14,13 +14,13 @@ import app.services.job_worker as job_worker
 from app.services.job_dispatcher import queued_dispatch_messages
 from app.services.job_worker import default_trusted_worker_token, run_worker_message
 from tests.helpers.auth import fake_auth_header
-from tests.helpers.jobs import valid_job_request
+from tests.helpers.jobs import create_seed_job
 
 client = TestClient(app)
 
 
 def test_dispatch_queue_and_worker_entrypoint_contract_round_trip() -> None:
-    created = client.post("/v1/jobs", headers=fake_auth_header("worker-user"), json=valid_job_request()).json()
+    created = create_seed_job(user_id="worker-user")
 
     queued = queued_dispatch_messages()
     assert len(queued) == 1
@@ -36,7 +36,7 @@ def test_dispatch_queue_and_worker_entrypoint_contract_round_trip() -> None:
 
 
 def test_internal_worker_route_accepts_pubsub_push_envelope() -> None:
-    created = client.post("/v1/jobs", headers=fake_auth_header("push-user"), json=valid_job_request()).json()
+    created = create_seed_job(user_id="push-user")
     queued = queued_dispatch_messages()
     envelope = {
         "message": {
@@ -94,7 +94,7 @@ def test_process_job_requires_trusted_token_at_runtime_boundary() -> None:
 
 
 def test_dispatcher_requeues_message_when_worker_execution_fails(monkeypatch) -> None:
-    created = client.post("/v1/jobs", headers=fake_auth_header("requeue-user"), json=valid_job_request()).json()
+    created = create_seed_job(user_id="requeue-user")
 
     def broken_worker(message: dict[str, object], *, trusted_token: str | None = None):
         del message, trusted_token

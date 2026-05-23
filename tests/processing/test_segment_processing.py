@@ -4,13 +4,13 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from tests.helpers.auth import fake_auth_header
-from tests.helpers.jobs import run_all_jobs, valid_job_request
+from tests.helpers.jobs import create_seed_job, run_all_jobs
 
 client = TestClient(app)
 
 
 def test_segment_outputs_are_persisted_after_processing() -> None:
-    created = client.post("/v1/jobs", headers=fake_auth_header("segment-user"), json=valid_job_request()).json()
+    created = create_seed_job(user_id="segment-user")
 
     run_all_jobs()
     response = client.get(f"/v1/jobs/{created['job_id']}", headers=fake_auth_header("segment-user"))

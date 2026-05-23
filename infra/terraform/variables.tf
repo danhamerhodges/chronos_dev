@@ -36,3 +36,27 @@ variable "metrics_namespace" {
   type        = string
   default     = "chronos"
 }
+
+variable "manage_manifest_lifecycle_rules" {
+  description = "When true, Terraform manages GCS lifecycle rules for SEC-005 manifest retention prefixes. Import and review existing bucket config before enabling."
+  type        = bool
+  default     = false
+}
+
+variable "manage_sec002_encryption_checks" {
+  description = "When true, enables SEC-002 encryption verification scaffolding. Keep disabled unless live GCP credentials and explicit hosted evidence collection are available."
+  type        = bool
+  default     = false
+}
+
+variable "manifest_lifecycle_bucket_name" {
+  description = "Existing GCS bucket name for transformation manifests when SEC-005 lifecycle management is enabled."
+  type        = string
+  default     = ""
+}
+
+variable "manifest_lifecycle_bucket_location" {
+  description = "Location of the existing manifest bucket when lifecycle management is enabled."
+  type        = string
+  default     = "US"
+}

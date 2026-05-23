@@ -2,6 +2,7 @@
 Maps to:
 - FR-003
 - DS-001
+- NFR-006
 """
 
 from __future__ import annotations
@@ -355,6 +356,7 @@ def test_save_configuration_updates_preferences_and_returns_job_payload_preview(
         "config": {
             "persona": "filmmaker",
             "grain_preset": "Heavy",
+            "configured_at": payload["configured_at"],
             "relative_cost_multiplier": 1.0,
             "relative_processing_time_band": "<2 min/min",
             "detection_snapshot": {
@@ -366,6 +368,11 @@ def test_save_configuration_updates_preferences_and_returns_job_payload_preview(
             "fidelity_overrides": {
                 "grain_intensity": "Heavy",
             },
+        },
+        "launch_context": {
+            "source": "approved_preview",
+            "upload_id": "upload-config",
+            "configuration_fingerprint": payload["configuration_fingerprint"],
         },
     }
     era_profile = preview["era_profile"]
@@ -456,7 +463,7 @@ def test_save_configuration_rejects_hobbyist_non_enhance_tiers_before_validation
     assert response.status_code == 403
     payload = response.json()
     assert payload["title"] == "Plan Upgrade Required"
-    assert "Hobbyist includes Enhance only" in payload["detail"]
+    assert "Allowed tiers: Enhance." in payload["detail"]
 
     repo = UploadRepository()
     session = repo.get_session(
@@ -467,6 +474,28 @@ def test_save_configuration_rejects_hobbyist_non_enhance_tiers_before_validation
     assert session is not None
     assert session.get("launch_config") in ({}, None)
     assert session.get("configured_at") is None
+
+
+def test_save_configuration_uses_hobbyist_enhance_hallucination_limit_override() -> None:
+    _seed_upload(upload_id="upload-hobbyist-enhance", owner_user_id="hobbyist-enhance-user")
+
+    response = client.patch(
+        "/v1/upload/upload-hobbyist-enhance/configuration",
+        headers=fake_auth_header("hobbyist-enhance-user", tier="hobbyist"),
+        json={
+            "persona": "filmmaker",
+            "fidelity_tier": "Enhance",
+            "grain_preset": "Heavy",
+            "estimated_duration_seconds": 180,
+        },
+    )
+
+    assert response.status_code == 200
+    era_profile = response.json()["job_payload_preview"]["era_profile"]
+    assert era_profile["tier"] == "Hobbyist"
+    assert era_profile["mode"] == "Enhance"
+    assert era_profile["resolution_cap"] == "1080p"
+    assert era_profile["hallucination_limit"] == 0.25
 
     profile = client.get("/v1/users/me", headers=fake_auth_header("hobbyist-user", tier="hobbyist"))
     assert profile.status_code == 200

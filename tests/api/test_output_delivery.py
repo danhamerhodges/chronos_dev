@@ -2,18 +2,21 @@
 Maps to:
 - FR-005
 - ENG-015
+- NFR-006
 """
 
 from __future__ import annotations
 
+import json
 import pytest
 from fastapi.testclient import TestClient
 
+from app.billing.pricebook import parse_commercial_pricebook
 from app.db.phase2_store import JobExportPackageRepository, reset_phase2_store
 from app.main import app
 from app.services.job_runtime import configure_segment_failures
 from tests.helpers.auth import fake_auth_header
-from tests.helpers.jobs import run_all_jobs, valid_job_request
+from tests.helpers.jobs import create_seed_job, run_all_jobs
 
 client = TestClient(app)
 
@@ -24,13 +27,13 @@ def reset_state() -> None:
 
 
 def _complete_job(*, user_id: str, tier: str = "pro") -> str:
-    created = client.post("/v1/jobs", headers=fake_auth_header(user_id, tier=tier), json=valid_job_request()).json()
+    created = create_seed_job(user_id=user_id, tier=tier)
     run_all_jobs()
     return created["job_id"]
 
 
 def _partial_job(*, user_id: str, tier: str = "pro") -> str:
-    created = client.post("/v1/jobs", headers=fake_auth_header(user_id, tier=tier), json=valid_job_request()).json()
+    created = create_seed_job(user_id=user_id, tier=tier)
     configure_segment_failures(created["job_id"], 1, ["persistent", "persistent", "persistent"])
     run_all_jobs()
     return created["job_id"]
@@ -91,7 +94,7 @@ def test_partial_jobs_export_successfully() -> None:
 
 
 def test_inflight_jobs_return_409_until_processing_finishes() -> None:
-    created = client.post("/v1/jobs", headers=fake_auth_header("export-queued-owner", tier="pro"), json=valid_job_request()).json()
+    created = create_seed_job(user_id="export-queued-owner", tier="pro")
 
     response = client.get(
         f"/v1/jobs/{created['job_id']}/export",
@@ -103,7 +106,7 @@ def test_inflight_jobs_return_409_until_processing_finishes() -> None:
 
 
 def test_cancelled_jobs_return_409_for_export() -> None:
-    created = client.post("/v1/jobs", headers=fake_auth_header("export-cancel-owner", tier="pro"), json=valid_job_request()).json()
+    created = create_seed_job(user_id="export-cancel-owner", tier="pro")
     cancel = client.delete(f"/v1/jobs/{created['job_id']}", headers=fake_auth_header("export-cancel-owner", tier="pro"))
     assert cancel.status_code == 200
     run_all_jobs()
@@ -117,7 +120,7 @@ def test_cancelled_jobs_return_409_for_export() -> None:
 
 
 def test_failed_jobs_return_409_for_export() -> None:
-    created = client.post("/v1/jobs", headers=fake_auth_header("export-failed-owner", tier="pro"), json=valid_job_request()).json()
+    created = create_seed_job(user_id="export-failed-owner", tier="pro")
     for segment_index in range(3):
         configure_segment_failures(created["job_id"], segment_index, ["persistent", "persistent", "persistent"])
     run_all_jobs()
@@ -191,3 +194,63 @@ def test_non_museum_retention_above_seven_days_returns_403() -> None:
 
     assert response.status_code == 403
     assert response.json()["title"] == "Plan Upgrade Required"
+
+
+def test_pro_retention_window_uses_pricebook_entitlement(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.billing_service.cached_commercial_pricebook",
+        lambda *_args: parse_commercial_pricebook(
+            json.dumps(
+                {
+                    "version": "retention-override",
+                    "entries": {
+                        "price_hobbyist": {
+                            "plan_tier": "hobbyist",
+                            "included_minutes_monthly": 30,
+                            "overage": {"enabled": False, "price_id": "", "rate_usd_per_minute": 0.0},
+                            "entitlements": {
+                                "preview_review": True,
+                                "fidelity_tiers": ["Enhance"],
+                                "resolution_cap": "1080p",
+                                "parallel_jobs": 1,
+                                "export_retention_days": 7,
+                            },
+                        },
+                        "price_pro": {
+                            "plan_tier": "pro",
+                            "included_minutes_monthly": 60,
+                            "overage": {"enabled": True, "price_id": "price_pro_overage", "rate_usd_per_minute": 0.5},
+                            "entitlements": {
+                                "preview_review": True,
+                                "fidelity_tiers": ["Enhance", "Restore", "Conserve"],
+                                "resolution_cap": "4k",
+                                "parallel_jobs": 5,
+                                "export_retention_days": 14,
+                            },
+                        },
+                        "price_museum": {
+                            "plan_tier": "museum",
+                            "included_minutes_monthly": 500,
+                            "overage": {"enabled": True, "price_id": "price_museum_overage", "rate_usd_per_minute": 0.4},
+                            "entitlements": {
+                                "preview_review": True,
+                                "fidelity_tiers": ["Enhance", "Restore", "Conserve"],
+                                "resolution_cap": "native_scan",
+                                "parallel_jobs": 20,
+                                "export_retention_days": 90,
+                            },
+                        },
+                    },
+                }
+            )
+        ),
+    )
+    job_id = _complete_job(user_id="pro-retention-override", tier="pro")
+
+    response = client.get(
+        f"/v1/jobs/{job_id}/export",
+        params={"retention_days": 14},
+        headers=fake_auth_header("pro-retention-override", tier="pro"),
+    )
+
+    assert response.status_code == 200

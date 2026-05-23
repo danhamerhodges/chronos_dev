@@ -67,6 +67,10 @@ class StubSessionClient:
             return None
         return {"size_bytes": self.object_size, "mime_type": "video/quicktime"}
 
+    def patch_object_metadata(self, *, bucket_name: str, object_path: str, metadata: dict[str, str]) -> bool:
+        del bucket_name, object_path, metadata
+        return False
+
 
 class CaptureBucketSessionClient(StubSessionClient):
     def __init__(self) -> None:

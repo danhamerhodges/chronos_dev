@@ -14,11 +14,21 @@ from app.api.problem_details import ProblemException
 from app.config import settings
 from app.db.phase2_store import JobDeletionProofRepository, JobExportPackageRepository, JobRepository
 from app.models.status import JobStatus
+from app.services.data_classification import (
+    ARTIFACT_DELETION_PROOF,
+    ARTIFACT_EXPORT_PACKAGE,
+    ARTIFACT_PROCESSED_OUTPUT,
+    DataClassificationService,
+)
+from app.services.billing_service import (
+    CommercialPricingUnavailableError,
+    max_retention_days_for_plan as configured_retention_days_for_plan,
+    resolution_cap_for_plan,
+)
 from app.services.uncertainty_callouts import UncertaintyCalloutService
 
 _EXPORT_VARIANTS = ("av1", "h264")
 _SUCCESSFUL_EXPORTABLE_STATUSES = {JobStatus.COMPLETED.value, JobStatus.PARTIAL.value}
-_DEFAULT_RETENTION_DAYS = 7
 _PDF_URL_TTL_HOURS = 1
 
 
@@ -28,6 +38,10 @@ def _utc_now() -> datetime:
 
 def _isoformat(value: datetime) -> str:
     return value.isoformat()
+
+
+def _classification_plan_tier(job: dict[str, Any]) -> str:
+    return str(job.get("plan_tier") or "hobbyist")
 
 
 def _canonical_json(payload: dict[str, Any]) -> bytes:
@@ -51,7 +65,7 @@ def _sign_value(value: str) -> str:
 
 
 def max_retention_days_for_plan(plan_tier: str) -> int:
-    return 90 if str(plan_tier).lower() == "museum" else _DEFAULT_RETENTION_DAYS
+    return configured_retention_days_for_plan(plan_tier)
 
 
 def resolve_output_encoding(*, plan_tier: str, variant: str) -> dict[str, Any]:
@@ -66,11 +80,9 @@ def resolve_output_encoding(*, plan_tier: str, variant: str) -> dict[str, Any]:
         "pro": 16,
         "museum": 32,
     }[normalized_plan]
-    resolution_target = {
-        "hobbyist": "1080p",
-        "pro": "4K",
-        "museum": "native_scan",
-    }[normalized_plan]
+    resolution_target = resolution_cap_for_plan(plan_tier)
+    if resolution_target == "4k":
+        resolution_target = "4K"
     codec = "av1" if variant == "av1" else "h264"
     return {
         "variant": variant,
@@ -95,6 +107,7 @@ class OutputDeliveryService:
         self._packages = JobExportPackageRepository()
         self._proofs = JobDeletionProofRepository()
         self._callouts = UncertaintyCalloutService()
+        self._classification = DataClassificationService()
 
     def materialize_delivery_artifacts(
         self,
@@ -108,6 +121,13 @@ class OutputDeliveryService:
 
         generated_at = _utc_now()
         callouts = self._callouts.build_callouts(job, segments)
+        if job.get("result_uri"):
+            self._record_uri_only_classification(
+                artifact_type=ARTIFACT_PROCESSED_OUTPUT,
+                object_uri=str(job["result_uri"]),
+                plan_tier=_classification_plan_tier(job),
+                anchor_time=generated_at,
+            )
         deletion_proof = self._build_deletion_proof(
             job=job,
             manifest_payload=manifest_payload,
@@ -243,29 +263,37 @@ class OutputDeliveryService:
                 ],
             )
         normalized_plan = str(plan_tier).lower()
-        if normalized_plan != "museum" and retention_days > _DEFAULT_RETENTION_DAYS:
+        try:
+            allowed_retention_days = max_retention_days_for_plan(plan_tier)
+        except CommercialPricingUnavailableError as exc:
+            raise ProblemException(
+                title="Billing Pricing Unavailable",
+                detail="Commercial pricing configuration is temporarily unavailable. Retry once pricing metadata is available.",
+                status_code=503,
+            ) from exc
+        if normalized_plan != "museum" and retention_days > allowed_retention_days:
             raise ProblemException(
                 title="Plan Upgrade Required",
-                detail="Extended export retention beyond 7 days requires Museum tier.",
+                detail=f"Extended export retention beyond {allowed_retention_days} days requires a higher plan.",
                 status_code=403,
                 errors=[
                     {
                         "field": "retention_days",
-                        "message": "Extended export retention beyond 7 days requires Museum tier.",
-                        "rule_id": "FR-005",
+                        "message": f"Extended export retention beyond {allowed_retention_days} days requires a higher plan.",
+                        "rule_id": "NFR-006",
                     }
                 ],
             )
-        if normalized_plan == "museum" and retention_days > 90:
+        if normalized_plan == "museum" and retention_days > allowed_retention_days:
             raise ProblemException(
                 title="Invalid Retention Window",
-                detail="Museum retention requests must stay within 1 to 90 days.",
+                detail=f"Museum retention requests must stay within 1 to {allowed_retention_days} days.",
                 status_code=400,
                 errors=[
                     {
                         "field": "retention_days",
-                        "message": "Museum retention requests must stay within 1 to 90 days.",
-                        "rule_id": "FR-005",
+                        "message": f"Museum retention requests must stay within 1 to {allowed_retention_days} days.",
+                        "rule_id": "NFR-006",
                     }
                 ],
             )
@@ -304,6 +332,13 @@ class OutputDeliveryService:
         }
         proof_sha256 = _sha256_hex(proof_payload)
         signature = _sign_value(f"{deletion_proof_id}:{proof_sha256}")
+        pdf_uri = self._bucket_uri(f"deletion-proofs/{job['job_id']}/{deletion_proof_id}.pdf")
+        classification = self._record_uri_only_classification(
+            artifact_type=ARTIFACT_DELETION_PROOF,
+            object_uri=pdf_uri,
+            plan_tier=_classification_plan_tier(job),
+            anchor_time=generated_at,
+        )
         return {
             "deletion_proof_id": deletion_proof_id,
             "job_id": job["job_id"],
@@ -318,8 +353,9 @@ class OutputDeliveryService:
                 "manifest_sha256": manifest_payload["manifest_sha256"],
                 "original_checksum": job["source_asset_checksum"],
             },
-            "pdf_uri": self._bucket_uri(f"deletion-proofs/{job['job_id']}/{deletion_proof_id}.pdf"),
+            "pdf_uri": pdf_uri,
             "proof_payload": proof_payload,
+            **classification.persistence_fields,
         }
 
     def _build_export_package(
@@ -377,6 +413,13 @@ class OutputDeliveryService:
             "deletion_proof_id": deletion_proof["deletion_proof_id"],
             "available_until": _isoformat(generated_at + timedelta(days=max_retention_days_for_plan(str(job["plan_tier"])))),
         }
+        classification = self._record_uri_only_classification(
+            artifact_type=ARTIFACT_EXPORT_PACKAGE,
+            object_uri=package_uri,
+            plan_tier=_classification_plan_tier(job),
+            anchor_time=generated_at,
+        )
+        payload.update(classification.persistence_fields)
         payload["sha256"] = _sha256_hex(payload)
         payload["size_bytes"] = self._estimate_package_size(
             duration_seconds=int(job["estimated_duration_seconds"]),
@@ -389,6 +432,28 @@ class OutputDeliveryService:
             "generated_at": _isoformat(generated_at),
             "deleted_at": None,
         }
+
+    def _record_uri_only_classification(
+        self,
+        *,
+        artifact_type: str,
+        object_uri: str,
+        plan_tier: str,
+        anchor_time: datetime,
+    ):
+        classification = self._classification.classify(
+            artifact_type=artifact_type,
+            object_uri=object_uri,
+            plan_tier=plan_tier,
+            anchor_time=anchor_time,
+        )
+        self._classification.record_event(classification, event_type="classification_assigned")
+        self._classification.record_event(
+            classification,
+            event_type="gcs_metadata_patch_skipped",
+            metadata={"reason": "no_real_gcs_write_path"},
+        )
+        return classification
 
     def _estimate_package_size(
         self,

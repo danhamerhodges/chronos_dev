@@ -19,6 +19,7 @@ class ProblemException(Exception):
     status_code: int
     type: str = "about:blank"
     errors: list[dict[str, Any]] = field(default_factory=list)
+    headers: dict[str, str] | None = None
 
 
 def build_problem(
@@ -41,8 +42,8 @@ def build_problem(
     )
 
 
-def problem_response(problem: ProblemDetail) -> JSONResponse:
-    return JSONResponse(status_code=problem.status, content=problem.model_dump(exclude_none=True))
+def problem_response(problem: ProblemDetail, headers: dict[str, str] | None = None) -> JSONResponse:
+    return JSONResponse(status_code=problem.status, content=problem.model_dump(exclude_none=True), headers=headers)
 
 
 async def problem_exception_handler(request: Request, exc: ProblemException) -> JSONResponse:
@@ -54,7 +55,8 @@ async def problem_exception_handler(request: Request, exc: ProblemException) -> 
             status_code=exc.status_code,
             type=exc.type,
             errors=exc.errors,
-        )
+        ),
+        headers=exc.headers,
     )
 
 
@@ -84,12 +86,15 @@ async def request_validation_exception_handler(request: Request, exc: RequestVal
                 "message": item.get("msg", "Invalid request payload."),
             }
         )
+    status_code = 400
+    if request.method.upper() == "POST" and request.url.path in {"/v1/jobs", "/v1/jobs/estimate"}:
+        status_code = 422
     return problem_response(
         build_problem(
             request,
             title="Request Validation Failed",
             detail="Request payload validation failed. Fix the highlighted fields and retry.",
-            status_code=400,
+            status_code=status_code,
             errors=errors,
         )
     )

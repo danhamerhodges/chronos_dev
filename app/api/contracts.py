@@ -218,6 +218,17 @@ class UserProfileUpdateRequest(StrictModel):
     preferences: dict[str, Any] = Field(default_factory=dict)
 
 
+class EffectivePricingResponse(StrictModel):
+    pricebook_version: str
+    subscription_price_id: str
+    subscription_price_usd: float = 0.0
+    included_minutes_monthly: int = 0
+    overage_enabled: bool = False
+    overage_price_id: str = ""
+    overage_rate_usd_per_minute: float = 0.0
+    entitlement_source: str = "commercial_pricebook"
+
+
 class UsageResponse(StrictModel):
     user_id: str
     plan_tier: str
@@ -234,6 +245,7 @@ class UsageResponse(StrictModel):
     overage_price_reference: str
     reconciliation_source: str
     reconciliation_status: str
+    effective_pricing: EffectivePricingResponse | None = None
 
 
 class OverageApprovalRequest(StrictModel):
@@ -279,6 +291,7 @@ class CostEstimateSummaryResponse(StrictModel):
     billing_breakdown_usd: BillingBreakdownResponse = Field(default_factory=BillingBreakdownResponse)
     confidence_interval_usd: ConfidenceIntervalResponse = Field(default_factory=ConfidenceIntervalResponse)
     usage_snapshot: UsageResponse
+    effective_pricing: EffectivePricingResponse | None = None
     launch_blocker: Literal["none", "overage_approval_required"] = "none"
     estimator_version: str
     generated_at: str
@@ -358,6 +371,18 @@ class ExportVariant(StrEnum):
 
 class PreviewStatus(StrEnum):
     READY = "ready"
+
+
+class PreviewReviewStatus(StrEnum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class PreviewLaunchStatus(StrEnum):
+    NOT_LAUNCHED = "not_launched"
+    LAUNCH_PENDING = "launch_pending"
+    LAUNCHED = "launched"
 
 
 class PreviewSelectionMode(StrEnum):
@@ -446,6 +471,12 @@ class PerformanceSummaryResponse(StrictModel):
     throughput_ratio: float | None = None
 
 
+class JobLaunchContextRequest(StrictModel):
+    source: Literal["approved_preview"]
+    upload_id: str = Field(min_length=1)
+    configuration_fingerprint: str = Field(min_length=64, max_length=64)
+
+
 class JobCreateRequest(StrictModel):
     media_uri: str
     original_filename: str = ""
@@ -457,6 +488,7 @@ class JobCreateRequest(StrictModel):
     processing_mode: str = Field(default="balanced", min_length=3)
     era_profile: EraProfileInput
     config: dict[str, Any] = Field(default_factory=dict)
+    launch_context: JobLaunchContextRequest | None = None
 
 
 class UploadConfigurationResponse(StrictModel):
@@ -471,6 +503,7 @@ class UploadConfigurationResponse(StrictModel):
     relative_processing_time_band: str
     job_payload_preview: JobCreateRequest
     configured_at: str
+    configuration_fingerprint: str
 
 
 class JobProgressResponse(StrictModel):
@@ -542,11 +575,19 @@ class JobCreateResponse(JobSummaryResponse):
 
 
 class JobEstimateResponse(CostEstimateSummaryResponse):
-    pass
+    configuration_fingerprint: str
 
 
 class PreviewCreateRequest(StrictModel):
     upload_id: str = Field(min_length=1)
+
+
+class PreviewReviewRequest(StrictModel):
+    review_status: Literal["approved", "rejected"]
+
+
+class PreviewLaunchRequest(StrictModel):
+    configuration_fingerprint: str = Field(min_length=64, max_length=64)
 
 
 class PreviewKeyframeResponse(StrictModel):
@@ -563,6 +604,11 @@ class PreviewSessionResponse(StrictModel):
     upload_id: str
     status: PreviewStatus
     configuration_fingerprint: str
+    review_status: PreviewReviewStatus
+    reviewed_at: str | None = None
+    launch_status: PreviewLaunchStatus = PreviewLaunchStatus.NOT_LAUNCHED
+    launched_job_id: str | None = None
+    launched_at: str | None = None
     stale: bool = False
     expires_at: str
     selection_mode: PreviewSelectionMode
@@ -777,3 +823,45 @@ class CostOpsSnapshotResponse(StrictModel):
     operational_efficiency: OperationalEfficiencyResponse
     recent_anomalies: list[CostAnomalyResponse] = Field(default_factory=list)
     recommendations: list[CostRecommendationResponse] = Field(default_factory=list)
+
+
+class PricebookActivationRequest(StrictModel):
+    bootstrap_from_environment: bool = False
+    change_summary: str = ""
+    payload: dict[str, Any] | None = None
+
+
+class PricebookActivationResponse(StrictModel):
+    version: str
+    source: str
+    active: bool = True
+    activated_at: str
+
+
+class BillingMuseumQuoteResponse(StrictModel):
+    quote_id: str
+    status: str
+
+
+class BillingSummaryResponse(StrictModel):
+    org_id: str
+    user_id: str
+    plan_tier: str
+    subscription_status: str | None = None
+    stripe_customer_id: str | None = None
+    portal_available: bool = False
+    effective_pricing: EffectivePricingResponse
+    recent_invoices: list[dict[str, Any]] = Field(default_factory=list)
+    museum_quote: BillingMuseumQuoteResponse | None = None
+
+
+class BillingPortalSessionResponse(StrictModel):
+    url: str
+
+
+class StripeWebhookResponse(StrictModel):
+    event_id: str
+    event_type: str
+    status: Literal["processed", "duplicate"]
+    duplicate: bool = False
+    org_id: str | None = None

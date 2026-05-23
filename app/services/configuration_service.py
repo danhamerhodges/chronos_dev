@@ -8,11 +8,24 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
-from app.api.contracts import FidelityTier, GrainPreset, JobCreateRequest, UploadStatus, UserPersona
+from app.api.contracts import (
+    FidelityTier,
+    GrainPreset,
+    JobCreateRequest,
+    JobLaunchContextRequest,
+    UploadStatus,
+    UserPersona,
+)
 from app.api.problem_details import ProblemException
 from app.db.phase2_store import UploadRepository, UserProfileRepository
 from app.models.processing import ReproducibilityMode
-from app.services.billing_service import billable_minutes_for_duration
+from app.services.billing_service import (
+    CommercialPricingUnavailableError,
+    allowed_fidelity_tiers_for_plan,
+    billable_minutes_for_duration,
+    resolution_cap_for_plan,
+)
+from app.services.configuration_fingerprint import configuration_fingerprint
 from app.services.era_classifier import UNKNOWN_ERA, canonicalize_era_label, infer_capture_medium
 from app.services.era_detection_service import EraDetectionService
 from app.services.fidelity_profiles import (
@@ -63,6 +76,14 @@ def _utc_now() -> str:
 
 def _canonical_plan_tier(plan_tier: str) -> str:
     return _PLAN_TIER_CANONICAL.get(plan_tier.strip().lower(), "Pro")
+
+
+def _pricing_unavailable_problem() -> ProblemException:
+    return ProblemException(
+        title="Billing Pricing Unavailable",
+        detail="Commercial pricing configuration is temporarily unavailable. Retry once pricing metadata is available.",
+        status_code=503,
+    )
 
 
 def _preferences_from_profile(profile: dict[str, Any]) -> dict[str, Any]:
@@ -116,9 +137,10 @@ def _preferred_grain_from_preferences(profile: dict[str, Any]) -> GrainPreset | 
 
 
 def _allowed_tiers_for_plan(plan_tier: str) -> list[FidelityTier]:
-    if plan_tier.strip().lower() == "hobbyist":
-        return [FidelityTier.ENHANCE]
-    return list(FidelityTier)
+    try:
+        return [FidelityTier(value) for value in allowed_fidelity_tiers_for_plan(plan_tier)]
+    except CommercialPricingUnavailableError as exc:
+        raise _pricing_unavailable_problem() from exc
 
 
 def _coerce_tier_for_plan(
@@ -309,12 +331,19 @@ def _build_preview_era_profile(
 ) -> dict[str, Any]:
     capture_medium = _capture_medium_for_detection(session, detection_snapshot)
     fidelity_profile = fidelity_profile_for(fidelity_tier)
+    hallucination_limit = fidelity_profile.hallucination_limit_max
+    if plan_tier.strip().lower() == "hobbyist" and fidelity_tier == FidelityTier.ENHANCE:
+        hallucination_limit = 0.25
+    try:
+        resolution_cap = resolution_cap_for_plan(plan_tier)
+    except CommercialPricingUnavailableError as exc:
+        raise _pricing_unavailable_problem() from exc
     era_profile = {
         "capture_medium": capture_medium,
         "mode": fidelity_tier.value,
         "tier": _canonical_plan_tier(plan_tier),
-        "resolution_cap": "1080p" if plan_tier.strip().lower() == "hobbyist" else "4k",
-        "hallucination_limit": fidelity_profile.hallucination_limit_max,
+        "resolution_cap": resolution_cap,
+        "hallucination_limit": hallucination_limit,
         "artifact_policy": {
             "deinterlace": capture_medium == "vhs",
             "grain_intensity": grain_preset.value,
@@ -337,7 +366,11 @@ def _build_preview_era_profile(
 
 
 def _ensure_plan_supports_capture_medium(*, capture_medium: str, plan_tier: str) -> None:
-    if plan_tier.strip().lower() != "hobbyist":
+    try:
+        resolution_cap = resolution_cap_for_plan(plan_tier)
+    except CommercialPricingUnavailableError as exc:
+        raise _pricing_unavailable_problem() from exc
+    if resolution_cap != "1080p":
         return
     if capture_medium not in {"daguerreotype", "albumen"}:
         return
@@ -356,19 +389,19 @@ def _ensure_plan_supports_capture_medium(*, capture_medium: str, plan_tier: str)
 
 
 def _ensure_plan_supports_fidelity_tier(*, fidelity_tier: FidelityTier, plan_tier: str) -> None:
-    if plan_tier.strip().lower() != "hobbyist":
+    allowed_tiers = _allowed_tiers_for_plan(plan_tier)
+    if fidelity_tier in allowed_tiers:
         return
-    if fidelity_tier == FidelityTier.ENHANCE:
-        return
+    allowed = ", ".join(tier.value for tier in allowed_tiers)
     raise ProblemException(
         title="Plan Upgrade Required",
-        detail="Hobbyist includes Enhance only in Packet 4B. Upgrade to Pro or higher to use Restore or Conserve.",
+        detail=f"The current plan does not include {fidelity_tier.value}. Allowed tiers: {allowed}.",
         status_code=403,
         errors=[
             {
                 "field": "fidelity_tier",
-                "message": "Hobbyist supports only the Enhance tier in Packet 4B.",
-                "rule_id": "FR-003",
+                "message": f"The current plan supports only: {allowed}.",
+                "rule_id": "NFR-006",
             }
         ],
     )
@@ -534,6 +567,7 @@ class ConfigurationService:
         )
         relative_cost_multiplier = relative_cost_multiplier_for_tier(fidelity_tier)
         relative_processing_time_band = relative_processing_time_band_for_tier(fidelity_tier)
+        configured_at = _utc_now()
         job_payload_preview = JobCreateRequest.model_validate(
             {
                 "media_uri": session["media_uri"],
@@ -550,6 +584,7 @@ class ConfigurationService:
                     "grain_preset": grain_preset.value,
                     "relative_cost_multiplier": relative_cost_multiplier,
                     "relative_processing_time_band": relative_processing_time_band,
+                    "configured_at": configured_at,
                     "detection_snapshot": {
                         "detection_id": detection_snapshot["detection_id"],
                         "era": detection_snapshot["era"],
@@ -560,9 +595,26 @@ class ConfigurationService:
                         "grain_intensity": grain_preset.value,
                     },
                 },
+                "launch_context": {
+                    "source": "approved_preview",
+                    "upload_id": upload_id,
+                    "configuration_fingerprint": "0" * 64,
+                },
             }
         )
-        configured_at = _utc_now()
+        configuration_fingerprint_value = configuration_fingerprint(
+            configured_at=configured_at,
+            job_payload_preview=job_payload_preview.model_dump(),
+        )
+        job_payload_preview = job_payload_preview.model_copy(
+            update={
+                "launch_context": JobLaunchContextRequest(
+                    source="approved_preview",
+                    upload_id=upload_id,
+                    configuration_fingerprint=configuration_fingerprint_value,
+                ),
+            }
+        )
         launch_config = {
             "upload_id": upload_id,
             "persona": persona.value,
@@ -572,6 +624,7 @@ class ConfigurationService:
             "relative_processing_time_band": relative_processing_time_band,
             "detection_snapshot": detection_snapshot,
             "job_payload_preview": job_payload_preview.model_dump(),
+            "configuration_fingerprint": configuration_fingerprint_value,
         }
         updated = self._upload_repo.update_session(
             upload_id,
@@ -622,6 +675,7 @@ class ConfigurationService:
             "relative_processing_time_band": relative_processing_time_band,
             "job_payload_preview": job_payload_preview.model_dump(),
             "configured_at": configured_at,
+            "configuration_fingerprint": configuration_fingerprint_value,
         }
 
     def _detect_and_persist(

@@ -40,6 +40,8 @@ def _request_patch(payload: dict[str, Any], *, nullable_keys: set[str] | None = 
 
 def _preview_configuration_cache_payload(job_payload_preview: dict[str, Any]) -> dict[str, Any]:
     config = dict(job_payload_preview.get("config") or {})
+    # Artifact reuse should ignore the save-version anchor and key off the payload content only.
+    config.pop("configured_at", None)
     detection_snapshot = config.get("detection_snapshot")
     if isinstance(detection_snapshot, dict):
         config["detection_snapshot"] = {
@@ -75,6 +77,17 @@ def _parse_job_timestamp(value: str | None) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def _manifest_is_retained(record: dict[str, Any], *, now: datetime | None = None) -> bool:
+    if record.get("retention_deleted_at"):
+        return False
+    if record.get("retention_delete_status") in {"pending", "deleted", "failed"}:
+        return False
+    expires_at = _parse_job_timestamp(record.get("retention_expires_at"))
+    if expires_at is None:
+        return True
+    return expires_at > (now or datetime.now(timezone.utc))
+
+
 def _cost_ops_job_anchor(job: dict[str, Any]) -> datetime | None:
     reconciliation_summary = job.get("cost_reconciliation_summary") or {}
     for candidate in (
@@ -87,7 +100,23 @@ def _cost_ops_job_anchor(job: dict[str, Any]) -> datetime | None:
     return None
 
 
+def _preview_launch_pending_metrics(previews: list[dict[str, Any]]) -> dict[str, float]:
+    pending = [item for item in previews if item.get("launch_status") == "launch_pending"]
+    oldest_age_seconds = 0.0
+    now = datetime.now(timezone.utc)
+    for preview in pending:
+        updated_at = _parse_job_timestamp(str(preview.get("updated_at") or ""))
+        if updated_at is None:
+            continue
+        oldest_age_seconds = max(oldest_age_seconds, max((now - updated_at).total_seconds(), 0.0))
+    return {
+        "count": float(len(pending)),
+        "oldest_age_seconds": float(oldest_age_seconds),
+    }
+
+
 _SUPABASE_JOB_JSON_FIELDS = {
+    "billing_pricing_snapshot",
     "failed_segments",
     "warnings",
     "config",
@@ -217,6 +246,11 @@ def phase2_backend_name() -> str:
 class Phase2Store:
     users: dict[str, dict[str, Any]] = field(default_factory=dict)
     usage: dict[str, dict[str, Any]] = field(default_factory=dict)
+    billing_accounts: dict[str, dict[str, Any]] = field(default_factory=dict)
+    billing_audit_events: list[dict[str, Any]] = field(default_factory=list)
+    data_classification_audit_events: list[dict[str, Any]] = field(default_factory=list)
+    commercial_pricebook_revisions: dict[str, dict[str, Any]] = field(default_factory=dict)
+    processed_stripe_events: dict[str, dict[str, Any]] = field(default_factory=dict)
     upload_sessions: dict[str, dict[str, Any]] = field(default_factory=dict)
     preview_sessions: dict[str, dict[str, Any]] = field(default_factory=dict)
     gcs_object_pointers: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -229,6 +263,7 @@ class Phase2Store:
     incidents: dict[str, dict[str, Any]] = field(default_factory=dict)
     era_detections: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     log_settings: dict[str, dict[str, Any]] = field(default_factory=dict)
+    manifest_retention_settings: dict[str, dict[str, Any]] = field(default_factory=dict)
     deletion_requests: dict[str, dict[str, Any]] = field(default_factory=dict)
     deletion_proofs: dict[str, dict[str, Any]] = field(default_factory=dict)
     webhook_subscriptions: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
@@ -241,6 +276,11 @@ _UPLOAD_STORE_LOCK = Lock()
 def reset_phase2_store() -> None:
     _STORE.users.clear()
     _STORE.usage.clear()
+    _STORE.billing_accounts.clear()
+    _STORE.billing_audit_events.clear()
+    _STORE.data_classification_audit_events.clear()
+    _STORE.commercial_pricebook_revisions.clear()
+    _STORE.processed_stripe_events.clear()
     _STORE.upload_sessions.clear()
     _STORE.preview_sessions.clear()
     _STORE.gcs_object_pointers.clear()
@@ -253,6 +293,7 @@ def reset_phase2_store() -> None:
     _STORE.incidents.clear()
     _STORE.era_detections.clear()
     _STORE.log_settings.clear()
+    _STORE.manifest_retention_settings.clear()
     _STORE.deletion_requests.clear()
     _STORE.deletion_proofs.clear()
     _STORE.webhook_subscriptions.clear()
@@ -314,7 +355,13 @@ class _MemoryUsageRepository:
                 "overage_approval_scope": None,
                 "approved_for_minutes": 0,
             }
-            _STORE.usage[user_id] = usage
+        else:
+            usage = {
+                **usage,
+                "plan_tier": plan_tier,
+                "monthly_limit_minutes": monthly_limit_minutes,
+            }
+        _STORE.usage[user_id] = usage
         return dict(usage)
 
     def update(self, user_id: str, payload: dict[str, Any], *, access_token: str | None = None) -> dict[str, Any]:
@@ -322,6 +369,211 @@ class _MemoryUsageRepository:
         usage.update(payload)
         _STORE.usage[user_id] = usage
         return dict(usage)
+
+
+class _MemoryBillingAccountRepository:
+    def get_by_org(self, org_id: str, *, access_token: str | None = None) -> dict[str, Any] | None:
+        del access_token
+        account = _STORE.billing_accounts.get(org_id)
+        return dict(account) if account else None
+
+    def get_by_customer_id(self, customer_id: str) -> dict[str, Any] | None:
+        normalized_customer_id = str(customer_id or "").strip()
+        for account in _STORE.billing_accounts.values():
+            if str(account.get("stripe_customer_id") or "").strip() == normalized_customer_id:
+                return dict(account)
+        return None
+
+    def upsert_by_org(
+        self,
+        *,
+        org_id: str,
+        owner_user_id: str,
+        patch: dict[str, Any],
+    ) -> dict[str, Any]:
+        now = _utc_now()
+        existing = _STORE.billing_accounts.get(org_id) or {}
+        record = {
+            "id": existing.get("id") or str(uuid4()),
+            "owner_user_id": str(existing.get("owner_user_id") or owner_user_id),
+            "org_id": org_id,
+            "stripe_customer_id": existing.get("stripe_customer_id"),
+            "stripe_subscription_id": existing.get("stripe_subscription_id"),
+            "subscription_status": existing.get("subscription_status"),
+            "subscription_price_id": existing.get("subscription_price_id"),
+            "subscription_price_usd": existing.get("subscription_price_usd"),
+            "included_minutes_monthly": existing.get("included_minutes_monthly"),
+            "overage_price_id": existing.get("overage_price_id"),
+            "overage_rate_usd_per_minute": existing.get("overage_rate_usd_per_minute"),
+            "museum_quote_id": existing.get("museum_quote_id"),
+            "museum_quote_status": existing.get("museum_quote_status"),
+            "museum_quote_pricing": dict(existing.get("museum_quote_pricing") or {}),
+            "recent_invoices": list(existing.get("recent_invoices") or []),
+            "last_synced_at": existing.get("last_synced_at"),
+            "created_at": existing.get("created_at") or now,
+            "updated_at": now,
+        }
+        record.update(_request_patch(patch, nullable_keys={"last_synced_at"}))
+        _STORE.billing_accounts[org_id] = record
+        return dict(record)
+
+
+class _MemoryBillingAuditRepository:
+    def append_event(
+        self,
+        *,
+        org_id: str,
+        source: str,
+        event_type: str,
+        actor_user_id: str | None = None,
+        stripe_event_id: str | None = None,
+        before_summary: dict[str, Any] | None = None,
+        after_summary: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        record = {
+            "id": str(uuid4()),
+            "org_id": org_id,
+            "source": source,
+            "event_type": event_type,
+            "actor_user_id": actor_user_id,
+            "stripe_event_id": stripe_event_id,
+            "before_summary": dict(before_summary or {}),
+            "after_summary": dict(after_summary or {}),
+            "created_at": _utc_now(),
+        }
+        _STORE.billing_audit_events.append(record)
+        return dict(record)
+
+    def list_events(self, *, org_id: str | None = None) -> list[dict[str, Any]]:
+        events = [
+            dict(event)
+            for event in _STORE.billing_audit_events
+            if org_id is None or event["org_id"] == org_id
+        ]
+        return sorted(events, key=lambda item: item["created_at"], reverse=True)
+
+
+class _MemoryCommercialPricebookRevisionRepository:
+    def get_active(self) -> dict[str, Any] | None:
+        active = [dict(item) for item in _STORE.commercial_pricebook_revisions.values() if item.get("active")]
+        if not active:
+            return None
+        active.sort(key=lambda item: item["activated_at"], reverse=True)
+        return active[0]
+
+    def activate(
+        self,
+        *,
+        version: str,
+        payload: dict[str, Any],
+        applied_by_user_id: str,
+        applied_by_org_id: str,
+        source: str,
+        change_summary: str,
+    ) -> dict[str, Any]:
+        now = _utc_now()
+        if version in _STORE.commercial_pricebook_revisions:
+            raise ValueError("A commercial pricebook revision with that version already exists.")
+        for stored_version, item in list(_STORE.commercial_pricebook_revisions.items()):
+            if item.get("active"):
+                _STORE.commercial_pricebook_revisions[stored_version] = {
+                    **item,
+                    "active": False,
+                    "updated_at": now,
+                }
+        record = {
+            "id": _STORE.commercial_pricebook_revisions.get(version, {}).get("id") or str(uuid4()),
+            "version": version,
+            "payload": dict(payload),
+            "applied_by_user_id": applied_by_user_id,
+            "applied_by_org_id": applied_by_org_id,
+            "source": source,
+            "change_summary": change_summary,
+            "activated_at": now,
+            "active": True,
+            "updated_at": now,
+        }
+        _STORE.commercial_pricebook_revisions[version] = record
+        return dict(record)
+
+    def list_active(self) -> list[dict[str, Any]]:
+        active = [dict(item) for item in _STORE.commercial_pricebook_revisions.values() if item.get("active")]
+        return sorted(active, key=lambda item: item["activated_at"], reverse=True)
+
+
+class _MemoryProcessedStripeEventRepository:
+    def claim_event(
+        self,
+        *,
+        stripe_event_id: str,
+        event_type: str,
+        org_id: str | None,
+    ) -> dict[str, Any] | None:
+        now = _utc_now()
+        with _UPLOAD_STORE_LOCK:
+            existing = _STORE.processed_stripe_events.get(stripe_event_id)
+            if existing is None:
+                record = {
+                    "stripe_event_id": stripe_event_id,
+                    "event_type": event_type,
+                    "org_id": org_id,
+                    "processing_status": "claimed",
+                    "summary_metadata": {},
+                    "created_at": now,
+                    "processed_at": None,
+                    "updated_at": now,
+                }
+                _STORE.processed_stripe_events[stripe_event_id] = record
+                return dict(record)
+            if existing.get("processing_status") != "failed":
+                return None
+            reclaimed = {
+                **existing,
+                "event_type": event_type,
+                "org_id": org_id or existing.get("org_id"),
+                "processing_status": "claimed",
+                "processed_at": None,
+                "updated_at": now,
+            }
+            _STORE.processed_stripe_events[stripe_event_id] = reclaimed
+            return dict(reclaimed)
+
+    def get_event(self, stripe_event_id: str) -> dict[str, Any] | None:
+        event = _STORE.processed_stripe_events.get(stripe_event_id)
+        return dict(event) if event else None
+
+    def mark_processed(
+        self,
+        stripe_event_id: str,
+        *,
+        summary_metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        now = _utc_now()
+        with _UPLOAD_STORE_LOCK:
+            existing = dict(_STORE.processed_stripe_events[stripe_event_id])
+            existing["processing_status"] = "processed"
+            existing["processed_at"] = now
+            existing["updated_at"] = now
+            if summary_metadata is not None:
+                existing["summary_metadata"] = dict(summary_metadata)
+            _STORE.processed_stripe_events[stripe_event_id] = existing
+            return dict(existing)
+
+    def mark_failed(
+        self,
+        stripe_event_id: str,
+        *,
+        summary_metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        now = _utc_now()
+        with _UPLOAD_STORE_LOCK:
+            existing = dict(_STORE.processed_stripe_events[stripe_event_id])
+            existing["processing_status"] = "failed"
+            existing["updated_at"] = now
+            if summary_metadata is not None:
+                existing["summary_metadata"] = dict(summary_metadata)
+            _STORE.processed_stripe_events[stripe_event_id] = existing
+            return dict(existing)
 
 
 class _MemoryUploadRepository:
@@ -413,6 +665,10 @@ class _MemoryUploadRepository:
         mime_type: str,
         size_bytes: int,
         checksum_sha256: str | None,
+        classification_label: str | None = None,
+        retention_days: int | None = None,
+        retention_expires_at: str | None = None,
+        classification_policy_version: str | None = None,
         access_token: str | None = None,
     ) -> dict[str, Any]:
         del access_token
@@ -428,6 +684,10 @@ class _MemoryUploadRepository:
             "mime_type": mime_type,
             "size_bytes": size_bytes,
             "checksum_sha256": checksum_sha256,
+            "classification_label": classification_label or "Confidential",
+            "retention_days": retention_days,
+            "retention_expires_at": retention_expires_at,
+            "classification_policy_version": classification_policy_version or "v0-backfill",
             "created_at": _utc_now(),
         }
         with _UPLOAD_STORE_LOCK:
@@ -444,10 +704,17 @@ class _MemoryPreviewSessionRepository:
     ) -> dict[str, Any]:
         del access_token
         record = dict(payload)
+        record.setdefault("review_status", "pending")
+        record.setdefault("reviewed_at", None)
+        record.setdefault("launch_status", "not_launched")
+        record.setdefault("launched_job_id", None)
+        record.setdefault("launched_external_job_id", None)
+        record.setdefault("launched_at", None)
         record.setdefault("created_at", _utc_now())
         record["updated_at"] = _utc_now()
-        _STORE.preview_sessions[record["preview_id"]] = record
-        return dict(record)
+        with _UPLOAD_STORE_LOCK:
+            _STORE.preview_sessions[record["preview_id"]] = record
+            return dict(record)
 
     def get_preview(
         self,
@@ -457,12 +724,13 @@ class _MemoryPreviewSessionRepository:
         access_token: str | None = None,
     ) -> dict[str, Any] | None:
         del access_token
-        record = _STORE.preview_sessions.get(preview_id)
-        if record is None:
-            return None
-        if owner_user_id and record["owner_user_id"] != owner_user_id:
-            return None
-        return dict(record)
+        with _UPLOAD_STORE_LOCK:
+            record = _STORE.preview_sessions.get(preview_id)
+            if record is None:
+                return None
+            if owner_user_id and record["owner_user_id"] != owner_user_id:
+                return None
+            return dict(record)
 
     def get_reusable_preview(
         self,
@@ -473,14 +741,15 @@ class _MemoryPreviewSessionRepository:
         access_token: str | None = None,
     ) -> dict[str, Any] | None:
         del access_token
-        candidates = [
-            dict(record)
-            for record in _STORE.preview_sessions.values()
-            if record["owner_user_id"] == owner_user_id
-            and record["source_asset_checksum"] == source_asset_checksum
-            and record.get("deleted_at") is None
-            and record.get("status") == "ready"
-        ]
+        with _UPLOAD_STORE_LOCK:
+            candidates = [
+                dict(record)
+                for record in _STORE.preview_sessions.values()
+                if record["owner_user_id"] == owner_user_id
+                and record["source_asset_checksum"] == source_asset_checksum
+                and record.get("deleted_at") is None
+                and record.get("status") == "ready"
+            ]
         if not candidates:
             return None
         candidates.sort(key=lambda item: item["created_at"], reverse=True)
@@ -502,14 +771,57 @@ class _MemoryPreviewSessionRepository:
         access_token: str | None = None,
     ) -> dict[str, Any] | None:
         del access_token
-        record = _STORE.preview_sessions.get(preview_id)
-        if record is None or record["owner_user_id"] != owner_user_id:
-            return None
-        updated = dict(record)
-        updated.update(_request_patch(patch, nullable_keys={"deleted_at"}))
-        updated["updated_at"] = _utc_now()
-        _STORE.preview_sessions[preview_id] = updated
-        return dict(updated)
+        with _UPLOAD_STORE_LOCK:
+            record = _STORE.preview_sessions.get(preview_id)
+            if record is None or record["owner_user_id"] != owner_user_id:
+                return None
+            updated = dict(record)
+            updated.update(
+                _request_patch(
+                    patch,
+                    nullable_keys={"deleted_at", "reviewed_at", "launched_job_id", "launched_external_job_id", "launched_at"},
+                )
+            )
+            updated["updated_at"] = _utc_now()
+            _STORE.preview_sessions[preview_id] = updated
+            return dict(updated)
+
+    def claim_launch(
+        self,
+        preview_id: str,
+        *,
+        owner_user_id: str,
+        launched_external_job_id: str,
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        del access_token
+        with _UPLOAD_STORE_LOCK:
+            record = _STORE.preview_sessions.get(preview_id)
+            if record is None or record["owner_user_id"] != owner_user_id:
+                return None
+            if record.get("launch_status") != "not_launched":
+                return None
+            updated = dict(record)
+            updated["launch_status"] = "launch_pending"
+            updated["launched_external_job_id"] = launched_external_job_id
+            updated["updated_at"] = _utc_now()
+            _STORE.preview_sessions[preview_id] = updated
+            return dict(updated)
+
+    def launch_pending_snapshot(
+        self,
+        *,
+        owner_user_id: str | None = None,
+        access_token: str | None = None,
+    ) -> dict[str, float]:
+        del access_token
+        with _UPLOAD_STORE_LOCK:
+            previews = [
+                dict(record)
+                for record in _STORE.preview_sessions.values()
+                if owner_user_id is None or record["owner_user_id"] == owner_user_id
+            ]
+        return _preview_launch_pending_metrics(previews)
 
 
 class _MemoryEraDetectionRepository:
@@ -572,6 +884,37 @@ class _MemoryLogSettingsRepository:
         return dict(record) if record else None
 
 
+class _MemoryManifestRetentionSettingsRepository:
+    def upsert(
+        self,
+        *,
+        org_id: str,
+        plan_tier: str,
+        manifest_retention_days: int | None,
+        manifest_redaction_enabled: bool,
+        updated_by: str | None = None,
+    ) -> dict[str, Any]:
+        if plan_tier.lower() != "museum":
+            raise ValueError("SEC-005 manifest retention settings are Museum-tier only.")
+        record = {
+            "org_id": org_id,
+            "plan_tier": "museum",
+            "manifest_retention_days": manifest_retention_days,
+            "manifest_redaction_enabled": bool(manifest_redaction_enabled),
+            "updated_by": updated_by,
+            "created_at": _STORE.manifest_retention_settings.get(org_id, {}).get("created_at") or _utc_now(),
+            "updated_at": _utc_now(),
+        }
+        _STORE.manifest_retention_settings[org_id] = record
+        return dict(record)
+
+    def get(self, org_id: str | None) -> dict[str, Any] | None:
+        if not org_id:
+            return None
+        record = _STORE.manifest_retention_settings.get(org_id)
+        return dict(record) if record else None
+
+
 class _MemoryComplianceRepository:
     def create_deletion_request(self, *, user_id: str, payload: dict[str, Any], access_token: str | None = None) -> dict[str, Any]:
         deletion_request_id = str(uuid4())
@@ -618,13 +961,16 @@ class _MemoryJobRepository:
         estimated_duration_seconds: int,
         segments: list[dict[str, Any]],
         cost_estimate_summary: dict[str, Any] | None = None,
+        billing_pricing_snapshot: dict[str, Any] | None = None,
         effective_fidelity_tier: str | None = None,
         effective_fidelity_profile: dict[str, Any] | None = None,
         reproducibility_mode: str = "perceptual_equivalence",
         access_token: str | None = None,
     ) -> dict[str, Any]:
         del access_token
-        created_at = _utc_now()
+        existing = _STORE.jobs.get(job_id) or {}
+        created_at = str(existing.get("created_at") or _utc_now())
+        queued_at = str(existing.get("queued_at") or created_at)
         record = {
             "job_id": job_id,
             "owner_user_id": owner_user_id,
@@ -693,7 +1039,12 @@ class _MemoryJobRepository:
                 "api_calls": 0,
                 "total_cost_usd": 0.0,
             },
-            "cost_estimate_summary": cost_estimate_summary,
+            "cost_estimate_summary": existing.get("cost_estimate_summary") or cost_estimate_summary,
+            "billing_pricing_snapshot": dict(
+                existing.get("billing_pricing_snapshot")
+                or billing_pricing_snapshot
+                or {}
+            ),
             "cost_reconciliation_summary": None,
             "slo_summary": {
                 "target_total_ms": estimated_duration_seconds * 2000,
@@ -707,12 +1058,12 @@ class _MemoryJobRepository:
             "failed_segments": [],
             "warnings": [],
             "last_error": None,
-            "queued_at": created_at,
+            "queued_at": queued_at,
             "created_at": created_at,
             "started_at": None,
             "completed_at": None,
             "cancel_requested_at": None,
-            "updated_at": created_at,
+            "updated_at": _utc_now(),
         }
         _STORE.jobs[job_id] = record
         _STORE.job_segments[job_id] = [
@@ -868,8 +1219,21 @@ class _MemoryWebhookSubscriptionRepository:
 
 
 class _MemoryManifestRepository:
-    def upsert_manifest_for_worker(self, *, job_id: str, manifest: dict[str, Any]) -> dict[str, Any]:
-        _STORE.job_manifests[job_id] = dict(manifest)
+    def upsert_manifest_for_worker(
+        self,
+        *,
+        job_id: str,
+        manifest: dict[str, Any],
+        classification: dict[str, Any] | None = None,
+        retention: dict[str, Any] | None = None,
+        redaction: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        _STORE.job_manifests[job_id] = {
+            "payload": dict(manifest),
+            **(classification or {}),
+            **(retention or {}),
+            **(redaction or {}),
+        }
         return dict(manifest)
 
     def get_manifest(
@@ -886,7 +1250,37 @@ class _MemoryManifestRepository:
         if owner_user_id and job["owner_user_id"] != owner_user_id:
             return None
         manifest = _STORE.job_manifests.get(job_id)
-        return dict(manifest) if manifest else None
+        if not manifest:
+            return None
+        if not _manifest_is_retained(manifest):
+            return None
+        return dict(manifest.get("payload") or manifest)
+
+    def mark_retention_delete_deleted(self, *, job_id: str, deleted_at: str | None = None) -> None:
+        record = _STORE.job_manifests.get(job_id)
+        if record is None:
+            return
+        record["retention_delete_status"] = "deleted"
+        record["retention_deleted_at"] = deleted_at or _utc_now()
+
+    def mark_retention_delete_failed(self, *, job_id: str, failed_at: str | None = None) -> None:
+        record = _STORE.job_manifests.get(job_id)
+        if record is None:
+            return
+        record["retention_delete_status"] = "failed"
+        record["retention_delete_attempted_at"] = failed_at or _utc_now()
+
+    def get_retention_delete_record_for_worker(self, *, job_id: str) -> dict[str, Any] | None:
+        record = _STORE.job_manifests.get(job_id)
+        if record is None or record.get("retention_delete_status") not in {"pending", "failed"}:
+            return None
+        return {
+            "job_id": job_id,
+            "manifest_uri": record.get("payload", {}).get("manifest_uri"),
+            "redacted_manifest_uri": record.get("redacted_manifest_uri"),
+            "retention_delete_status": record.get("retention_delete_status"),
+            "retention_delete_attempted_at": record.get("retention_delete_attempted_at"),
+        }
 
 
 class _MemoryJobExportPackageRepository:
@@ -964,6 +1358,20 @@ class _MemoryJobDeletionProofRepository:
         return None
 
 
+class _MemoryDataClassificationAuditRepository:
+    def record_event(self, *, payload: dict[str, Any]) -> dict[str, Any]:
+        record = {
+            "id": str(uuid4()),
+            **payload,
+            "created_at": _utc_now(),
+        }
+        _STORE.data_classification_audit_events.append(record)
+        return dict(record)
+
+    def list_events(self) -> list[dict[str, Any]]:
+        return [dict(item) for item in _STORE.data_classification_audit_events]
+
+
 class _MemoryRuntimeOpsRepository:
     def list_gpu_leases(self) -> list[dict[str, Any]]:
         return [dict(item) for item in _STORE.gpu_leases.values()]
@@ -1031,7 +1439,18 @@ class _SupabaseUserProfileRepository(_SupabaseRepositoryBase):
     ) -> dict[str, Any]:
         if access_token:
             headers = self._client.user_scoped_headers(access_token)
-            row = self._client.rest_upsert(
+            existing = self._client.rest_select(
+                "user_profiles",
+                params={
+                    "select": "*",
+                    "external_user_id": f"eq.{user_id}",
+                    "limit": "1",
+                },
+                headers=headers,
+            )
+            if existing:
+                return self._row_to_profile(existing[0])
+            row = self._client.rest_insert(
                 "user_profiles",
                 payload={
                     "id": user_id,
@@ -1045,7 +1464,6 @@ class _SupabaseUserProfileRepository(_SupabaseRepositoryBase):
                     "preferences": {},
                     "updated_at": _utc_now(),
                 },
-                on_conflict="id",
                 headers=headers,
             )[0]
             return self._row_to_profile(row)
@@ -1165,7 +1583,26 @@ class _SupabaseUsageRepository(_SupabaseRepositoryBase):
                 headers=headers,
             )
             if rows:
-                return self._row_to_usage(rows[0])
+                row = rows[0]
+                if (
+                    row.get("plan_tier") != plan_tier
+                    or int(row.get("monthly_limit_minutes", 0) or 0) != monthly_limit_minutes
+                ):
+                    row = self._client.rest_update(
+                        "user_usage_monthly",
+                        payload={
+                            "plan_tier": plan_tier,
+                            "monthly_limit_minutes": monthly_limit_minutes,
+                            "updated_at": _utc_now(),
+                        },
+                        params={
+                            "external_user_id": f"eq.{user_id}",
+                            "billing_month": f"eq.{month}",
+                            "select": "*",
+                        },
+                        headers=headers,
+                    )[0]
+                return self._row_to_usage(row)
             row = self._client.rest_insert(
                 "user_usage_monthly",
                 payload={
@@ -1275,6 +1712,367 @@ class _SupabaseUsageRepository(_SupabaseRepositoryBase):
         if row is None:
             raise RuntimeError("Failed to update usage snapshot")
         return self._row_to_usage(row)
+
+
+class _SupabaseBillingAccountRepository(_SupabaseRepositoryBase):
+    def _billing_account_from_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": row["id"],
+            "owner_user_id": row.get("external_owner_user_id") or row.get("owner_user_id"),
+            "org_id": row.get("org_id", "org-default"),
+            "stripe_customer_id": row.get("stripe_customer_id"),
+            "stripe_subscription_id": row.get("stripe_subscription_id"),
+            "subscription_status": row.get("subscription_status"),
+            "subscription_price_id": row.get("subscription_price_id"),
+            "subscription_price_usd": row.get("subscription_price_usd"),
+            "included_minutes_monthly": row.get("included_minutes_monthly"),
+            "overage_price_id": row.get("overage_price_id"),
+            "overage_rate_usd_per_minute": row.get("overage_rate_usd_per_minute"),
+            "museum_quote_id": row.get("museum_quote_id"),
+            "museum_quote_status": row.get("museum_quote_status"),
+            "museum_quote_pricing": row.get("museum_quote_pricing") or {},
+            "recent_invoices": row.get("recent_invoices") or [],
+            "last_synced_at": row.get("last_synced_at"),
+            "created_at": row["created_at"],
+            "updated_at": row.get("updated_at") or row["created_at"],
+        }
+
+    def get_by_org(self, org_id: str, *, access_token: str | None = None) -> dict[str, Any] | None:
+        if access_token:
+            rows = self._client.rest_select(
+                "billing_accounts",
+                params={"select": "*", "org_id": f"eq.{org_id}", "limit": "1"},
+                headers=self._client.user_scoped_headers(access_token),
+            )
+            return self._billing_account_from_row(rows[0]) if rows else None
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                select billing_accounts.*, user_profiles.external_user_id as external_owner_user_id
+                from public.billing_accounts
+                left join public.user_profiles on public.user_profiles.id = public.billing_accounts.owner_user_id
+                where public.billing_accounts.org_id = %s
+                limit 1
+                """,
+                (org_id,),
+            )
+            row = cur.fetchone()
+        return self._billing_account_from_row(row) if row else None
+
+    def get_by_customer_id(self, customer_id: str) -> dict[str, Any] | None:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                select billing_accounts.*, user_profiles.external_user_id as external_owner_user_id
+                from public.billing_accounts
+                left join public.user_profiles on public.user_profiles.id = public.billing_accounts.owner_user_id
+                where public.billing_accounts.stripe_customer_id = %s
+                limit 1
+                """,
+                (customer_id,),
+            )
+            row = cur.fetchone()
+        return self._billing_account_from_row(row) if row else None
+
+    def upsert_by_org(
+        self,
+        *,
+        org_id: str,
+        owner_user_id: str,
+        patch: dict[str, Any],
+    ) -> dict[str, Any]:
+        from psycopg.types.json import Jsonb
+
+        existing = self.get_by_org(org_id)
+        effective_owner_user_id = str((existing or {}).get("owner_user_id") or owner_user_id)
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into public.billing_accounts (
+                    id, owner_user_id, org_id, stripe_customer_id, stripe_subscription_id,
+                    subscription_status, subscription_price_id, subscription_price_usd,
+                    included_minutes_monthly, overage_price_id, overage_rate_usd_per_minute,
+                    museum_quote_id, museum_quote_status, museum_quote_pricing, recent_invoices,
+                    last_synced_at, updated_at
+                )
+                values (
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now()
+                )
+                on conflict (org_id) do update
+                set owner_user_id = excluded.owner_user_id,
+                    stripe_customer_id = excluded.stripe_customer_id,
+                    stripe_subscription_id = excluded.stripe_subscription_id,
+                    subscription_status = excluded.subscription_status,
+                    subscription_price_id = excluded.subscription_price_id,
+                    subscription_price_usd = excluded.subscription_price_usd,
+                    included_minutes_monthly = excluded.included_minutes_monthly,
+                    overage_price_id = excluded.overage_price_id,
+                    overage_rate_usd_per_minute = excluded.overage_rate_usd_per_minute,
+                    museum_quote_id = excluded.museum_quote_id,
+                    museum_quote_status = excluded.museum_quote_status,
+                    museum_quote_pricing = excluded.museum_quote_pricing,
+                    recent_invoices = excluded.recent_invoices,
+                    last_synced_at = excluded.last_synced_at,
+                    updated_at = now()
+                returning *
+                """,
+                (
+                    str((existing or {}).get("id") or uuid4()),
+                    _stable_uuid(effective_owner_user_id),
+                    org_id,
+                    patch.get("stripe_customer_id", (existing or {}).get("stripe_customer_id")),
+                    patch.get("stripe_subscription_id", (existing or {}).get("stripe_subscription_id")),
+                    patch.get("subscription_status", (existing or {}).get("subscription_status")),
+                    patch.get("subscription_price_id", (existing or {}).get("subscription_price_id")),
+                    patch.get("subscription_price_usd", (existing or {}).get("subscription_price_usd")),
+                    patch.get("included_minutes_monthly", (existing or {}).get("included_minutes_monthly")),
+                    patch.get("overage_price_id", (existing or {}).get("overage_price_id")),
+                    patch.get("overage_rate_usd_per_minute", (existing or {}).get("overage_rate_usd_per_minute")),
+                    patch.get("museum_quote_id", (existing or {}).get("museum_quote_id")),
+                    patch.get("museum_quote_status", (existing or {}).get("museum_quote_status")),
+                    Jsonb(patch.get("museum_quote_pricing", (existing or {}).get("museum_quote_pricing") or {})),
+                    Jsonb(patch.get("recent_invoices", (existing or {}).get("recent_invoices") or [])),
+                    patch.get("last_synced_at", (existing or {}).get("last_synced_at")),
+                ),
+            )
+            row = cur.fetchone()
+        if row is None:
+            raise RuntimeError("Failed to upsert billing account")
+        return self.get_by_org(org_id) or self._billing_account_from_row(row)
+
+
+class _SupabaseBillingAuditRepository(_SupabaseRepositoryBase):
+    def append_event(
+        self,
+        *,
+        org_id: str,
+        source: str,
+        event_type: str,
+        actor_user_id: str | None = None,
+        stripe_event_id: str | None = None,
+        before_summary: dict[str, Any] | None = None,
+        after_summary: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from psycopg.types.json import Jsonb
+
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into public.billing_audit_events (
+                    id, org_id, source, event_type, actor_user_id, stripe_event_id,
+                    before_summary, after_summary
+                )
+                values (%s, %s, %s, %s, %s, %s, %s, %s)
+                returning *
+                """,
+                (
+                    str(uuid4()),
+                    org_id,
+                    source,
+                    event_type,
+                    actor_user_id,
+                    stripe_event_id,
+                    Jsonb(before_summary or {}),
+                    Jsonb(after_summary or {}),
+                ),
+            )
+            row = cur.fetchone()
+        if row is None:
+            raise RuntimeError("Failed to append billing audit event")
+        return dict(row)
+
+    def list_events(self, *, org_id: str | None = None) -> list[dict[str, Any]]:
+        query = "select * from public.billing_audit_events"
+        params: tuple[Any, ...] = ()
+        if org_id is not None:
+            query += " where org_id = %s"
+            params = (org_id,)
+        query += " order by created_at desc"
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(query, params)
+            rows = cur.fetchall()
+        return [dict(row) for row in rows]
+
+
+class _SupabaseCommercialPricebookRevisionRepository(_SupabaseRepositoryBase):
+    def get_active(self) -> dict[str, Any] | None:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                select *
+                from public.commercial_pricebook_revisions
+                where active = true
+                order by activated_at desc
+                limit 1
+                """
+            )
+            row = cur.fetchone()
+        return dict(row) if row else None
+
+    def activate(
+        self,
+        *,
+        version: str,
+        payload: dict[str, Any],
+        applied_by_user_id: str,
+        applied_by_org_id: str,
+        source: str,
+        change_summary: str,
+    ) -> dict[str, Any]:
+        from psycopg.types.json import Jsonb
+
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                select 1
+                from public.commercial_pricebook_revisions
+                where version = %s
+                limit 1
+                """,
+                (version,),
+            )
+            if cur.fetchone() is not None:
+                raise ValueError("A commercial pricebook revision with that version already exists.")
+            cur.execute("update public.commercial_pricebook_revisions set active = false, updated_at = now() where active = true")
+            cur.execute(
+                """
+                insert into public.commercial_pricebook_revisions (
+                    id, version, payload, applied_by_user_id, applied_by_org_id,
+                    source, change_summary, activated_at, active, updated_at
+                )
+                values (%s, %s, %s, %s, %s, %s, %s, now(), true, now())
+                returning *
+                """,
+                (
+                    str(uuid4()),
+                    version,
+                    Jsonb(payload),
+                    applied_by_user_id,
+                    applied_by_org_id,
+                    source,
+                    change_summary,
+                ),
+            )
+            row = cur.fetchone()
+        if row is None:
+            raise RuntimeError("Failed to activate commercial pricebook revision")
+        return dict(row)
+
+    def list_active(self) -> list[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                select *
+                from public.commercial_pricebook_revisions
+                where active = true
+                order by activated_at desc
+                """
+            )
+            rows = cur.fetchall()
+        return [dict(row) for row in rows]
+
+
+class _SupabaseProcessedStripeEventRepository(_SupabaseRepositoryBase):
+    def claim_event(
+        self,
+        *,
+        stripe_event_id: str,
+        event_type: str,
+        org_id: str | None,
+    ) -> dict[str, Any] | None:
+        from psycopg.types.json import Jsonb
+
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into public.processed_stripe_events (
+                    stripe_event_id, event_type, org_id, processing_status, summary_metadata
+                )
+                values (%s, %s, %s, 'claimed', %s)
+                on conflict (stripe_event_id) do nothing
+                returning *
+                """,
+                (stripe_event_id, event_type, org_id, Jsonb({})),
+            )
+            created = cur.fetchone()
+            if created is not None:
+                return dict(created)
+            cur.execute(
+                """
+                update public.processed_stripe_events
+                set event_type = %s,
+                    org_id = coalesce(%s, org_id),
+                    processing_status = 'claimed',
+                    processed_at = null,
+                    updated_at = now()
+                where stripe_event_id = %s
+                  and processing_status = 'failed'
+                returning *
+                """,
+                (event_type, org_id, stripe_event_id),
+            )
+            reclaimed = cur.fetchone()
+        return dict(reclaimed) if reclaimed else None
+
+    def get_event(self, stripe_event_id: str) -> dict[str, Any] | None:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                "select * from public.processed_stripe_events where stripe_event_id = %s limit 1",
+                (stripe_event_id,),
+            )
+            row = cur.fetchone()
+        return dict(row) if row else None
+
+    def mark_processed(
+        self,
+        stripe_event_id: str,
+        *,
+        summary_metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from psycopg.types.json import Jsonb
+
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                update public.processed_stripe_events
+                set processing_status = 'processed',
+                    summary_metadata = %s,
+                    processed_at = now(),
+                    updated_at = now()
+                where stripe_event_id = %s
+                returning *
+                """,
+                (Jsonb(summary_metadata or {}), stripe_event_id),
+            )
+            row = cur.fetchone()
+        if row is None:
+            raise RuntimeError(f"Processed Stripe event {stripe_event_id} not found")
+        return dict(row)
+
+    def mark_failed(
+        self,
+        stripe_event_id: str,
+        *,
+        summary_metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        from psycopg.types.json import Jsonb
+
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                update public.processed_stripe_events
+                set processing_status = 'failed',
+                    summary_metadata = %s,
+                    updated_at = now()
+                where stripe_event_id = %s
+                returning *
+                """,
+                (Jsonb(summary_metadata or {}), stripe_event_id),
+            )
+            row = cur.fetchone()
+        if row is None:
+            raise RuntimeError(f"Processed Stripe event {stripe_event_id} not found")
+        return dict(row)
 
 
 class _SupabaseUploadRepository(_SupabaseRepositoryBase):
@@ -1419,6 +2217,10 @@ class _SupabaseUploadRepository(_SupabaseRepositoryBase):
         mime_type: str,
         size_bytes: int,
         checksum_sha256: str | None,
+        classification_label: str | None = None,
+        retention_days: int | None = None,
+        retention_expires_at: str | None = None,
+        classification_policy_version: str | None = None,
         access_token: str | None = None,
     ) -> dict[str, Any]:
         row = self._client.rest_upsert(
@@ -1435,6 +2237,10 @@ class _SupabaseUploadRepository(_SupabaseRepositoryBase):
                 "mime_type": mime_type,
                 "size_bytes": size_bytes,
                 "checksum_sha256": checksum_sha256,
+                "classification_label": classification_label or "Confidential",
+                "retention_days": retention_days,
+                "retention_expires_at": retention_expires_at,
+                "classification_policy_version": classification_policy_version or "v0-backfill",
             },
             on_conflict="external_upload_id",
             headers=self._client.user_scoped_headers(self._require_access_token(access_token)),
@@ -1450,6 +2256,10 @@ class _SupabaseUploadRepository(_SupabaseRepositoryBase):
             "mime_type": row.get("mime_type", ""),
             "size_bytes": row.get("size_bytes", 0),
             "checksum_sha256": row.get("checksum_sha256"),
+            "classification_label": row.get("classification_label", "Confidential"),
+            "retention_days": row.get("retention_days"),
+            "retention_expires_at": row.get("retention_expires_at"),
+            "classification_policy_version": row.get("classification_policy_version", "v0-backfill"),
             "created_at": row["created_at"],
         }
 
@@ -1474,6 +2284,12 @@ class _SupabasePreviewSessionRepository(_SupabaseRepositoryBase):
                 row.get("configuration_cache_fingerprint")
                 or _preview_configuration_cache_fingerprint(job_payload_preview)
             ),
+            "review_status": row.get("review_status", "pending"),
+            "reviewed_at": row.get("reviewed_at"),
+            "launch_status": row.get("launch_status", "not_launched"),
+            "launched_job_id": str(row["launched_job_id"]) if row.get("launched_job_id") else None,
+            "launched_external_job_id": row.get("launched_external_job_id"),
+            "launched_at": row.get("launched_at"),
             "source_asset_checksum": row["source_asset_checksum"],
             "cache_key": row["cache_key"],
             "job_payload_preview": job_payload_preview,
@@ -1511,6 +2327,12 @@ class _SupabasePreviewSessionRepository(_SupabaseRepositoryBase):
                 "configured_at_snapshot": payload.get("configured_at_snapshot"),
                 "configuration_fingerprint": payload["configuration_fingerprint"],
                 "configuration_cache_fingerprint": payload.get("configuration_cache_fingerprint"),
+                "review_status": payload.get("review_status", "pending"),
+                "reviewed_at": payload.get("reviewed_at"),
+                "launch_status": payload.get("launch_status", "not_launched"),
+                "launched_job_id": payload.get("launched_job_id"),
+                "launched_external_job_id": payload.get("launched_external_job_id"),
+                "launched_at": payload.get("launched_at"),
                 "source_asset_checksum": payload["source_asset_checksum"],
                 "cache_key": payload["cache_key"],
                 "job_payload_preview": payload.get("job_payload_preview") or {},
@@ -1593,10 +2415,16 @@ class _SupabasePreviewSessionRepository(_SupabaseRepositoryBase):
             {
                 "status": patch.get("status"),
                 "expires_at": patch.get("expires_at"),
+                "review_status": patch.get("review_status"),
+                "reviewed_at": patch.get("reviewed_at"),
+                "launch_status": patch.get("launch_status"),
+                "launched_job_id": patch.get("launched_job_id"),
+                "launched_external_job_id": patch.get("launched_external_job_id"),
+                "launched_at": patch.get("launched_at"),
                 "deleted_at": patch.get("deleted_at"),
                 "updated_at": _utc_now(),
             },
-            nullable_keys={"deleted_at"},
+            nullable_keys={"deleted_at", "reviewed_at", "launched_job_id", "launched_external_job_id", "launched_at"},
         )
         rows = self._client.rest_update(
             "preview_sessions",
@@ -1611,6 +2439,51 @@ class _SupabasePreviewSessionRepository(_SupabaseRepositoryBase):
         if not rows:
             return None
         return self._preview_from_row(rows[0])
+
+    def claim_launch(
+        self,
+        preview_id: str,
+        *,
+        owner_user_id: str,
+        launched_external_job_id: str,
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        rows = self._client.rest_update(
+            "preview_sessions",
+            payload={
+                "launch_status": "launch_pending",
+                "launched_external_job_id": launched_external_job_id,
+                "updated_at": _utc_now(),
+            },
+            params={
+                "external_preview_id": f"eq.{preview_id}",
+                "external_user_id": f"eq.{owner_user_id}",
+                "launch_status": "eq.not_launched",
+                "select": "*",
+            },
+            headers=self._client.user_scoped_headers(self._require_access_token(access_token)),
+        )
+        if not rows:
+            return None
+        return self._preview_from_row(rows[0])
+
+    def launch_pending_snapshot(
+        self,
+        *,
+        owner_user_id: str | None = None,
+        access_token: str | None = None,
+    ) -> dict[str, float]:
+        params = {
+            "select": "launch_status,updated_at",
+        }
+        if owner_user_id:
+            params["external_user_id"] = f"eq.{owner_user_id}"
+        rows = self._client.rest_select(
+            "preview_sessions",
+            params=params,
+            headers=self._client.user_scoped_headers(self._require_access_token(access_token)),
+        )
+        return _preview_launch_pending_metrics(rows)
 
 
 class _SupabaseEraDetectionRepository(_SupabaseRepositoryBase):
@@ -1936,6 +2809,57 @@ class _SupabaseLogSettingsRepository(_SupabaseRepositoryBase):
             "updated_at": row["updated_at"],
         }
 
+
+class _SupabaseManifestRetentionSettingsRepository(_SupabaseRepositoryBase):
+    def upsert(
+        self,
+        *,
+        org_id: str,
+        plan_tier: str,
+        manifest_retention_days: int | None,
+        manifest_redaction_enabled: bool,
+        updated_by: str | None = None,
+    ) -> dict[str, Any]:
+        if plan_tier.lower() != "museum":
+            raise ValueError("SEC-005 manifest retention settings are Museum-tier only.")
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into public.org_data_retention_settings (
+                    org_id, plan_tier, manifest_retention_days, manifest_redaction_enabled,
+                    updated_by, updated_at
+                )
+                values (%s, 'museum', %s, %s, %s, now())
+                on conflict (org_id) do update
+                set manifest_retention_days = excluded.manifest_retention_days,
+                    manifest_redaction_enabled = excluded.manifest_redaction_enabled,
+                    updated_by = excluded.updated_by,
+                    updated_at = now()
+                returning *
+                """,
+                (org_id, manifest_retention_days, manifest_redaction_enabled, updated_by),
+            )
+            row = cur.fetchone()
+        return dict(row)
+
+    def get(self, org_id: str | None) -> dict[str, Any] | None:
+        if not org_id:
+            return None
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                select org_id, plan_tier, manifest_retention_days, manifest_redaction_enabled,
+                       updated_by, created_at, updated_at
+                from public.org_data_retention_settings
+                where org_id = %s and plan_tier = 'museum'
+                limit 1
+                """,
+                (org_id,),
+            )
+            row = cur.fetchone()
+        return dict(row) if row else None
+
+
 class _SupabaseComplianceRepository(_SupabaseRepositoryBase):
     def create_deletion_request(self, *, user_id: str, payload: dict[str, Any], access_token: str | None = None) -> dict[str, Any]:
         if access_token:
@@ -2105,6 +3029,7 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
             "cost_summary": row.get("cost_summary")
             or {"gpu_seconds": 0, "storage_operations": 0, "api_calls": 0, "total_cost_usd": 0.0},
             "cost_estimate_summary": row.get("cost_estimate_summary"),
+            "billing_pricing_snapshot": row.get("billing_pricing_snapshot") or {},
             "cost_reconciliation_summary": row.get("cost_reconciliation_summary"),
             "slo_summary": row.get("slo_summary")
             or {
@@ -2170,6 +3095,7 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
         estimated_duration_seconds: int,
         segments: list[dict[str, Any]],
         cost_estimate_summary: dict[str, Any] | None = None,
+        billing_pricing_snapshot: dict[str, Any] | None = None,
         effective_fidelity_tier: str | None = None,
         effective_fidelity_profile: dict[str, Any] | None = None,
         reproducibility_mode: str = "perceptual_equivalence",
@@ -2179,9 +3105,14 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
             headers = self._client.user_scoped_headers(access_token)
             existing_job_rows = self._client.rest_select(
                 "media_jobs",
-                params={"select": "id", "external_job_id": f"eq.{job_id}", "limit": "1"},
+                params={
+                    "select": "id,queued_at,billing_pricing_snapshot,cost_estimate_summary",
+                    "external_job_id": f"eq.{job_id}",
+                    "limit": "1",
+                },
                 headers=headers,
             )
+            existing_job = existing_job_rows[0] if existing_job_rows else {}
             row = self._client.rest_upsert(
                 "media_jobs",
                 payload={
@@ -2250,7 +3181,12 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
                         "api_calls": 0,
                         "total_cost_usd": 0.0,
                     },
-                    "cost_estimate_summary": cost_estimate_summary or {},
+                    "cost_estimate_summary": existing_job.get("cost_estimate_summary")
+                    or cost_estimate_summary
+                    or {},
+                    "billing_pricing_snapshot": existing_job.get("billing_pricing_snapshot")
+                    or billing_pricing_snapshot
+                    or {},
                     "cost_reconciliation_summary": None,
                     "slo_summary": {
                         "target_total_ms": estimated_duration_seconds * 2000,
@@ -2261,7 +3197,7 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
                         "error_budget_burn_percent": 0.0,
                         "museum_sla_applies": plan_tier.lower() == "museum",
                     },
-                    "queued_at": _utc_now(),
+                    "queued_at": existing_job.get("queued_at") or _utc_now(),
                     "updated_at": _utc_now(),
                 },
                 on_conflict="external_job_id",
@@ -2316,11 +3252,11 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
                     eta_seconds, current_operation, progress_topic, failed_segments,
                     warnings, manifest_available, quality_summary, stage_timings,
                     cache_summary, gpu_summary, cost_summary, cost_estimate_summary,
-                    cost_reconciliation_summary, slo_summary, queued_at, updated_at
+                    billing_pricing_snapshot, cost_reconciliation_summary, slo_summary, queued_at, updated_at
                 )
                 values (
                     %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    0, 0, 0, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    0, 0, 0, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                 )
                 on conflict (external_job_id) do update
                 set org_id = excluded.org_id,
@@ -2350,10 +3286,20 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
                     cache_summary = excluded.cache_summary,
                     gpu_summary = excluded.gpu_summary,
                     cost_summary = excluded.cost_summary,
-                    cost_estimate_summary = excluded.cost_estimate_summary,
+                    cost_estimate_summary = case
+                        when public.media_jobs.cost_estimate_summary is null
+                             or public.media_jobs.cost_estimate_summary = '{}'::jsonb
+                        then excluded.cost_estimate_summary
+                        else public.media_jobs.cost_estimate_summary
+                    end,
+                    billing_pricing_snapshot = case
+                        when public.media_jobs.billing_pricing_snapshot is null
+                             or public.media_jobs.billing_pricing_snapshot = '{}'::jsonb
+                        then excluded.billing_pricing_snapshot
+                        else public.media_jobs.billing_pricing_snapshot
+                    end,
                     cost_reconciliation_summary = excluded.cost_reconciliation_summary,
                     slo_summary = excluded.slo_summary,
-                    queued_at = excluded.queued_at,
                     updated_at = excluded.updated_at
                 returning *
                 """,
@@ -2413,6 +3359,7 @@ class _SupabaseJobRepository(_SupabaseRepositoryBase):
                     ),
                     Jsonb({"gpu_seconds": 0, "storage_operations": 0, "api_calls": 0, "total_cost_usd": 0.0}),
                     Jsonb(cost_estimate_summary or {}),
+                    Jsonb(billing_pricing_snapshot or {}),
                     Jsonb(None),
                     Jsonb(
                         {
@@ -2713,19 +3660,33 @@ class _SupabaseWebhookSubscriptionRepository(_SupabaseRepositoryBase):
 
 
 class _SupabaseManifestRepository(_SupabaseRepositoryBase):
-    def upsert_manifest_for_worker(self, *, job_id: str, manifest: dict[str, Any]) -> dict[str, Any]:
+    def upsert_manifest_for_worker(
+        self,
+        *,
+        job_id: str,
+        manifest: dict[str, Any],
+        classification: dict[str, Any] | None = None,
+        retention: dict[str, Any] | None = None,
+        redaction: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         from psycopg.types.json import Jsonb
 
+        classification_fields = {**(classification or {}), **(retention or {})}
+        redaction_fields = redaction or {}
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
                 insert into public.job_manifests (
                     id, job_id, external_job_id, owner_user_id, external_user_id,
-                    manifest_uri, manifest_sha256, payload, generated_at, size_bytes
+                    manifest_uri, manifest_sha256, payload, generated_at, size_bytes,
+                    classification_label, retention_days, retention_expires_at, classification_policy_version,
+                    redacted_payload, redacted_manifest_uri, redacted_manifest_sha256, redacted_size_bytes,
+                    manifest_redaction_enabled, retention_class, retention_policy_source, retention_deleted_at,
+                    retention_delete_status, retention_delete_attempted_at
                 )
                 select
                     %s, public.media_jobs.id, public.media_jobs.external_job_id, public.media_jobs.owner_user_id,
-                    public.media_jobs.external_user_id, %s, %s, %s, %s, %s
+                    public.media_jobs.external_user_id, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                 from public.media_jobs
                 where public.media_jobs.external_job_id = %s
                 on conflict (job_id) do update
@@ -2734,6 +3695,20 @@ class _SupabaseManifestRepository(_SupabaseRepositoryBase):
                     payload = excluded.payload,
                     generated_at = excluded.generated_at,
                     size_bytes = excluded.size_bytes,
+                    classification_label = excluded.classification_label,
+                    retention_days = excluded.retention_days,
+                    retention_expires_at = excluded.retention_expires_at,
+                    classification_policy_version = excluded.classification_policy_version,
+                    redacted_payload = excluded.redacted_payload,
+                    redacted_manifest_uri = excluded.redacted_manifest_uri,
+                    redacted_manifest_sha256 = excluded.redacted_manifest_sha256,
+                    redacted_size_bytes = excluded.redacted_size_bytes,
+                    manifest_redaction_enabled = excluded.manifest_redaction_enabled,
+                    retention_class = excluded.retention_class,
+                    retention_policy_source = excluded.retention_policy_source,
+                    retention_deleted_at = excluded.retention_deleted_at,
+                    retention_delete_status = excluded.retention_delete_status,
+                    retention_delete_attempted_at = excluded.retention_delete_attempted_at,
                     updated_at = now()
                 returning *
                 """,
@@ -2744,6 +3719,20 @@ class _SupabaseManifestRepository(_SupabaseRepositoryBase):
                     Jsonb(manifest),
                     manifest["generated_at"],
                     manifest.get("size_bytes", 0),
+                    classification_fields.get("classification_label", "Internal"),
+                    classification_fields.get("retention_days"),
+                    classification_fields.get("retention_expires_at"),
+                    classification_fields.get("classification_policy_version", "v0-backfill"),
+                    Jsonb(redaction_fields["redacted_payload"]) if redaction_fields.get("redacted_payload") else None,
+                    redaction_fields.get("redacted_manifest_uri"),
+                    redaction_fields.get("redacted_manifest_sha256"),
+                    redaction_fields.get("redacted_size_bytes", 0),
+                    classification_fields.get("manifest_redaction_enabled", False),
+                    classification_fields.get("retention_class", "v0-backfill"),
+                    classification_fields.get("retention_policy_source", "v0-backfill"),
+                    classification_fields.get("retention_deleted_at"),
+                    classification_fields.get("retention_delete_status"),
+                    classification_fields.get("retention_delete_attempted_at"),
                     job_id,
                 ),
             )
@@ -2761,15 +3750,31 @@ class _SupabaseManifestRepository(_SupabaseRepositoryBase):
     ) -> dict[str, Any] | None:
         if access_token:
             headers = self._client.user_scoped_headers(access_token)
+            now_iso = datetime.now(timezone.utc).isoformat()
             rows = self._client.rest_select(
                 "job_manifests",
-                params={"select": "payload", "external_job_id": f"eq.{job_id}", "limit": "1"},
+                params={
+                    "select": "payload",
+                    "external_job_id": f"eq.{job_id}",
+                    "retention_deleted_at": "is.null",
+                    "retention_delete_status": "is.null",
+                    "or": f"(retention_expires_at.is.null,retention_expires_at.gt.{now_iso})",
+                    "limit": "1",
+                },
                 headers=headers,
             )
             return rows[0]["payload"] if rows else None
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
-                "select payload, external_user_id from public.job_manifests where external_job_id = %s limit 1",
+                """
+                select payload, external_user_id
+                from public.job_manifests
+                where external_job_id = %s
+                  and retention_deleted_at is null
+                  and retention_delete_status is null
+                  and (retention_expires_at is null or retention_expires_at > now())
+                limit 1
+                """,
                 (job_id,),
             )
             row = cur.fetchone()
@@ -2778,6 +3783,56 @@ class _SupabaseManifestRepository(_SupabaseRepositoryBase):
         if owner_user_id and row["external_user_id"] != owner_user_id:
             return None
         return row["payload"]
+
+    def mark_retention_delete_deleted(self, *, job_id: str, deleted_at: str | None = None) -> None:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                update public.job_manifests
+                set retention_delete_status = 'deleted',
+                    retention_deleted_at = coalesce(%s::timestamptz, now()),
+                    updated_at = now()
+                where external_job_id = %s
+                """,
+                (deleted_at, job_id),
+            )
+
+    def mark_retention_delete_failed(self, *, job_id: str, failed_at: str | None = None) -> None:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                update public.job_manifests
+                set retention_delete_status = 'failed',
+                    retention_delete_attempted_at = coalesce(%s::timestamptz, now()),
+                    updated_at = now()
+                where external_job_id = %s
+                """,
+                (failed_at, job_id),
+            )
+
+    def get_retention_delete_record_for_worker(self, *, job_id: str) -> dict[str, Any] | None:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                select external_job_id, manifest_uri, redacted_manifest_uri,
+                       retention_delete_status, retention_delete_attempted_at
+                from public.job_manifests
+                where external_job_id = %s
+                  and retention_delete_status in ('pending', 'failed')
+                limit 1
+                """,
+                (job_id,),
+            )
+            row = cur.fetchone()
+        if row is None:
+            return None
+        return {
+            "job_id": row["external_job_id"],
+            "manifest_uri": row.get("manifest_uri"),
+            "redacted_manifest_uri": row.get("redacted_manifest_uri"),
+            "retention_delete_status": row.get("retention_delete_status"),
+            "retention_delete_attempted_at": row.get("retention_delete_attempted_at"),
+        }
 
 
 class _SupabaseJobExportPackageRepository(_SupabaseRepositoryBase):
@@ -2811,11 +3866,13 @@ class _SupabaseJobExportPackageRepository(_SupabaseRepositoryBase):
                     id, job_id, external_job_id, owner_user_id, external_user_id, variant,
                     package_uri, file_name, size_bytes, sha256, package_contents,
                     artifact_metadata, encoding_metadata, external_deletion_proof_id,
-                    available_until, generated_at, deleted_at, updated_at
+                    available_until, generated_at, deleted_at,
+                    classification_label, retention_days, retention_expires_at, classification_policy_version,
+                    updated_at
                 )
                 select
                     %s, public.media_jobs.id, public.media_jobs.external_job_id, public.media_jobs.owner_user_id,
-                    public.media_jobs.external_user_id, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now()
+                    public.media_jobs.external_user_id, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now()
                 from public.media_jobs
                 where public.media_jobs.external_job_id = %s
                 on conflict (job_id, variant) do update
@@ -2830,6 +3887,10 @@ class _SupabaseJobExportPackageRepository(_SupabaseRepositoryBase):
                     available_until = excluded.available_until,
                     generated_at = excluded.generated_at,
                     deleted_at = excluded.deleted_at,
+                    classification_label = excluded.classification_label,
+                    retention_days = excluded.retention_days,
+                    retention_expires_at = excluded.retention_expires_at,
+                    classification_policy_version = excluded.classification_policy_version,
                     updated_at = now()
                 returning *
                 """,
@@ -2847,6 +3908,10 @@ class _SupabaseJobExportPackageRepository(_SupabaseRepositoryBase):
                     payload["available_until"],
                     payload["generated_at"],
                     payload.get("deleted_at"),
+                    payload.get("classification_label", "Confidential"),
+                    payload.get("retention_days"),
+                    payload.get("retention_expires_at"),
+                    payload.get("classification_policy_version", "v0-backfill"),
                     payload["job_id"],
                 ),
             )
@@ -2926,6 +3991,10 @@ class _SupabaseJobDeletionProofRepository(_SupabaseRepositoryBase):
             "pdf_uri": row["pdf_uri"],
             "verification_summary": row.get("verification_summary") or {},
             "proof_payload": row.get("proof_payload") or {},
+            "classification_label": row.get("classification_label", "Compliance"),
+            "retention_days": row.get("retention_days"),
+            "retention_expires_at": row.get("retention_expires_at"),
+            "classification_policy_version": row.get("classification_policy_version", "v0-backfill"),
             "created_at": row["created_at"],
             "updated_at": row.get("updated_at") or row["created_at"],
         }
@@ -2939,11 +4008,13 @@ class _SupabaseJobDeletionProofRepository(_SupabaseRepositoryBase):
                 insert into public.job_deletion_proofs (
                     id, job_id, external_job_id, owner_user_id, external_user_id,
                     external_deletion_proof_id, generated_at, signature_algorithm, signature,
-                    proof_sha256, verification_summary, proof_payload, pdf_uri, updated_at
+                    proof_sha256, verification_summary, proof_payload, pdf_uri,
+                    classification_label, retention_days, retention_expires_at, classification_policy_version,
+                    updated_at
                 )
                 select
                     %s, public.media_jobs.id, public.media_jobs.external_job_id, public.media_jobs.owner_user_id,
-                    public.media_jobs.external_user_id, %s, %s, %s, %s, %s, %s, %s, %s, now()
+                    public.media_jobs.external_user_id, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, now()
                 from public.media_jobs
                 where public.media_jobs.external_job_id = %s
                 on conflict (external_deletion_proof_id) do update
@@ -2954,6 +4025,10 @@ class _SupabaseJobDeletionProofRepository(_SupabaseRepositoryBase):
                     verification_summary = excluded.verification_summary,
                     proof_payload = excluded.proof_payload,
                     pdf_uri = excluded.pdf_uri,
+                    classification_label = excluded.classification_label,
+                    retention_days = excluded.retention_days,
+                    retention_expires_at = excluded.retention_expires_at,
+                    classification_policy_version = excluded.classification_policy_version,
                     updated_at = now()
                 returning *
                 """,
@@ -2967,6 +4042,10 @@ class _SupabaseJobDeletionProofRepository(_SupabaseRepositoryBase):
                     Jsonb(payload.get("verification_summary") or {}),
                     Jsonb(payload.get("proof_payload") or {}),
                     payload["pdf_uri"],
+                    payload.get("classification_label", "Compliance"),
+                    payload.get("retention_days"),
+                    payload.get("retention_expires_at"),
+                    payload.get("classification_policy_version", "v0-backfill"),
                     payload["job_id"],
                 ),
             )
@@ -3038,6 +4117,45 @@ class _SupabaseJobDeletionProofRepository(_SupabaseRepositoryBase):
         if owner_user_id and row["external_user_id"] != owner_user_id:
             return None
         return self._proof_from_row(row)
+
+
+class _SupabaseDataClassificationAuditRepository(_SupabaseRepositoryBase):
+    def record_event(self, *, payload: dict[str, Any]) -> dict[str, Any]:
+        from psycopg.types.json import Jsonb
+
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                insert into public.data_classification_audit_events (
+                    id, artifact_type, classification_label, object_uri, object_hash,
+                    retention_days, retention_expires_at, policy_version, event_type, metadata
+                )
+                values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                returning *
+                """,
+                (
+                    str(uuid4()),
+                    payload["artifact_type"],
+                    payload["classification_label"],
+                    payload["object_uri"],
+                    payload["object_hash"],
+                    payload.get("retention_days"),
+                    payload.get("retention_expires_at"),
+                    payload["policy_version"],
+                    payload["event_type"],
+                    Jsonb(payload.get("metadata") or {}),
+                ),
+            )
+            row = cur.fetchone()
+        if row is None:
+            raise RuntimeError("Data classification audit event insert failed")
+        return dict(row)
+
+    def list_events(self) -> list[dict[str, Any]]:
+        with self._connect() as conn, conn.cursor() as cur:
+            cur.execute("select * from public.data_classification_audit_events order by created_at")
+            rows = cur.fetchall()
+        return [dict(row) for row in rows]
 
 
 class _SupabaseRuntimeOpsRepository(_SupabaseRepositoryBase):
@@ -3171,6 +4289,30 @@ def _usage_backend() -> _MemoryUsageRepository | _SupabaseUsageRepository:
     return _SupabaseUsageRepository() if phase2_backend_name() == "supabase" else _MemoryUsageRepository()
 
 
+def _billing_account_backend() -> _MemoryBillingAccountRepository | _SupabaseBillingAccountRepository:
+    return _SupabaseBillingAccountRepository() if phase2_backend_name() == "supabase" else _MemoryBillingAccountRepository()
+
+
+def _billing_audit_backend() -> _MemoryBillingAuditRepository | _SupabaseBillingAuditRepository:
+    return _SupabaseBillingAuditRepository() if phase2_backend_name() == "supabase" else _MemoryBillingAuditRepository()
+
+
+def _commercial_pricebook_revision_backend() -> _MemoryCommercialPricebookRevisionRepository | _SupabaseCommercialPricebookRevisionRepository:
+    return (
+        _SupabaseCommercialPricebookRevisionRepository()
+        if phase2_backend_name() == "supabase"
+        else _MemoryCommercialPricebookRevisionRepository()
+    )
+
+
+def _processed_stripe_event_backend() -> _MemoryProcessedStripeEventRepository | _SupabaseProcessedStripeEventRepository:
+    return (
+        _SupabaseProcessedStripeEventRepository()
+        if phase2_backend_name() == "supabase"
+        else _MemoryProcessedStripeEventRepository()
+    )
+
+
 def _upload_backend() -> _MemoryUploadRepository | _SupabaseUploadRepository:
     return _SupabaseUploadRepository() if phase2_backend_name() == "supabase" else _MemoryUploadRepository()
 
@@ -3185,6 +4327,14 @@ def _era_detection_backend() -> _MemoryEraDetectionRepository | _SupabaseEraDete
 
 def _log_settings_backend() -> _MemoryLogSettingsRepository | _SupabaseLogSettingsRepository:
     return _SupabaseLogSettingsRepository() if phase2_backend_name() == "supabase" else _MemoryLogSettingsRepository()
+
+
+def _manifest_retention_settings_backend() -> _MemoryManifestRetentionSettingsRepository | _SupabaseManifestRetentionSettingsRepository:
+    return (
+        _SupabaseManifestRetentionSettingsRepository()
+        if phase2_backend_name() == "supabase"
+        else _MemoryManifestRetentionSettingsRepository()
+    )
 
 
 def _compliance_backend() -> _MemoryComplianceRepository | _SupabaseComplianceRepository:
@@ -3209,6 +4359,14 @@ def _job_export_package_backend() -> _MemoryJobExportPackageRepository | _Supaba
 
 def _job_deletion_proof_backend() -> _MemoryJobDeletionProofRepository | _SupabaseJobDeletionProofRepository:
     return _SupabaseJobDeletionProofRepository() if phase2_backend_name() == "supabase" else _MemoryJobDeletionProofRepository()
+
+
+def _data_classification_audit_backend() -> _MemoryDataClassificationAuditRepository | _SupabaseDataClassificationAuditRepository:
+    return (
+        _SupabaseDataClassificationAuditRepository()
+        if phase2_backend_name() == "supabase"
+        else _MemoryDataClassificationAuditRepository()
+    )
 
 
 def _runtime_ops_backend() -> _MemoryRuntimeOpsRepository | _SupabaseRuntimeOpsRepository:
@@ -3263,6 +4421,122 @@ class UsageRepository:
 
     def update(self, user_id: str, payload: dict[str, Any], *, access_token: str | None = None) -> dict[str, Any]:
         return self._backend.update(user_id, payload, access_token=access_token)
+
+
+class BillingAccountRepository:
+    def __init__(self) -> None:
+        self._backend = _billing_account_backend()
+
+    def get_by_org(self, org_id: str, *, access_token: str | None = None) -> dict[str, Any] | None:
+        return self._backend.get_by_org(org_id, access_token=access_token)
+
+    def get_by_customer_id(self, customer_id: str) -> dict[str, Any] | None:
+        return self._backend.get_by_customer_id(customer_id)
+
+    def upsert_by_org(
+        self,
+        *,
+        org_id: str,
+        owner_user_id: str,
+        patch: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._backend.upsert_by_org(org_id=org_id, owner_user_id=owner_user_id, patch=patch)
+
+
+class BillingAuditRepository:
+    def __init__(self) -> None:
+        self._backend = _billing_audit_backend()
+
+    def append_event(
+        self,
+        *,
+        org_id: str,
+        source: str,
+        event_type: str,
+        actor_user_id: str | None = None,
+        stripe_event_id: str | None = None,
+        before_summary: dict[str, Any] | None = None,
+        after_summary: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self._backend.append_event(
+            org_id=org_id,
+            source=source,
+            event_type=event_type,
+            actor_user_id=actor_user_id,
+            stripe_event_id=stripe_event_id,
+            before_summary=before_summary,
+            after_summary=after_summary,
+        )
+
+    def list_events(self, *, org_id: str | None = None) -> list[dict[str, Any]]:
+        return self._backend.list_events(org_id=org_id)
+
+
+class CommercialPricebookRevisionRepository:
+    def __init__(self) -> None:
+        self._backend = _commercial_pricebook_revision_backend()
+
+    def get_active(self) -> dict[str, Any] | None:
+        return self._backend.get_active()
+
+    def activate(
+        self,
+        *,
+        version: str,
+        payload: dict[str, Any],
+        applied_by_user_id: str,
+        applied_by_org_id: str,
+        source: str,
+        change_summary: str,
+    ) -> dict[str, Any]:
+        return self._backend.activate(
+            version=version,
+            payload=payload,
+            applied_by_user_id=applied_by_user_id,
+            applied_by_org_id=applied_by_org_id,
+            source=source,
+            change_summary=change_summary,
+        )
+
+    def list_active(self) -> list[dict[str, Any]]:
+        return self._backend.list_active()
+
+
+class ProcessedStripeEventRepository:
+    def __init__(self) -> None:
+        self._backend = _processed_stripe_event_backend()
+
+    def claim_event(
+        self,
+        *,
+        stripe_event_id: str,
+        event_type: str,
+        org_id: str | None,
+    ) -> dict[str, Any] | None:
+        return self._backend.claim_event(
+            stripe_event_id=stripe_event_id,
+            event_type=event_type,
+            org_id=org_id,
+        )
+
+    def get_event(self, stripe_event_id: str) -> dict[str, Any] | None:
+        return self._backend.get_event(stripe_event_id)
+
+    def mark_processed(
+        self,
+        stripe_event_id: str,
+        *,
+        summary_metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self._backend.mark_processed(stripe_event_id, summary_metadata=summary_metadata)
+
+    def mark_failed(
+        self,
+        stripe_event_id: str,
+        *,
+        summary_metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self._backend.mark_failed(stripe_event_id, summary_metadata=summary_metadata)
 
 
 class UploadRepository:
@@ -3334,6 +4608,10 @@ class UploadRepository:
         mime_type: str,
         size_bytes: int,
         checksum_sha256: str | None,
+        classification_label: str | None = None,
+        retention_days: int | None = None,
+        retention_expires_at: str | None = None,
+        classification_policy_version: str | None = None,
         access_token: str | None = None,
     ) -> dict[str, Any]:
         return self._backend.upsert_pointer(
@@ -3346,6 +4624,10 @@ class UploadRepository:
             mime_type=mime_type,
             size_bytes=size_bytes,
             checksum_sha256=checksum_sha256,
+            classification_label=classification_label,
+            retention_days=retention_days,
+            retention_expires_at=retention_expires_at,
+            classification_policy_version=classification_policy_version,
             access_token=access_token,
         )
 
@@ -3401,6 +4683,32 @@ class PreviewSessionRepository:
             access_token=access_token,
         )
 
+    def claim_launch(
+        self,
+        preview_id: str,
+        *,
+        owner_user_id: str,
+        launched_external_job_id: str,
+        access_token: str | None = None,
+    ) -> dict[str, Any] | None:
+        return self._backend.claim_launch(
+            preview_id,
+            owner_user_id=owner_user_id,
+            launched_external_job_id=launched_external_job_id,
+            access_token=access_token,
+        )
+
+    def launch_pending_snapshot(
+        self,
+        *,
+        owner_user_id: str | None = None,
+        access_token: str | None = None,
+    ) -> dict[str, float]:
+        return self._backend.launch_pending_snapshot(
+            owner_user_id=owner_user_id,
+            access_token=access_token,
+        )
+
 
 class EraDetectionRepository:
     def __init__(self) -> None:
@@ -3447,6 +4755,31 @@ class LogSettingsRepository:
         return self._backend.get(org_id, access_token=access_token)
 
 
+class ManifestRetentionSettingsRepository:
+    def __init__(self) -> None:
+        self._backend = _manifest_retention_settings_backend()
+
+    def upsert(
+        self,
+        *,
+        org_id: str,
+        plan_tier: str,
+        manifest_retention_days: int | None,
+        manifest_redaction_enabled: bool,
+        updated_by: str | None = None,
+    ) -> dict[str, Any]:
+        return self._backend.upsert(
+            org_id=org_id,
+            plan_tier=plan_tier,
+            manifest_retention_days=manifest_retention_days,
+            manifest_redaction_enabled=manifest_redaction_enabled,
+            updated_by=updated_by,
+        )
+
+    def get(self, org_id: str | None) -> dict[str, Any] | None:
+        return self._backend.get(org_id)
+
+
 class ComplianceRepository:
     def __init__(self) -> None:
         self._backend = _compliance_backend()
@@ -3477,6 +4810,7 @@ class JobRepository:
         estimated_duration_seconds: int,
         segments: list[dict[str, Any]],
         cost_estimate_summary: dict[str, Any] | None = None,
+        billing_pricing_snapshot: dict[str, Any] | None = None,
         effective_fidelity_tier: str | None = None,
         effective_fidelity_profile: dict[str, Any] | None = None,
         reproducibility_mode: str = "perceptual_equivalence",
@@ -3501,6 +4835,7 @@ class JobRepository:
             estimated_duration_seconds=estimated_duration_seconds,
             segments=segments,
             cost_estimate_summary=cost_estimate_summary,
+            billing_pricing_snapshot=billing_pricing_snapshot,
             access_token=access_token,
         )
 
@@ -3548,8 +4883,22 @@ class ManifestRepository:
     def __init__(self) -> None:
         self._backend = _manifest_backend()
 
-    def upsert_manifest_for_worker(self, *, job_id: str, manifest: dict[str, Any]) -> dict[str, Any]:
-        return self._backend.upsert_manifest_for_worker(job_id=job_id, manifest=manifest)
+    def upsert_manifest_for_worker(
+        self,
+        *,
+        job_id: str,
+        manifest: dict[str, Any],
+        classification: dict[str, Any] | None = None,
+        retention: dict[str, Any] | None = None,
+        redaction: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self._backend.upsert_manifest_for_worker(
+            job_id=job_id,
+            manifest=manifest,
+            classification=classification,
+            retention=retention,
+            redaction=redaction,
+        )
 
     def get_manifest(
         self,
@@ -3559,6 +4908,15 @@ class ManifestRepository:
         access_token: str | None = None,
     ) -> dict[str, Any] | None:
         return self._backend.get_manifest(job_id, owner_user_id=owner_user_id, access_token=access_token)
+
+    def mark_retention_delete_deleted(self, *, job_id: str, deleted_at: str | None = None) -> None:
+        return self._backend.mark_retention_delete_deleted(job_id=job_id, deleted_at=deleted_at)
+
+    def mark_retention_delete_failed(self, *, job_id: str, failed_at: str | None = None) -> None:
+        return self._backend.mark_retention_delete_failed(job_id=job_id, failed_at=failed_at)
+
+    def get_retention_delete_record_for_worker(self, *, job_id: str) -> dict[str, Any] | None:
+        return self._backend.get_retention_delete_record_for_worker(job_id=job_id)
 
 
 class JobExportPackageRepository:
@@ -3611,6 +4969,41 @@ class JobDeletionProofRepository:
         access_token: str | None = None,
     ) -> dict[str, Any] | None:
         return self._backend.get_proof_for_job(job_id, owner_user_id=owner_user_id, access_token=access_token)
+
+
+class DataClassificationAuditRepository:
+    def __init__(self) -> None:
+        self._backend = _data_classification_audit_backend()
+
+    def record_event(
+        self,
+        *,
+        artifact_type: str,
+        classification_label: str,
+        object_uri: str,
+        object_hash: str,
+        retention_days: int | None,
+        retention_expires_at: str | None,
+        policy_version: str,
+        event_type: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return self._backend.record_event(
+            payload={
+                "artifact_type": artifact_type,
+                "classification_label": classification_label,
+                "object_uri": object_uri,
+                "object_hash": object_hash,
+                "retention_days": retention_days,
+                "retention_expires_at": retention_expires_at,
+                "policy_version": policy_version,
+                "event_type": event_type,
+                "metadata": metadata or {},
+            }
+        )
+
+    def list_events(self) -> list[dict[str, Any]]:
+        return self._backend.list_events()
 
 
 class WebhookSubscriptionRepository:

@@ -1,25 +1,29 @@
-"""User profile and usage routes."""
+"""User profile, usage, and billing routes."""
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
 from app.api.contracts import (
+    BillingPortalSessionResponse,
+    BillingSummaryResponse,
     OverageApprovalRequest,
     OverageApprovalResponse,
     UsageResponse,
     UserProfileResponse,
     UserProfileUpdateRequest,
 )
-from app.api.dependencies import AuthenticatedUser, apply_rate_limit, get_current_user
+from app.api.dependencies import AuthenticatedUser, apply_rate_limit, get_current_user, require_permission
 from app.api.problem_details import ProblemException
-from app.billing.stripe_client import billing_price_references
+from app.billing.stripe_client import resolve_billing_pricing_metadata
 from app.db.phase2_store import UserProfileRepository
-from app.services.billing_service import BillingService
+from app.services.billing_management import BillingManagementService, BillingPortalUnavailableError
+from app.services.billing_service import BillingService, CommercialPricingUnavailableError, effective_pricing_for_plan
 
 router = APIRouter()
 _user_repo = UserProfileRepository()
 _billing_service = BillingService()
+_billing_management = BillingManagementService()
 
 
 @router.get("/v1/users/me", response_model=UserProfileResponse)
@@ -59,8 +63,25 @@ def patch_me(
 @router.get("/v1/users/me/usage", response_model=UsageResponse)
 def get_usage(user: AuthenticatedUser = Depends(get_current_user)) -> UsageResponse:
     apply_rate_limit(user, "/v1/users/me/usage")
-    snapshot = _billing_service.snapshot(user_id=user.user_id, plan_tier=user.plan_tier, access_token=user.access_token)
-    price_refs = billing_price_references()
+    try:
+        snapshot = _billing_service.snapshot(
+            user_id=user.user_id,
+            plan_tier=user.plan_tier,
+            org_id=user.org_id,
+            access_token=user.access_token,
+        )
+        effective_pricing = effective_pricing_for_plan(
+            user.plan_tier,
+            org_id=user.org_id,
+            access_token=user.access_token,
+            pricing_metadata=resolve_billing_pricing_metadata(),
+        )
+    except (CommercialPricingUnavailableError, ValueError) as exc:
+        raise ProblemException(
+            title="Billing Pricing Unavailable",
+            detail="Pricing data is temporarily unavailable. Retry the request once billing metadata is available.",
+            status_code=503,
+        ) from exc
     return UsageResponse(
         user_id=snapshot.user_id,
         plan_tier=snapshot.plan_tier,
@@ -73,10 +94,20 @@ def get_usage(user: AuthenticatedUser = Depends(get_current_user)) -> UsageRespo
         threshold_alerts=snapshot.threshold_alerts,
         overage_approval_scope=snapshot.overage_approval_scope,
         hard_stop=snapshot.hard_stop,
-        price_reference=price_refs["subscription_price_id"],
-        overage_price_reference=price_refs["overage_price_id"],
+        price_reference=effective_pricing.subscription_price_id,
+        overage_price_reference=effective_pricing.overage_price_id,
         reconciliation_source=snapshot.reconciliation_source,
         reconciliation_status=snapshot.reconciliation_status,
+        effective_pricing={
+            "pricebook_version": effective_pricing.pricebook_version,
+            "subscription_price_id": effective_pricing.subscription_price_id,
+            "subscription_price_usd": effective_pricing.subscription_price_usd,
+            "included_minutes_monthly": effective_pricing.included_minutes_monthly,
+            "overage_enabled": effective_pricing.overage_enabled,
+            "overage_price_id": effective_pricing.overage_price_id,
+            "overage_rate_usd_per_minute": effective_pricing.overage_rate_usd_per_minute,
+            "entitlement_source": effective_pricing.entitlement_source,
+        },
     )
 
 
@@ -92,6 +123,7 @@ def approve_overage(
             plan_tier=user.plan_tier,
             approval_scope=payload.approval_scope,
             requested_minutes=payload.requested_minutes,
+            org_id=user.org_id,
             access_token=user.access_token,
         )
     except ValueError as exc:
@@ -107,7 +139,24 @@ def approve_overage(
                 }
             ],
         ) from exc
-    price_refs = billing_price_references()
+    except CommercialPricingUnavailableError as exc:
+        raise ProblemException(
+            title="Billing Pricing Unavailable",
+            detail="Commercial pricing configuration is temporarily unavailable. Retry once pricing metadata is available.",
+            status_code=503,
+        ) from exc
+    try:
+        effective_pricing = effective_pricing_for_plan(
+            user.plan_tier,
+            org_id=user.org_id,
+            access_token=user.access_token,
+        )
+    except (CommercialPricingUnavailableError, ValueError) as exc:
+        raise ProblemException(
+            title="Billing Pricing Unavailable",
+            detail="Commercial pricing configuration is temporarily unavailable. Retry once pricing metadata is available.",
+            status_code=503,
+        ) from exc
     return OverageApprovalResponse(
         user_id=snapshot.user_id,
         approval_scope=snapshot.overage_approval_scope or payload.approval_scope,
@@ -115,5 +164,43 @@ def approve_overage(
         remaining_approved_overage_minutes=snapshot.remaining_approved_overage_minutes,
         remaining_minutes=snapshot.remaining_minutes,
         threshold_alerts=snapshot.threshold_alerts,
-        overage_price_reference=price_refs["overage_price_id"],
+        overage_price_reference=effective_pricing.overage_price_id,
     )
+
+
+@router.get("/v1/users/me/billing", response_model=BillingSummaryResponse)
+def get_billing_summary(user: AuthenticatedUser = Depends(require_permission("billing:read"))) -> BillingSummaryResponse:
+    apply_rate_limit(user, "/v1/users/me/billing")
+    try:
+        payload = _billing_management.billing_summary(
+            user_id=user.user_id,
+            org_id=user.org_id,
+            plan_tier=user.plan_tier,
+            access_token=user.access_token,
+        )
+    except (CommercialPricingUnavailableError, ValueError) as exc:
+        raise ProblemException(
+            title="Billing Pricing Unavailable",
+            detail="Pricing data is temporarily unavailable. Retry the request once billing metadata is available.",
+            status_code=503,
+        ) from exc
+    return BillingSummaryResponse.model_validate(payload)
+
+
+@router.post("/v1/users/me/billing/portal-session", response_model=BillingPortalSessionResponse)
+def create_billing_portal_session(
+    user: AuthenticatedUser = Depends(require_permission("billing:write")),
+) -> BillingPortalSessionResponse:
+    apply_rate_limit(user, "/v1/users/me/billing/portal-session")
+    try:
+        url = _billing_management.create_portal_session(
+            org_id=user.org_id,
+            access_token=user.access_token,
+        )
+    except BillingPortalUnavailableError as exc:
+        raise ProblemException(
+            title="Billing Portal Unavailable",
+            detail=str(exc),
+            status_code=503,
+        ) from exc
+    return BillingPortalSessionResponse(url=url)

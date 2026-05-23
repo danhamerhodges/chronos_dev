@@ -1,4 +1,4 @@
-"""Maps to: ENG-002, ENG-004, ENG-010, ENG-011, NFR-007, SEC-009, FR-001, ENG-016"""
+"""Maps to: ENG-002, ENG-004, ENG-010, ENG-011, NFR-006, NFR-007, SEC-009, FR-001, ENG-016"""
 
 from types import SimpleNamespace
 
@@ -7,6 +7,7 @@ import pytest
 from app.db.phase2_store import (
     JobRepository,
     ManifestRepository,
+    ProcessedStripeEventRepository,
     UploadRepository,
     UserProfileRepository,
     WebhookSubscriptionRepository,
@@ -257,6 +258,21 @@ def test_memory_webhook_subscription_repository_filters_enabled_events() -> None
 
     assert len(subscriptions) == 1
     assert subscriptions[0]["webhook_url"] == "https://hooks.example.test/jobs"
+
+
+def test_processed_stripe_event_failed_reclaim_is_single_winner() -> None:
+    repo = ProcessedStripeEventRepository()
+
+    claimed = repo.claim_event(stripe_event_id="evt_retry", event_type="invoice.paid", org_id="org-retry")
+    assert claimed is not None
+    repo.mark_failed("evt_retry", summary_metadata={"reason": "transient"})
+
+    reclaimed = repo.claim_event(stripe_event_id="evt_retry", event_type="invoice.paid", org_id="org-retry")
+    duplicate = repo.claim_event(stripe_event_id="evt_retry", event_type="invoice.paid", org_id="org-retry")
+
+    assert reclaimed is not None
+    assert reclaimed["processing_status"] == "claimed"
+    assert duplicate is None
 
 
 def test_supabase_webhook_subscription_repository_uses_direct_db_for_enabled_list(monkeypatch) -> None:
@@ -721,7 +737,7 @@ def test_supabase_profile_update_omits_null_request_fields(monkeypatch) -> None:
     assert updated["preferences"] == {"theme": "sepia"}
 
 
-def test_supabase_profile_get_or_create_uses_atomic_upsert(monkeypatch) -> None:
+def test_supabase_profile_get_or_create_preserves_existing_profile_on_user_jwt(monkeypatch) -> None:
     import app.db.phase2_store as phase2_store
 
     captured: dict[str, object] = {}
@@ -730,17 +746,15 @@ def test_supabase_profile_get_or_create_uses_atomic_upsert(monkeypatch) -> None:
         def user_scoped_headers(self, access_token: str) -> dict[str, str]:
             return {"Authorization": f"Bearer {access_token}"}
 
-        def rest_upsert(
+        def rest_select(
             self,
             table_name: str,
             *,
-            payload: dict[str, object],
-            on_conflict: str,
+            params: dict[str, str],
             headers: dict[str, str],
         ):
             captured["table_name"] = table_name
-            captured["payload"] = payload
-            captured["on_conflict"] = on_conflict
+            captured["params"] = params
             captured["headers"] = headers
             return [
                 {
@@ -768,9 +782,64 @@ def test_supabase_profile_get_or_create_uses_atomic_upsert(monkeypatch) -> None:
     )
 
     assert captured["table_name"] == "user_profiles"
-    assert captured["on_conflict"] == "id"
+    assert captured["params"] == {
+        "select": "*",
+        "external_user_id": "eq.user-phase2",
+        "limit": "1",
+    }
     assert captured["headers"] == {"Authorization": "Bearer jwt-token"}
     assert profile["user_id"] == "user-phase2"
+    assert profile["plan_tier"] == "pro"
+
+
+def test_supabase_profile_get_or_create_inserts_default_profile_when_missing(monkeypatch) -> None:
+    import app.db.phase2_store as phase2_store
+
+    captured: dict[str, object] = {}
+
+    class StubClient:
+        def user_scoped_headers(self, access_token: str) -> dict[str, str]:
+            return {"Authorization": f"Bearer {access_token}"}
+
+        def rest_select(self, table_name: str, *, params: dict[str, str], headers: dict[str, str]):
+            captured["select_table"] = table_name
+            captured["select_params"] = params
+            return []
+
+        def rest_insert(self, table_name: str, *, payload: dict[str, object], headers: dict[str, str]):
+            captured["insert_table"] = table_name
+            captured["insert_payload"] = payload
+            captured["insert_headers"] = headers
+            return [
+                {
+                    "external_user_id": payload["external_user_id"],
+                    "email": payload["email"],
+                    "role": payload["role"],
+                    "plan_tier": payload["plan_tier"],
+                    "org_id": payload["org_id"],
+                    "display_name": None,
+                    "avatar_url": None,
+                    "preferences": {},
+                }
+            ]
+
+    repo = phase2_store._SupabaseUserProfileRepository()
+    monkeypatch.setattr(repo, "_client", StubClient())
+
+    profile = repo.get_or_create(
+        user_id="user-phase2",
+        role="member",
+        plan_tier="hobbyist",
+        org_id="org-default",
+        email="archivist@example.com",
+        access_token="jwt-token",
+    )
+
+    assert captured["select_table"] == "user_profiles"
+    assert captured["insert_table"] == "user_profiles"
+    assert captured["insert_headers"] == {"Authorization": "Bearer jwt-token"}
+    assert captured["insert_payload"]["external_user_id"] == "user-phase2"
+    assert profile["plan_tier"] == "hobbyist"
 
 
 def test_supabase_usage_update_can_clear_single_job_approval_scope(monkeypatch) -> None:

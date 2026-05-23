@@ -34,6 +34,7 @@ Cloud Run runtime secret refs:
 - `SUPABASE_URL -> SUPABASE_URL_DEV`
 - `SUPABASE_ANON_KEY -> SUPABASE_ANON_KEY_DEV`
 - `SUPABASE_SERVICE_ROLE_KEY -> SUPABASE_SERVICE_ROLE_KEY`
+- `STRIPE_SECRET_KEY -> STRIPE_SECRET_KEY:1` (pinned staging binding validated during Packet 5A hosted closeout; rotate deliberately)
 - `SUPABASE_DB_HOST -> SUPABASE_DB_HOST`
 - `SUPABASE_DB_PORT -> SUPABASE_DB_PORT`
 - `SUPABASE_DB_NAME -> SUPABASE_DB_NAME`
@@ -44,8 +45,8 @@ Cloud Run runtime secret refs:
 
 Cloud Run runtime literal envs:
 - `ENVIRONMENT=staging`
-- `BUILD_SHA`
-- `BUILD_TIME`
+- `BUILD_SHA` (bare 40-character git commit SHA; for direct source deploys use `bash scripts/ops/emit_build_metadata.sh`)
+- `BUILD_TIME` (UTC ISO-8601 timestamp; for direct source deploys use `bash scripts/ops/emit_build_metadata.sh`)
 - `JOB_DISPATCH_MODE=pubsub`
 - `JOB_PROGRESS_MODE=supabase`
 - `JOB_PUBSUB_TOPIC`

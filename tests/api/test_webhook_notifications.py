@@ -10,7 +10,7 @@ import app.services.job_runtime as job_runtime
 from app.db.phase2_store import WebhookSubscriptionRepository
 from app.main import app
 from tests.helpers.auth import fake_auth_header
-from tests.helpers.jobs import run_all_jobs, valid_job_request
+from tests.helpers.jobs import create_seed_job, run_all_jobs, valid_job_request
 
 client = TestClient(app)
 
@@ -21,7 +21,7 @@ def test_webhook_notifications_fire_for_started_and_completed_events() -> None:
         webhook_url="https://hooks.example.test/jobs",
         event_types=["started", "completed"],
     )
-    created = client.post("/v1/jobs", headers=fake_auth_header("webhook-user"), json=valid_job_request()).json()
+    created = create_seed_job(user_id="webhook-user")
 
     run_all_jobs()
     deliveries = job_runtime.webhook_deliveries_for_job(created["job_id"])
@@ -47,11 +47,7 @@ def test_webhook_delivery_retries_up_to_three_attempts(monkeypatch) -> None:
         webhook_url="https://hooks.example.test/retry",
         event_types=["started"],
     )
-    created = client.post(
-        "/v1/jobs",
-        headers=fake_auth_header("retry-webhook-user"),
-        json=valid_job_request(),
-    ).json()
+    created = create_seed_job(user_id="retry-webhook-user")
 
     run_all_jobs()
     deliveries = [item for item in job_runtime.webhook_deliveries_for_job(created["job_id"]) if item["event_type"] == "started"]
@@ -74,11 +70,7 @@ def test_completion_webhook_payload_includes_packet_3b_fields(monkeypatch) -> No
         webhook_url="https://hooks.example.test/packet3b",
         event_types=["completed"],
     )
-    created = client.post(
-        "/v1/jobs",
-        headers=fake_auth_header("packet-3b-webhook-user", tier="pro"),
-        json=valid_job_request(),
-    ).json()
+    created = create_seed_job(user_id="packet-3b-webhook-user", tier="pro")
 
     run_all_jobs()
 
