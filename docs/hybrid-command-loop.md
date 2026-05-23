@@ -133,7 +133,7 @@ Requirement or spec changes:
 ```bash
 rg --files docs/specs
 rg -n "^## Phase [1-6]:" "docs/specs/ChronosRefine Requirements Coverage Matrix.md"
-rg -n "^### Phase [1-6]:|\\*\\*Requirements Implemented:\\*\\*" docs/specs/chronosrefine_implementation_plan.md
+rg -n "^### Phase [1-6]:|\\*\\*Requirements Implemented:\\*\\*|Phase [56] Requirement Set" docs/specs/chronosrefine_implementation_plan.md
 python3 scripts/validate_test_traceability.py
 ```
 
