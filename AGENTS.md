@@ -15,6 +15,7 @@ This file defines how coding agents must operate in this repository.
 - Project: ChronosRefine.
 - Current repository state: active application, test, workflow, and canonical spec stack.
 - Canonical requirements and implementation governance live under `docs/specs/`.
+- `docs/implementation-index.md` and `docs/hybrid-command-loop.md` are navigation/workflow aids, not product truth.
 - If implementation code is missing for a requested change, update specs and call out the gap explicitly.
 
 ## 2) Canonical Documents (Source of Truth)
@@ -33,10 +34,12 @@ When conflicts exist, resolve in this order:
 Additional context only (non-governing):
 
 - `docs/specs/chronosrefine_prd_v9.md`
+- `docs/templates/*`
 
 Rule:
 
 - If code/tests/docs conflict with canonical specs, update implementation/docs to align with canon.
+- If workflow/navigation docs conflict with canonical specs, follow the canonical specs.
 
 ## 3) Working Agreements
 
@@ -141,6 +144,7 @@ CI validator:
 ## 8) Documentation Hygiene
 
 - Keep all canonical spec references under `docs/specs/`.
+- Keep portable examples under `docs/templates/` non-governing unless copied into a project-specific operational doc.
 - Do not introduce deprecated assistant-workspace path references or editor-specific metadata into canonical docs.
 - Keep requirement IDs/titles consistent across specs, matrix, and implementation plan.
 - If IDs/titles change, update the Coverage Matrix in the same change.
