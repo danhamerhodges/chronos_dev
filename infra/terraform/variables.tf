@@ -43,6 +43,12 @@ variable "manage_manifest_lifecycle_rules" {
   default     = false
 }
 
+variable "manage_sec002_encryption_checks" {
+  description = "When true, enables SEC-002 encryption verification scaffolding. Keep disabled unless live GCP credentials and explicit hosted evidence collection are available."
+  type        = bool
+  default     = false
+}
+
 variable "manifest_lifecycle_bucket_name" {
   description = "Existing GCS bucket name for transformation manifests when SEC-005 lifecycle management is enabled."
   type        = string
