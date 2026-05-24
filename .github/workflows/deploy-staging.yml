@@ -70,7 +70,9 @@ jobs:
           done
       - name: Deploy to Cloud Run staging
         run: |
-          eval "$(bash scripts/ops/emit_build_metadata.sh)"
+          set -euo pipefail
+          BUILD_METADATA="$(BUILD_SHA_OVERRIDE="${GITHUB_SHA}" bash scripts/ops/emit_build_metadata.sh)"
+          eval "${BUILD_METADATA}"
           gcloud run deploy "${CLOUD_RUN_SERVICE}" \
             --project "${GCP_PROJECT_ID}" \
             --region "${GCP_REGION:-us-central1}" \
