@@ -1,56 +1,47 @@
-# ChronosRefine Phase 5 Packet 5K-C GCS Lifecycle Preflight Note
+# ChronosRefine Phase 5 Packet 5K-C GCS Lifecycle Preflight Import Plan Note
 
-Status: GCS lifecycle preflight complete; Terraform import and plan are blocked by the local Terraform core version. This file records read-only runtime, bucket, Terraform config, and state-posture evidence only. It does not close `SEC-005`, does not advance Phase 5 tracker counts, and does not claim lifecycle apply, hosted manifest, lifecycle audit-log, compliance, or two-engineer review evidence.
+Status: GCS lifecycle preflight, Terraform import, and targeted plan evidence are complete. This file records runtime, bucket, Terraform toolchain, import, and plan evidence only. It does not close `SEC-005`, does not advance Phase 5 tracker counts, and does not claim lifecycle apply, hosted manifest, lifecycle audit-log, compliance, or two-engineer review evidence.
 
 - Packet: `Packet 5K-C`
 - Parent packet: `Packet 5K-B1`
 - Requirement focus: `SEC-005` Transformation Manifest Retention
-- Branch: `codex/phase5-packet5kc-gcs-lifecycle-preflight`
-- Source base before preflight: `32bd9f46ddea3d0d9b1bdee00612cf1b953ec428`
+- Branch: `codex/phase5-packet5kc-lifecycle-import-plan`
+- Source base before import/plan: `94f2e3a7644bc2d0b7c92abf2b15694bf78ac349`
 - Cloud Run service: `chronos-phase1-app`
 - Target manifest bucket: `chronos-dev-kjlyuwiedsfcapduxdkn-raw`
 
-Packet 5K-C identified the hosted manifest bucket from the active Cloud Run runtime config and exported the bucket posture before Terraform ownership. The target bucket currently has no lifecycle rules in the read-only bucket description output. Terraform config already defines the expected finite-prefix lifecycle rules and excludes `manifests/0d/` and `manifests/indefinite/`, but import and plan were not executed because the local Terraform binary is below the repository constraint.
+Packet 5K-C identified the hosted manifest bucket from active Cloud Run runtime config, exported the bucket posture before Terraform ownership, imported the existing bucket into temporary local Terraform state, and produced a saved targeted Terraform plan for the lifecycle resource only. The plan stops before apply and shows only the expected in-place lifecycle-rule update for finite manifest prefixes.
 
 - `/health`: `{"status":"ok"}`
-- `/v1/version`: `{"version":"0.2.0","build_sha":"32bd9f46ddea3d0d9b1bdee00612cf1b953ec428","build_time":"2026-05-24T03:37:13Z"}`
-- Runtime verifier: `PASS: runtime verification passed for chronos-phase1-app @ chronos-phase1-app-00095-9xh`
-- Cloud Run traffic: `100%` to `chronos-phase1-app-00095-9xh`
+- `/v1/version`: `{"version":"0.2.0","build_sha":"94f2e3a7644bc2d0b7c92abf2b15694bf78ac349","build_time":"2026-05-24T12:57:15Z"}`
+- Cloud Run revision: `chronos-phase1-app-00096-np9`
 - Cloud Run manifest bucket env: `GCS_BUCKET_NAME=chronos-dev-kjlyuwiedsfcapduxdkn-raw`
-- Bucket export: `gs://chronos-dev-kjlyuwiedsfcapduxdkn-raw/`, location `US-CENTRAL1`, location type `region`, default storage class `STANDARD`, uniform bucket-level access `true`, soft delete retention `604800` seconds
-- Bucket lifecycle posture: no `lifecycle` field or SEC-005 finite-prefix lifecycle rules were present in the bucket description output
-- Terraform lifecycle resource: `google_storage_bucket.manifest_retention[0]`, guarded by `manage_manifest_lifecycle_rules`
-- Terraform lifecycle safeguards: `force_destroy = false`, `prevent_destroy = true`, and non-empty bucket-name precondition
-- Terraform finite-prefix rules: `manifests/7d/`, `manifests/90d/`, `manifests/365d/`, and `manifests/1825d/`
-- Terraform exclusion check: no `manifests/0d/` or `manifests/indefinite/` lifecycle rule is configured
-- Terraform state posture: no backend is declared in `infra/terraform/*.tf`; local Terraform state files are ignored by `.gitignore`; no import or state mutation was performed
-- Terraform toolchain blocker: repo requires `required_version = ">= 1.6.0"`, but `/opt/homebrew/bin/terraform` is `Terraform v1.5.7`
-- Terraform init result: `terraform -chdir=infra/terraform init -backend=false -input=false` failed with `Unsupported Terraform Core version`
+- Bucket export before import: `gs://chronos-dev-kjlyuwiedsfcapduxdkn-raw/`, location `US-CENTRAL1`, location type `region`, default storage class `STANDARD`, uniform bucket-level access `true`, soft delete retention `604800` seconds
+- Bucket lifecycle posture before import: no `lifecycle` field or SEC-005 finite-prefix lifecycle rules were present in the bucket description output
+- Terraform toolchain recovery: scoped temporary Terraform `v1.6.6` binary under `.tmp/terraform-1.6.6`; checksum matched HashiCorp `terraform_1.6.6_SHA256SUMS`
+- Terraform init: `hashicorp/google v7.22.0` installed successfully with `TF_DATA_DIR` isolated under `.tmp/packet5kc-import-plan/tfdata`
+- Terraform import: `google_storage_bucket.manifest_retention[0]` imported from ID `chronos-dev-kjlyuwiedsfcapduxdkn-raw` into temporary local state `.tmp/packet5kc-import-plan/manifest-retention.tfstate`
+- Imported state summary: bucket name `chronos-dev-kjlyuwiedsfcapduxdkn-raw`, location `US-CENTRAL1`, `lifecycle_rule = []`, uniform bucket-level access `true`, public access prevention `inherited`, storage class `STANDARD`, soft delete retention `604800`
+- Terraform targeted plan: `Plan: 0 to add, 1 to change, 0 to destroy.`
+- Planned resource action: `google_storage_bucket.manifest_retention[0]` `update` in place
+- Planned lifecycle change: add Delete rules for `manifests/7d/`, `manifests/90d/`, `manifests/365d/`, and `manifests/1825d/`
+- Terraform exclusion check: no `manifests/0d/` or `manifests/indefinite/` lifecycle rule appears in the saved targeted plan
+- Bucket export after plan: lifecycle still absent, metageneration still `2`, update time still `2026-03-08T20:10:00+0000`
 
-The next import/plan attempt must use a compatible Terraform binary without weakening the repository version constraint. After that toolchain gate is resolved, run import before plan so Terraform does not attempt to create or replace the existing bucket:
+The saved targeted plan intentionally used `-target='google_storage_bucket.manifest_retention[0]'` to keep Packet 5K-C scoped to the SEC-005 lifecycle resource. A full-root Terraform plan remains out of scope for this packet because the same root also contains IAM, monitoring, and alert resources unrelated to SEC-005 lifecycle closeout.
 
-```bash
-terraform -chdir=infra/terraform init -input=false
-terraform -chdir=infra/terraform import \
-  -var='project_id=chronos-dev-489301' \
-  -var='manage_manifest_lifecycle_rules=true' \
-  -var='manifest_lifecycle_bucket_name=chronos-dev-kjlyuwiedsfcapduxdkn-raw' \
-  -var='manifest_lifecycle_bucket_location=US-CENTRAL1' \
-  'google_storage_bucket.manifest_retention[0]' \
-  chronos-dev-kjlyuwiedsfcapduxdkn-raw
-terraform -chdir=infra/terraform plan \
-  -var='project_id=chronos-dev-489301' \
-  -var='manage_manifest_lifecycle_rules=true' \
-  -var='manifest_lifecycle_bucket_name=chronos-dev-kjlyuwiedsfcapduxdkn-raw' \
-  -var='manifest_lifecycle_bucket_location=US-CENTRAL1'
-```
+The lifecycle apply gate is still closed. Do not run Terraform apply from the saved plan without separate approval and a final pre-apply bucket export. The acceptable apply diff remains narrowly limited to in-place addition of finite-prefix Delete lifecycle rules for:
 
-Stop after plan review. Do not run Terraform apply, mutate lifecycle rules, write hosted manifests, query lifecycle deletion audit logs, or move `SEC-005` tracker status without a separate approval gate.
+- `manifests/7d/`
+- `manifests/90d/`
+- `manifests/365d/`
+- `manifests/1825d/`
 
-`SEC-005` remains open after Packet 5K-C. Because no import or plan was actually performed under this packet, the next `SEC-005` hosted closeout loop should reconfirm operator approval before:
+Reject and stop on any future plan showing bucket replacement, destroy/recreate, unrelated resource changes, non-lifecycle bucket config drift, `manifests/0d/`, or `manifests/indefinite/`.
 
-- installing or switching to a Terraform `>= 1.6.0` binary if the host remains on `1.5.7`
-- Terraform import, plan, apply, or state operations
+`SEC-005` remains open after Packet 5K-C. The next `SEC-005` hosted closeout loop still requires explicit approval before:
+
+- Terraform lifecycle apply
 - GCS lifecycle-rule mutation
 - hosted Full + Redacted Museum manifest writes
 - hosted expired-manifest and 0-day deleted-manifest not-found proof
@@ -58,4 +49,4 @@ Stop after plan review. Do not run Terraform apply, mutate lifecycle rules, writ
 - compliance review and two-engineer review recording
 - any tracker, implementation-plan, or coverage-matrix progress claim
 
-Recommended next loop: `Packet 5K-C1: Terraform toolchain recovery + lifecycle import/plan`, stopping before lifecycle apply unless lifecycle mutation is explicitly approved.
+Recommended next loop: `Packet 5K-D: GCS lifecycle apply approval + hosted manifest evidence`, stopping immediately if the pre-apply plan differs from the finite-prefix lifecycle-only plan recorded here.
