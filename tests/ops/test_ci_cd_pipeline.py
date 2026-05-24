@@ -38,6 +38,11 @@ def test_staging_deploy_workflow_is_non_placeholder() -> None:
     assert "--set-secrets" in workflow
     assert "verify_cloud_run_runtime.py" in workflow
     assert "workload_identity_provider" in workflow
+    assert "COMMERCIAL_PRICEBOOK_JSON=COMMERCIAL_PRICEBOOK_JSON:latest" in workflow
+    assert "STRIPE_HOBBYIST_PRICE_ID=STRIPE_HOBBYIST_PRICE_ID:latest" in workflow
+    assert "STRIPE_PRO_PRICE_ID=STRIPE_PRO_PRICE_ID:latest" in workflow
+    assert "STRIPE_MUSEUM_PRICE_ID=STRIPE_MUSEUM_PRICE_ID:latest" in workflow
+    assert "STRIPE_BILLING_PORTAL_RETURN_URL" in workflow
     assert "placeholder" not in workflow.lower()
 
 
