@@ -133,6 +133,8 @@ resource "google_project_iam_member" "build_run_builder" {
 # hosted apply, inspect existing audit configs with:
 # gcloud projects get-iam-policy PROJECT_ID --format=json
 resource "google_project_iam_audit_config" "storage_data_access" {
+  count = var.manage_storage_data_access_audit_config ? 1 : 0
+
   project = var.project_id
   service = "storage.googleapis.com"
 

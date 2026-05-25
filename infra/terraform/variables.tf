@@ -49,6 +49,12 @@ variable "manage_manifest_object_mutator_iam" {
   default     = false
 }
 
+variable "manage_storage_data_access_audit_config" {
+  description = "When true, Terraform authoritatively manages Cloud Storage Data Access audit logging for SEC-005 lifecycle deletion proof. Inspect existing audit configs before enabling."
+  type        = bool
+  default     = false
+}
+
 variable "manage_sec002_encryption_checks" {
   description = "When true, enables SEC-002 encryption verification scaffolding. Keep disabled unless live GCP credentials and explicit hosted evidence collection are available."
   type        = bool
