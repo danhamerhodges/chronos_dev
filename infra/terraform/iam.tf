@@ -75,6 +75,46 @@ resource "google_project_iam_member" "deploy_storage_object_creator" {
   member   = "serviceAccount:${each.value}"
 }
 
+resource "google_project_iam_custom_role" "manifest_object_mutator" {
+  count = var.manage_manifest_object_mutator_iam ? 1 : 0
+
+  project     = var.project_id
+  role_id     = var.manifest_object_mutator_role_id
+  title       = "Chronos Manifest Object Mutator"
+  description = "Packet 5K-D1 least-privilege role for hosted manifest metadata patch and 0-day delete on the manifest bucket."
+  permissions = [
+    "storage.objects.delete",
+    "storage.objects.update",
+  ]
+  stage = "GA"
+
+  lifecycle {
+    precondition {
+      condition     = var.manifest_object_mutator_service_account != ""
+      error_message = "manifest_object_mutator_service_account must be set before enabling SEC-005 manifest object mutator IAM."
+    }
+
+    precondition {
+      condition     = var.manifest_lifecycle_bucket_name != ""
+      error_message = "manifest_lifecycle_bucket_name must be set before enabling SEC-005 manifest object mutator IAM."
+    }
+  }
+}
+
+resource "google_storage_bucket_iam_member" "runtime_manifest_object_mutator" {
+  count = var.manage_manifest_object_mutator_iam ? 1 : 0
+
+  bucket = var.manifest_lifecycle_bucket_name
+  role   = google_project_iam_custom_role.manifest_object_mutator[0].name
+  member = "serviceAccount:${var.manifest_object_mutator_service_account}"
+
+  condition {
+    title       = "packet5kd1ManifestObjectsOnly"
+    description = "Limit Packet 5K-D1 hosted manifest metadata/delete repair to objects under manifests/."
+    expression  = "resource.name.startsWith(\"projects/_/buckets/${var.manifest_lifecycle_bucket_name}/objects/manifests/\")"
+  }
+}
+
 resource "google_project_iam_member" "build_source_object_viewer" {
   for_each = toset(var.build_service_accounts)
   project  = var.project_id

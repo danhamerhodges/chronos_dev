@@ -43,6 +43,12 @@ variable "manage_manifest_lifecycle_rules" {
   default     = false
 }
 
+variable "manage_manifest_object_mutator_iam" {
+  description = "When true, Terraform manages the SEC-005 hosted manifest metadata/delete custom role and conditional bucket binding. Import existing hosted IAM before enabling."
+  type        = bool
+  default     = false
+}
+
 variable "manage_sec002_encryption_checks" {
   description = "When true, enables SEC-002 encryption verification scaffolding. Keep disabled unless live GCP credentials and explicit hosted evidence collection are available."
   type        = bool
@@ -59,4 +65,16 @@ variable "manifest_lifecycle_bucket_location" {
   description = "Location of the existing manifest bucket when lifecycle management is enabled."
   type        = string
   default     = "US"
+}
+
+variable "manifest_object_mutator_service_account" {
+  description = "Cloud Run service account email that receives SEC-005 manifest object metadata/delete permissions when manage_manifest_object_mutator_iam is enabled."
+  type        = string
+  default     = ""
+}
+
+variable "manifest_object_mutator_role_id" {
+  description = "Custom project role ID for SEC-005 manifest object metadata/delete permissions."
+  type        = string
+  default     = "chronosManifestObjectMutator"
 }
