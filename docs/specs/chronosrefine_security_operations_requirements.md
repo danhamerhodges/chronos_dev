@@ -226,7 +226,7 @@ All API endpoints in this document follow the `/v1/` versioning scheme unless ex
 - AC-SEC-005-06: Redacted Manifest retains reproducibility information (no PII)
 - AC-SEC-005-07: Retention policy enforced via GCS Object Lifecycle Management
 - AC-SEC-005-08: Expired manifests automatically deleted (no manual intervention)
-- AC-SEC-005-09: Deletion events logged to Cloud Audit Logs
+- AC-SEC-005-09: Deletion evidence recorded through an approved lifecycle evidence model: Cloud Audit Logs for emitted user/API-driven object operations, and Google-supported compensating evidence for GCS Object Lifecycle Management deletions when Cloud Audit Logs cannot emit the lifecycle action
 - AC-SEC-005-10: Configuration via Web UI (Settings > Data Retention) or API (PATCH /v1/orgs/{org_id}/settings/retention) [Phase 2]
 
 **Definition of Done:**
@@ -238,7 +238,7 @@ All API endpoints in this document follow the `/v1/` versioning scheme unless ex
 - DoD-SEC-005-06: Reproducibility verified with Redacted Manifest
 - DoD-SEC-005-07: GCS Object Lifecycle Management tested (automatic deletion)
 - DoD-SEC-005-08: Expired manifests deletion tested (no manual intervention)
-- DoD-SEC-005-09: Deletion events tested (Cloud Audit Logs)
+- DoD-SEC-005-09: Deletion evidence tested (Cloud Audit Logs where emitted, plus approved lifecycle evidence for GCS Object Lifecycle Management deletions)
 - DoD-SEC-005-10: Configuration tested (Web UI + API)
 - DoD-SEC-005-11: Code review approved by 2+ engineers + compliance review
 

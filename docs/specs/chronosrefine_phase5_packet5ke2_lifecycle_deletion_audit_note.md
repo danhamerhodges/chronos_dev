@@ -92,3 +92,7 @@ Still required before `SEC-005` closeout:
 - Only then update Phase 5 tracker counts, implementation-plan status, or closeout language.
 
 Recommended next loop: rerun `Packet 5K-E2` after the proof object's 7-day lifecycle eligibility window, no earlier than `2026-06-01T02:07:57Z`, allowing for GCS lifecycle processing delay.
+
+## Packet 5K-E3 Forward Note
+
+Packet 5K-E2 remains a historical blocked/too-early audit record. Packet 5K-E3 later observed that the seeded `manifests/7d/` proof object returned `No such object` after the lifecycle window, while exact and delayed `storage.objects.delete` Cloud Audit Logs queries still returned no events. Packet 5K-E3 therefore repaired the `SEC-005` lifecycle deletion evidence model to use approved compensating evidence for GCS Object Lifecycle Management deletions. Packet 5K-E2 does not claim that later evidence, does not close `SEC-005`, and does not move Phase 5 counts.

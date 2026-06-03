@@ -16,7 +16,7 @@ Status: Context-only hosted closeout preflight note. This file does not alter ca
 
 Packet 5J binds the hosted closeout boundary for `SEC-005` after Packet 5H landed the local transformation-manifest retention substrate.
 
-The goal of this preflight is to make the next hosted execution loop safe and reviewable before any remote mutation occurs. The preflight captures the required read set, evidence paths, approval gates, rollback posture, and validation commands for applying migration `0027`, deploying the completed runtime, enabling GCS lifecycle rules, and collecting hosted proof for redacted manifests plus lifecycle deletion audit logs.
+The goal of this preflight is to make the next hosted execution loop safe and reviewable before any remote mutation occurs. The preflight captures the required read set, evidence paths, approval gates, rollback posture, and validation commands for applying migration `0027`, deploying the completed runtime, enabling GCS lifecycle rules, and collecting hosted proof for redacted manifests plus approved lifecycle deletion evidence.
 
 This packet is planning and governance only. It does not run migrations, deploy services, mutate Terraform-managed resources, alter GCS bucket lifecycle rules, query production data, or claim hosted evidence.
 
@@ -61,7 +61,7 @@ Packet 5J preflight covers the next hosted execution boundary for:
    - `manifests/1825d/`
 6. Capturing hosted Full + Redacted Museum manifest evidence.
 7. Capturing hosted expired/0-day retention behavior evidence.
-8. Capturing Cloud Audit Logs evidence for at least one real lifecycle deletion event.
+8. Capturing approved lifecycle deletion evidence for at least one real lifecycle-managed deletion, using Cloud Audit Logs where the platform emits an event and compensating lifecycle evidence where GCS Object Lifecycle Management does not.
 9. Recording compliance and two-engineer review status without claiming it prematurely.
 
 ## Out Of Scope
@@ -124,7 +124,7 @@ The execution loop may only claim `SEC-005` hosted closeout after all required e
 - [ ] Owner-scoped manifest retrieval continues to deny cross-user reads.
 - [ ] Expired manifests and 0-day deleted manifests return the existing not-found behavior.
 
-### GCS Lifecycle And Audit Logs
+### GCS Lifecycle And Deletion Evidence
 
 - [ ] Target manifest bucket identified and recorded.
 - [ ] Existing lifecycle rules exported before Terraform ownership.
@@ -132,8 +132,8 @@ The execution loop may only claim `SEC-005` hosted closeout after all required e
 - [ ] Terraform plan shows only expected finite-prefix lifecycle rules.
 - [ ] Lifecycle rules exclude `manifests/0d/` and `manifests/indefinite/`.
 - [ ] Lifecycle rules are applied only after operator approval.
-- [ ] At least one real lifecycle deletion event appears in Cloud Audit Logs.
-- [ ] Audit-log evidence links deletion to the expected manifest prefix and bucket.
+- [ ] At least one approved lifecycle deletion evidence set exists for the expected manifest prefix and bucket.
+- [ ] Evidence records Cloud Audit Logs delete events where emitted, or records the official GCS Object Lifecycle Management audit-log limitation plus compensating object disappearance proof.
 
 ### Reviews
 
@@ -165,7 +165,8 @@ Recommended artifact names:
 - `manifest-retention-proof.json`
 - `manifest-redaction-proof.json`
 - `manifest-access-control-proof.json`
-- `lifecycle-audit-log-proof.json`
+- `lifecycle-audit-log-query.json`
+- `lifecycle-deletion-evidence.json`
 - `compliance-review-note.md`
 - `two-engineer-review-note.md`
 
@@ -208,6 +209,6 @@ Migration `0027` is additive for retention settings and manifest metadata, but h
 
 GCS bucket lifecycle configuration is authoritative when managed through `google_storage_bucket`. The execution loop must export and review existing lifecycle rules before import/apply to avoid overwriting unrelated bucket policies.
 
-If lifecycle deletion behavior cannot be observed within the execution window, close the hosted loop as partially complete and record the missing Cloud Audit Logs proof rather than advancing `SEC-005`.
+If lifecycle deletion behavior cannot be observed within the execution window, close the hosted loop as partially complete and record the missing deletion evidence rather than advancing `SEC-005`. If deletion is observed but Cloud Audit Logs cannot emit the lifecycle-managed delete action, record the approved compensating evidence model and keep `SEC-005` open until compliance and two-engineer review approve it.
 
 If redacted-manifest proof reveals PII leakage, stop immediately, preserve sanitized evidence, and route the fix through a new implementation packet before any closeout claim.
