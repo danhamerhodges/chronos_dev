@@ -1,11 +1,71 @@
-"""Supabase Auth integration scaffolding for SEC-013."""
+"""Supabase Auth integration scaffolding for SEC-001 and SEC-013."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
 
+from app.auth.rbac import normalize_role
+from app.config import settings
 from app.db.client import SupabaseClient
+
+
+MUSEUM_MFA_REQUIRED_ROLES = frozenset({"admin", "platform_admin"})
+GLOBAL_MFA_REQUIRED_ROLES = frozenset({"platform_admin"})
+MFA_ROLE_ALIASES = {
+    "museum admin": "admin",
+    "museum_admin": "admin",
+    "tenant admin": "admin",
+    "tenant_admin": "admin",
+    "platform admin": "platform_admin",
+    "platform-admin": "platform_admin",
+}
+SEC001_ACCESS_TOKEN_TTL_MINUTES = 60
+SEC001_MAX_FAILED_ATTEMPTS = 5
+SEC001_LOCKOUT_MINUTES = 15
+PREFLIGHT_POLICY_METADATA = {
+    "policy_stage": "local_preflight_metadata",
+    "runtime_enforcement": "deferred_to_hosted_auth_integration",
+}
+
+
+def normalize_plan_tier(plan_tier: object) -> str:
+    if not isinstance(plan_tier, str):
+        return ""
+    return plan_tier.strip().lower()
+
+
+def preflight_policy(policy: dict[str, str]) -> dict[str, str]:
+    return {**policy, **PREFLIGHT_POLICY_METADATA}
+
+
+def validated_security_int(
+    config: object,
+    name: str,
+    *,
+    min_value: int = 1,
+    max_value: int | None = None,
+) -> str:
+    if not hasattr(config, name):
+        raise ValueError(f"{name} must be configured")
+    value = getattr(config, name)
+    if isinstance(value, (bool, float)):
+        raise ValueError(f"{name} must be an integer")
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} must be an integer") from None
+    if parsed < min_value:
+        raise ValueError(f"{name} must be at least {min_value}")
+    if max_value is not None and parsed > max_value:
+        raise ValueError(f"{name} must be at most {max_value}")
+    return str(parsed)
+
+
+def normalize_mfa_role(role: object) -> str:
+    normalized = normalize_role(role)
+    return MFA_ROLE_ALIASES.get(normalized, normalized)
+
 
 @dataclass(frozen=True)
 class AuthProviderConfig:
@@ -33,19 +93,137 @@ class SupabaseAuthService:
             "magic_link": self.config.magic_link_enabled,
         }
 
-    def session_policy(self) -> dict[str, str]:
+    def auth_policy_settings_status(self, config: object | None = None) -> dict[str, str]:
+        source = settings if config is None else config
+        policy_settings: dict[str, str] = {}
+        issues: list[str] = []
+
+        checks = (
+            (
+                "access_token_ttl_minutes",
+                "auth_session_ttl_minutes",
+                {"max_value": SEC001_ACCESS_TOKEN_TTL_MINUTES},
+            ),
+            ("max_failed_attempts", "auth_max_failed_attempts", {"max_value": SEC001_MAX_FAILED_ATTEMPTS}),
+            ("lockout_window_minutes", "auth_lockout_minutes", {"min_value": SEC001_LOCKOUT_MINUTES}),
+        )
+        for output_name, setting_name, bounds in checks:
+            try:
+                policy_settings[output_name] = validated_security_int(source, setting_name, **bounds)
+            except ValueError as exc:
+                policy_settings[output_name] = "invalid"
+                issues.append(str(exc))
+
+        policy_settings["runtime_config_status"] = "invalid" if issues else "valid"
+        policy_settings["runtime_config_issues"] = "; ".join(issues) if issues else "none"
+        return policy_settings
+
+    def validate_auth_policy_settings(self, config: object | None = None) -> dict[str, str]:
+        policy_settings = self.auth_policy_settings_status(config)
+        if policy_settings["runtime_config_status"] != "valid":
+            raise ValueError(policy_settings["runtime_config_issues"])
         return {
-            "rotation": "enabled",
-            "short_lived_access_tokens": "enabled",
-            "refresh_token_required": "enabled",
+            "access_token_ttl_minutes": policy_settings["access_token_ttl_minutes"],
+            "max_failed_attempts": policy_settings["max_failed_attempts"],
+            "lockout_window_minutes": policy_settings["lockout_window_minutes"],
         }
 
-    def lockout_policy(self) -> dict[str, str]:
-        return {
-            "failed_attempts_threshold": "configurable",
-            "lockout_window": "configurable",
-            "reset_on_success": "enabled",
-        }
+    def session_policy(self, config: object | None = None) -> dict[str, str]:
+        config_status = self.auth_policy_settings_status(config)
+        return preflight_policy(
+            {
+                "rotation": "enabled",
+                "short_lived_access_tokens": "enabled",
+                "refresh_token_required": "enabled",
+                "access_token_ttl_minutes": config_status["access_token_ttl_minutes"],
+                "refresh_token_rolling_days": "7",
+                "runtime_config_status": config_status["runtime_config_status"],
+                "runtime_config_issues": config_status["runtime_config_issues"],
+            }
+        )
+
+    def lockout_policy(self, config: object | None = None) -> dict[str, str]:
+        config_status = self.auth_policy_settings_status(config)
+        return preflight_policy(
+            {
+                "failed_attempts_threshold": "configurable",
+                "lockout_window": "configurable",
+                "max_failed_attempts": config_status["max_failed_attempts"],
+                "lockout_window_minutes": config_status["lockout_window_minutes"],
+                "reset_on_success": "enabled",
+                "runtime_config_status": config_status["runtime_config_status"],
+                "runtime_config_issues": config_status["runtime_config_issues"],
+            }
+        )
+
+    def session_cookie_policy(self) -> dict[str, str]:
+        return preflight_policy(
+            {
+                "domain": "host_only",
+                "httponly": "required",
+                "secure": "required",
+                "samesite": "Strict",
+            }
+        )
+
+    def password_policy(self) -> dict[str, str]:
+        return preflight_policy(
+            {
+                "minimum_length": "12",
+                "complexity_rules": "required",
+                "weak_password_screening": "offline_or_k_anonymity",
+            }
+        )
+
+    def api_key_policy(self) -> dict[str, str]:
+        return preflight_policy(
+            {
+                "museum_tier_only": "required",
+                "revocation": "required",
+                "expiration": "required",
+                "rate_limiting": "required",
+            }
+        )
+
+    def api_key_allowed_for_plan(self, plan_tier: object) -> bool:
+        return normalize_plan_tier(plan_tier) == "museum"
+
+    def mfa_policy(self) -> dict[str, str]:
+        return preflight_policy(
+            {
+                "optional_for_all_tiers": "enabled",
+                "museum_admin_required": "enabled",
+                "platform_admin_required": "enabled",
+                "supported_methods": "deferred_to_hosted_mfa_integration",
+            }
+        )
+
+    def is_mfa_required(self, *, plan_tier: object, role: str) -> bool:
+        normalized_role = normalize_mfa_role(role)
+        if normalized_role in GLOBAL_MFA_REQUIRED_ROLES:
+            return True
+        return normalize_plan_tier(plan_tier) == "museum" and normalized_role in MUSEUM_MFA_REQUIRED_ROLES
+
+    def token_revocation_policy(self) -> dict[str, str]:
+        return preflight_policy(
+            {
+                "immediate_logout": "required",
+                "revoked_token_rejection": "required",
+                "propagation_p95_seconds": "5",
+            }
+        )
+
+    def auth_audit_events(self) -> tuple[str, ...]:
+        return (
+            "login",
+            "logout",
+            "failed_attempt",
+            "mfa_enrollment",
+            "password_reset",
+            "token_refresh",
+            "account_lockout",
+            "admin_action",
+        )
 
     def profile_management_capabilities(self) -> list[str]:
         return [
