@@ -100,6 +100,23 @@ export async function fetchCurrentUserProfile(
   return (await response.json()) as UserProfileSummary;
 }
 
+export async function fetchManifestRetentionSettings(
+  apiBaseUrl: string,
+  accessToken: string,
+  orgId: string,
+  fetchFn: typeof fetch = globalThis.fetch.bind(globalThis),
+): Promise<ManifestRetentionSettingsResponse> {
+  const response = await fetchFn(apiUrl(apiBaseUrl, `/v1/orgs/${encodeURIComponent(orgId)}/settings/retention`), {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+  if (!response.ok) {
+    await throwDeliveryError(response, "Unable to load retention settings.");
+  }
+  return (await response.json()) as ManifestRetentionSettingsResponse;
+}
+
 export async function updateManifestRetentionSettings(
   apiBaseUrl: string,
   accessToken: string,

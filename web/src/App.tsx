@@ -48,11 +48,13 @@ import {
   fetchCurrentUserProfile,
   fetchDeletionProof,
   fetchJobExport,
+  fetchManifestRetentionSettings,
   fetchTransformationManifest,
   updateManifestRetentionSettings,
   type DeliveryRequestError,
   type ExportVariant,
   type ManifestRetentionDays,
+  type ManifestRetentionSettingsResponse,
   type UserProfileSummary,
 } from "./lib/outputDeliveryHelpers";
 import {
@@ -102,6 +104,14 @@ function parseManifestRetentionDays(value: string): ManifestRetentionDays {
     return parsed;
   }
   return null;
+}
+
+function canManageRetentionSettings(profile: UserProfileSummary | null): boolean {
+  if (!profile) {
+    return false;
+  }
+  const role = profile.role.toLowerCase();
+  return profile.plan_tier.toLowerCase() === "museum" && (role === "admin" || role === "platform_admin");
 }
 
 function isExportReadyStatus(status: JobDetailResponse["status"] | null | undefined): boolean {
@@ -159,6 +169,7 @@ export function App() {
   const [overrideReason, setOverrideReason] = useState("");
   const [showRetentionSettingsModal, setShowRetentionSettingsModal] = useState(false);
   const [retentionSettingsProfile, setRetentionSettingsProfile] = useState<UserProfileSummary | null>(null);
+  const [loadedRetentionSettings, setLoadedRetentionSettings] = useState<ManifestRetentionSettingsResponse | null>(null);
   const [settingsRetentionDays, setSettingsRetentionDays] = useState<ManifestRetentionDays>(null);
   const [settingsRedactionEnabled, setSettingsRedactionEnabled] = useState(false);
   const [settingsBusy, setSettingsBusy] = useState(false);
@@ -373,10 +384,12 @@ export function App() {
         costEstimate.configuration_fingerprint !== savedConfiguration.configuration_fingerprint,
     );
   const isMuseumPlan = deliveryPlanTier === "museum";
-  const canEditRetentionSettings =
-    retentionSettingsProfile?.plan_tier.toLowerCase() === "museum" &&
-    (retentionSettingsProfile.role.toLowerCase() === "admin" ||
-      retentionSettingsProfile.role.toLowerCase() === "platform_admin");
+  const canEditRetentionSettings = canManageRetentionSettings(retentionSettingsProfile);
+  const retentionSettingsChanged = Boolean(
+    loadedRetentionSettings &&
+      (settingsRetentionDays !== loadedRetentionSettings.manifest_retention_days ||
+        settingsRedactionEnabled !== loadedRetentionSettings.manifest_redaction_enabled),
+  );
 
   function setDeliveryBusyFor(action: DeliveryActionKey, value: boolean): void {
     setDeliveryBusy((current) => ({ ...current, [action]: value }));
@@ -517,13 +530,23 @@ export function App() {
     setShowRetentionSettingsModal(true);
     setSettingsNotice("");
     setSettingsError("");
+    setLoadedRetentionSettings(null);
+    setSettingsRetentionDays(null);
+    setSettingsRedactionEnabled(false);
     setSettingsBusy(true);
     try {
       const accessToken = await currentAccessToken();
       const profile = await fetchCurrentUserProfile(API_BASE_URL, accessToken);
       setRetentionSettingsProfile(profile);
+      if (canManageRetentionSettings(profile)) {
+        const currentSettings = await fetchManifestRetentionSettings(API_BASE_URL, accessToken, profile.org_id);
+        setLoadedRetentionSettings(currentSettings);
+        setSettingsRetentionDays(currentSettings.manifest_retention_days);
+        setSettingsRedactionEnabled(currentSettings.manifest_redaction_enabled);
+      }
     } catch (caught) {
       setRetentionSettingsProfile(null);
+      setLoadedRetentionSettings(null);
       setSettingsError(caught instanceof Error ? caught.message : "Unable to load retention settings.");
     } finally {
       setSettingsBusy(false);
@@ -533,6 +556,10 @@ export function App() {
   async function handleSaveRetentionSettings(): Promise<void> {
     if (!retentionSettingsProfile || !canEditRetentionSettings) {
       setSettingsError("Retention settings require Museum admin access.");
+      return;
+    }
+    if (!loadedRetentionSettings || !retentionSettingsChanged) {
+      setSettingsError("Change a retention setting before saving.");
       return;
     }
     setSettingsNotice("");
@@ -551,6 +578,7 @@ export function App() {
       );
       setSettingsRetentionDays(saved.manifest_retention_days);
       setSettingsRedactionEnabled(saved.manifest_redaction_enabled);
+      setLoadedRetentionSettings(saved);
       setSettingsNotice("Retention settings saved.");
     } catch (caught) {
       setSettingsError(caught instanceof Error ? caught.message : "Unable to update retention settings.");
@@ -1752,7 +1780,7 @@ export function App() {
             <select
               aria-label="Manifest retention window"
               className="chronos-select"
-              disabled={!canEditRetentionSettings || settingsBusy}
+              disabled={!canEditRetentionSettings || settingsBusy || !loadedRetentionSettings}
               onChange={(event) => setSettingsRetentionDays(parseManifestRetentionDays(event.target.value))}
               value={manifestRetentionSelectValue(settingsRetentionDays)}
             >
@@ -1767,7 +1795,7 @@ export function App() {
             <input
               aria-label="Manifest redaction"
               checked={settingsRedactionEnabled}
-              disabled={!canEditRetentionSettings || settingsBusy}
+              disabled={!canEditRetentionSettings || settingsBusy || !loadedRetentionSettings}
               onChange={(event) => setSettingsRedactionEnabled(event.target.checked)}
               type="checkbox"
             />
@@ -1794,7 +1822,7 @@ export function App() {
             </Button>
             <Button
               data-autofocus="true"
-              disabled={!canEditRetentionSettings || settingsBusy}
+              disabled={!canEditRetentionSettings || settingsBusy || !loadedRetentionSettings || !retentionSettingsChanged}
               onClick={() => void handleSaveRetentionSettings()}
               type="button"
             >
