@@ -94,6 +94,8 @@ All API endpoints in this document follow the `/v1/` versioning scheme unless ex
 
 **Description:** System must encrypt all data at rest and in transit using industry-standard encryption algorithms.
 
+**Phase Boundary Note:** Phase 5 `SEC-002` closeout covers platform-managed encryption at rest, encryption in transit, TLS/HSTS/certificate posture, rotation procedures, and performance overhead evidence. Customer-managed encryption key delivery remains the deferred `SEC-007` Museum-tier milestone (`GA+3 months`); `SEC-002` may reference CMEK readiness as context, but it must not close or require full `SEC-007` implementation before that milestone.
+
 **Acceptance Criteria:**
 - AC-SEC-002-01: Encryption at rest: AES-256 (GCS default) for all stored data
 - AC-SEC-002-02: Encryption in transit: TLS 1.3 for all API endpoints
@@ -257,6 +259,8 @@ All API endpoints in this document follow the `/v1/` versioning scheme unless ex
 
 **Description:** System must be designed to support GDPR compliance obligations, particularly Article 17 (Right to Erasure) with signed Deletion Proofs.
 
+**Phase Boundary Note:** Phase 5 `SEC-006` closeout validates the Article 17 workflow, deletion request surface, PII log deletion scope, generated proof payload/signature behavior, DPA/compliance documentation, and legal/compliance approval for GDPR support. Phase 6 `SEC-010` remains the launch-readiness closeout for the complete Deletion Proof product surface, including auditor verification instructions, PDF delivery, 7-year proof retention, tamper detection, and final launch scenario coverage.
+
 **Acceptance Criteria:**
 - AC-SEC-006-01: GDPR Article 17 (Right to Erasure) support via Deletion Proof feature
 - AC-SEC-006-02: Data Processing Agreement (DPA) available for Museum Tier customers
@@ -417,6 +421,8 @@ All API endpoints in this document follow the `/v1/` versioning scheme unless ex
 ### SEC-010: Deletion Proofs
 
 **Description:** System must generate cryptographically signed Deletion Proofs for GDPR Article 17 compliance and institutional audit requirements.
+
+**Phase Boundary Note:** `SEC-010` is a Phase 6 launch-readiness requirement. Earlier GDPR packets may generate or validate deletion-proof substrate for `SEC-006`, but those packets do not close `SEC-010` unless they also record the full Phase 6 proof-delivery, retention, verification, tamper-detection, and legal/compliance evidence required below.
 
 **Acceptance Criteria:**
 - AC-SEC-010-01: Deletion Proof generated for all user data deletion requests
