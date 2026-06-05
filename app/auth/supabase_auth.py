@@ -12,6 +12,9 @@ from app.db.client import SupabaseClient
 
 MUSEUM_MFA_REQUIRED_ROLES = frozenset({"admin", "platform_admin"})
 GLOBAL_MFA_REQUIRED_ROLES = frozenset({"platform_admin"})
+SEC001_ACCESS_TOKEN_TTL_MINUTES = 60
+SEC001_MAX_FAILED_ATTEMPTS = 5
+SEC001_LOCKOUT_MINUTES = 15
 PREFLIGHT_POLICY_METADATA = {
     "policy_stage": "local_preflight_metadata",
     "runtime_enforcement": "deferred_to_hosted_auth_integration",
@@ -26,6 +29,27 @@ def normalize_plan_tier(plan_tier: object) -> str:
 
 def preflight_policy(policy: dict[str, str]) -> dict[str, str]:
     return {**policy, **PREFLIGHT_POLICY_METADATA}
+
+
+def validated_security_int(
+    config: object,
+    name: str,
+    *,
+    min_value: int = 1,
+    max_value: int | None = None,
+) -> str:
+    if not hasattr(config, name):
+        raise ValueError(f"{name} must be configured")
+    value = getattr(config, name)
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} must be an integer") from None
+    if parsed < min_value:
+        raise ValueError(f"{name} must be at least {min_value}")
+    if max_value is not None and parsed > max_value:
+        raise ValueError(f"{name} must be at most {max_value}")
+    return str(parsed)
 
 
 @dataclass(frozen=True)
@@ -54,24 +78,46 @@ class SupabaseAuthService:
             "magic_link": self.config.magic_link_enabled,
         }
 
-    def session_policy(self) -> dict[str, str]:
+    def validate_auth_policy_settings(self, config: object | None = None) -> dict[str, str]:
+        source = settings if config is None else config
+        return {
+            "access_token_ttl_minutes": validated_security_int(
+                source,
+                "auth_session_ttl_minutes",
+                max_value=SEC001_ACCESS_TOKEN_TTL_MINUTES,
+            ),
+            "max_failed_attempts": validated_security_int(
+                source,
+                "auth_max_failed_attempts",
+                max_value=SEC001_MAX_FAILED_ATTEMPTS,
+            ),
+            "lockout_window_minutes": validated_security_int(
+                source,
+                "auth_lockout_minutes",
+                min_value=SEC001_LOCKOUT_MINUTES,
+            ),
+        }
+
+    def session_policy(self, config: object | None = None) -> dict[str, str]:
+        validated = self.validate_auth_policy_settings(config)
         return preflight_policy(
             {
                 "rotation": "enabled",
                 "short_lived_access_tokens": "enabled",
                 "refresh_token_required": "enabled",
-                "access_token_ttl_minutes": str(settings.auth_session_ttl_minutes),
+                "access_token_ttl_minutes": validated["access_token_ttl_minutes"],
                 "refresh_token_rolling_days": "7",
             }
         )
 
-    def lockout_policy(self) -> dict[str, str]:
+    def lockout_policy(self, config: object | None = None) -> dict[str, str]:
+        validated = self.validate_auth_policy_settings(config)
         return preflight_policy(
             {
                 "failed_attempts_threshold": "configurable",
                 "lockout_window": "configurable",
-                "max_failed_attempts": str(settings.auth_max_failed_attempts),
-                "lockout_window_minutes": str(settings.auth_lockout_minutes),
+                "max_failed_attempts": validated["max_failed_attempts"],
+                "lockout_window_minutes": validated["lockout_window_minutes"],
                 "reset_on_success": "enabled",
             }
         )

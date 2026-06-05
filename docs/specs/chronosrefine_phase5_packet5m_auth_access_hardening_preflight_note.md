@@ -13,7 +13,7 @@ Status: Packet 5M-A adds local `SEC-001` and `SEC-004` auth/access hardening cov
 Packet 5M-A adds a local unit-testable substrate for the Phase 5 auth/access security suite:
 
 1. RBAC permission lookup normalizes roles and permission names before evaluation and fails closed for unknown values.
-2. Auth policy readbacks now declare SEC-001 session, host-only cookie, password, lockout, Museum API-key, MFA, token-revocation, and auth-audit-event contracts with explicit local-preflight metadata; runtime cookie issuance, auth callback behavior, and hosted enforcement remain deferred to hosted/integration evidence.
+2. Auth policy readbacks now declare SEC-001 session, host-only cookie, password, lockout, Museum API-key, MFA, token-revocation, and auth-audit-event contracts with explicit local-preflight metadata and fail-closed bounds for unsafe auth timing/lockout settings; runtime cookie issuance, auth callback behavior, and hosted enforcement remain deferred to hosted/integration evidence.
 3. Canonical SEC-001 target files now exist for authentication, RBAC, MFA, and session-management coverage.
 4. Canonical SEC-004 target files now exist for Terraform-managed IAM posture and Cloud Storage Data Access audit logging coverage.
 5. Existing user-scoped Supabase profile lookup behavior remains intact: API-facing authenticated profile access passes the end-user bearer token into repository calls.
@@ -24,7 +24,7 @@ Packet 5M-A is local implementation/preflight evidence only.
 
 - It does not implement hosted Museum API-key storage, key hashing, key rotation, key revocation persistence, or API-key request authentication.
 - It does not implement hosted MFA enrollment, TOTP/SMS verification, backup-code recovery, supported MFA method selection, or Supabase MFA runtime enforcement.
-- It does not run penetration testing, k6 authentication latency tests, IAM audit reports, or hosted Cloud Audit Logs readback.
+- It does not run penetration testing, k6 authentication latency tests, IAM audit reports, provider-backed Terraform validate/plan evidence, or hosted Cloud Audit Logs readback.
 - It does not mutate Terraform state, Supabase migrations, GCS objects, Cloud Logging, Cloud Run configuration, or IAM bindings.
 - It does not close `SEC-001`, close `SEC-004`, or move Phase 5 beyond `2/11`.
 
