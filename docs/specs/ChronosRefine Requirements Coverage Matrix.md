@@ -178,16 +178,18 @@ If an ID/title conflicts with the above, this matrix must be updated immediately
 | **SEC-004** | Access Control | ENG-016 | `tests/security/test_iam_policies.py`, `tests/security/test_rate_limiting.py`, `tests/security/test_multi_tenancy.py`, `tests/security/test_access_logging.py` | Automated | High |
 | **SEC-005** | Transformation Manifest Retention | SEC-013 | `tests/security/test_manifest_retention.py`, `tests/security/test_manifest_redaction.py`, `tests/compliance/test_gdpr_manifest_retention.py` | Automated | Medium |
 | **SEC-006** | GDPR Compliance | OPS-002, SEC-005 | `tests/compliance/test_gdpr_compliance.py`, `tests/compliance/test_gdpr_log_deletion.py`, `tests/api/test_deletion_proof.py` | Automated + Manual | Low |
-| **NFR-004** | Reliability & Availability | ENG-008, ENG-012, ENG-016, OPS-001, OPS-004 | `tests/ops/test_availability_slo.py`, `tests/ops/test_database_performance.py`, `tests/ops/test_job_retry.py`, `tests/load/test_scalability.py` | Automated + Manual | Medium |
+| **NFR-004** | Reliability & Availability | ENG-008, ENG-012, ENG-016, OPS-001 | `tests/ops/test_availability_slo.py`, `tests/ops/test_database_performance.py`, `tests/ops/test_job_retry.py`, `tests/load/test_scalability.py` | Automated + Manual | Medium |
 | **NFR-005** | Museum SLA & Disaster Recovery | OPS-001, OPS-003 | `tests/ops/test_availability.py`, `tests/ops/test_failover.py`, `tests/ops/test_disaster_recovery.py` | Automated + Manual | Medium |
 | **NFR-006** | Pricing Model | NFR-001, NFR-003, NFR-007, NFR-012 | `tests/billing/test_pricing_tiers.py`, `tests/billing/test_overage_approval.py`, `tests/billing/test_stripe_integration.py`, `tests/billing/test_usage_tracking.py` | Automated + Manual | Low |
-| **NFR-009** | Internationalization (i18n) | SEC-012, DS-001, DS-002, DS-003, DS-004, DS-005, DS-006 | `tests/i18n/test_utf8_encoding.py`, `tests/i18n/test_ui_translation.py`, `tests/i18n/test_localization.py` | Automated + Manual | High |
+| **NFR-009** | Internationalization (i18n) | DS-001, DS-002, DS-003, DS-004, DS-005, DS-006 | `tests/i18n/test_utf8_encoding.py`, `tests/i18n/test_ui_translation.py`, `tests/i18n/test_localization.py` | Automated + Manual | High |
 
 **Phase Goal:** Implement advanced features and tier-specific functionality
 
 **High-Risk Requirements:** SEC-001, SEC-004, NFR-009 (3 high-risk requirements)
 
 **Note:** FR-006 now explicitly depends on ENG-014 (Preview Generation implementation) to clarify the implementation relationship between the functional requirement (FR-006) and the technical implementation (ENG-014).
+
+**Packet 5L Boundary Note:** Phase 5 rows must not depend on later Phase 6 rows. `NFR-004` remains related to Phase 6 `OPS-004` performance monitoring, but `OPS-004` is launch-runbook/rollback closeout context rather than a Phase 5 prerequisite. `NFR-009` remains related to Phase 6 `SEC-012` data residency, but `SEC-012` regional residency validation is not a Phase 5 prerequisite for UTF-8/i18n foundations. `SEC-002` may reference deferred `SEC-007` CMEK readiness, but full customer-managed key delivery remains `GA+3 months`; `SEC-006` may validate Article 17 proof substrate without closing Phase 6 `SEC-010`.
 
 **Closeout Note:** Global `FR-006` is now complete via Packet 5A plus Packet 5B hosted closeout. Packet 5B intentionally changed public `/v1/jobs` behavior for legacy bare launch payloads: clients must refresh the saved configuration, approve the current preview, and relaunch with `launch_context.source = approved_preview`.
 
@@ -409,6 +411,7 @@ Source evidence:
 | Packet 5K-E4 compliance + two-engineer closeout preflight | `docs/specs/chronosrefine_phase5_packet5ke4_compliance_two_engineer_preflight_note.md` records the manual review evidence bundle, required repo-safe compliance review fields, required two-engineer review fields, and closeout gate for the revised `SEC-005` lifecycle evidence model; no Phase 5 tracker movement or requirement closeout is claimed |
 | Packet 5K-E5 closeout reconciliation | `docs/specs/chronosrefine_phase5_packet5ke5_closeout_reconciliation_note.md` records PR review reconciliation for the attempted `SEC-005` manual-review closeout; `SEC-005` remains open and no Phase 5 tracker movement or requirement closeout is claimed |
 | Packet 5K-F retention settings gate preflight | `docs/specs/chronosrefine_phase5_packet5kf_retention_settings_gate_preflight_note.md` records the missing `DoD-SEC-005-10` API/UI implementation and durable approval-evidence preflight; `SEC-005` remains open and no Phase 5 tracker movement or requirement closeout is claimed |
+| Packet 5L governance boundary repair | `docs/specs/chronosrefine_phase5_packet5l_governance_boundary_repair_note.md` records the docs-only repair for Phase 5/Phase 6 and deferred-milestone boundaries across `SEC-002`/`SEC-007`, `SEC-006`/`SEC-010`, `NFR-004`/`OPS-004`, and `NFR-009`/`SEC-012`; no Phase 5 tracker movement or requirement closeout is claimed |
 | Context Note | `docs/specs/chronosrefine_phase4_closeout_note.md` records Packet 4A and Packet 4G historical completion evidence, `docs/specs/chronosrefine_phase5_packet5a_closeout_note.md` records the first hosted-close Packet 5A `FR-006` slice, `docs/specs/chronosrefine_phase5_packet5b_closeout_note.md` records the packet that closes global `FR-006` and advances Phase 5 to `1/11` complete requirements, `docs/specs/chronosrefine_phase5_packet5c_closeout_note.md` records the first hosted-complete `NFR-006` slice, and `docs/specs/chronosrefine_phase5_packet5d_closeout_note.md` closes global `NFR-006` and advances Phase 5 to `2/11` complete requirements. |
 
 ## Progress Tracking Template

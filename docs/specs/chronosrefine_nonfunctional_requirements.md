@@ -176,6 +176,8 @@ Non-functional requirements define system qualities, performance targets, busine
 
 **Description:** System must meet availability targets per tier and scale to support expected production volumes without performance degradation.
 
+**Phase Boundary Note:** Phase 5 `NFR-004` closeout covers tier availability targets, database performance, connection pooling, storage scaling assumptions, job recovery, autoscaling evidence, growth envelope, scalability limits, and monitoring signals needed to prove reliability/availability. Phase 6 `OPS-004` remains the launch operations closeout for finalized performance monitoring dashboards, rollback decision procedures, and launch runbooks; `OPS-004` is related context, not a Phase 5 prerequisite for `NFR-004`.
+
 **Acceptance Criteria:**
 - AC-NFR-004-01: Availability targets:
   - Hobbyist: best-effort (no SLA)
@@ -394,6 +396,8 @@ Non-functional requirements define system qualities, performance targets, busine
 ### NFR-009: Internationalization (i18n)
 
 **Description:** System must support UTF-8 encoding for non-English metadata and provide multi-language UI support (roadmap: GA+6 months).
+
+**Phase Boundary Note:** Phase 5 `NFR-009` closeout covers UTF-8 metadata handling, job names, era override descriptions, uncertainty callout notes, UI translation framework foundations, locale persistence, and localized date/number formatting. Phase 6 `SEC-012` remains the data-residency launch-readiness requirement; `NFR-009` must remain compatible with residency constraints, but full regional residency validation is not a Phase 5 prerequisite for i18n foundation work.
 
 **Acceptance Criteria:**
 - AC-NFR-009-01: UTF-8 encoding supported for all user-facing text fields
