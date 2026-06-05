@@ -327,6 +327,21 @@ class LogSettingsResponse(StrictModel):
     updated_by: str
 
 
+class ManifestRetentionSettingsUpdateRequest(StrictModel):
+    manifest_retention_days: int | None = Field(...)
+    manifest_redaction_enabled: bool
+
+
+class ManifestRetentionSettingsResponse(StrictModel):
+    org_id: str
+    plan_tier: str
+    manifest_retention_days: int | None
+    manifest_redaction_enabled: bool
+    retention_class: str
+    updated_by: str | None = None
+    updated_at: str
+
+
 class DeleteLogsRequest(StrictModel):
     categories: list[str]
     date_from: str

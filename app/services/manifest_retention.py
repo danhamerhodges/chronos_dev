@@ -85,6 +85,35 @@ class ManifestRetentionService:
         if manifest_retention_days not in MUSEUM_ALLOWED_RETENTION_DAYS:
             raise ValueError("Museum manifest retention must be one of 0, 90, 365, 1825, or indefinite.")
 
+    def update_settings(
+        self,
+        *,
+        org_id: str,
+        user_id: str,
+        plan_tier: str,
+        manifest_retention_days: int | None,
+        manifest_redaction_enabled: bool,
+        access_token: str | None = None,
+    ) -> dict[str, Any]:
+        self.validate_settings(plan_tier=plan_tier, manifest_retention_days=manifest_retention_days)
+        record = self._settings.upsert(
+            org_id=org_id,
+            plan_tier=plan_tier,
+            manifest_retention_days=manifest_retention_days,
+            manifest_redaction_enabled=manifest_redaction_enabled,
+            updated_by=user_id,
+            access_token=access_token,
+        )
+        return {
+            "org_id": record["org_id"],
+            "plan_tier": record["plan_tier"],
+            "manifest_retention_days": record["manifest_retention_days"],
+            "manifest_redaction_enabled": bool(record["manifest_redaction_enabled"]),
+            "retention_class": retention_class_for_days(record["manifest_retention_days"]),
+            "updated_by": record.get("updated_by"),
+            "updated_at": record["updated_at"],
+        }
+
 
 def retention_class_for_days(retention_days: int | None) -> str:
     if retention_days is None:
