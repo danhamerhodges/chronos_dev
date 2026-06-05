@@ -1091,3 +1091,67 @@ def test_supabase_log_settings_require_access_token_for_user_scoped_paths() -> N
 
     with pytest.raises(ValueError, match="access token is required"):
         repo.get("org-1", access_token=None)
+
+
+def test_supabase_manifest_retention_settings_upsert_uses_user_scoped_rest_when_access_token_present(monkeypatch) -> None:
+    import app.db.phase2_store as phase2_store
+
+    captured: dict[str, object] = {}
+
+    class StubClient:
+        def user_scoped_headers(self, access_token: str) -> dict[str, str]:
+            return {"Authorization": f"Bearer {access_token}"}
+
+        def rest_upsert(
+            self,
+            table_name: str,
+            *,
+            payload: dict[str, object],
+            on_conflict: str,
+            headers: dict[str, str],
+        ):
+            captured["table_name"] = table_name
+            captured["payload"] = payload
+            captured["on_conflict"] = on_conflict
+            captured["headers"] = headers
+            return [
+                {
+                    "org_id": "museum-org",
+                    "plan_tier": "museum",
+                    "manifest_retention_days": 365,
+                    "manifest_redaction_enabled": True,
+                    "updated_by": "admin-1",
+                    "created_at": "2026-06-03T00:00:00+00:00",
+                    "updated_at": "2026-06-03T00:01:00+00:00",
+                }
+            ]
+
+    repo = phase2_store._SupabaseManifestRetentionSettingsRepository()
+    monkeypatch.setattr(repo, "_client", StubClient())
+    monkeypatch.setattr(repo, "_connect", lambda: (_ for _ in ()).throw(AssertionError("direct DB should not be used")))
+
+    saved = repo.upsert(
+        org_id="museum-org",
+        plan_tier="museum",
+        manifest_retention_days=365,
+        manifest_redaction_enabled=True,
+        updated_by="admin-1",
+        access_token="jwt-token",
+    )
+
+    assert captured["table_name"] == "org_data_retention_settings"
+    assert captured["on_conflict"] == "org_id"
+    assert captured["headers"] == {"Authorization": "Bearer jwt-token"}
+    payload = captured["payload"]
+    assert isinstance(payload, dict)
+    assert payload["updated_at"]
+    assert payload == {
+        "org_id": "museum-org",
+        "plan_tier": "museum",
+        "manifest_retention_days": 365,
+        "manifest_redaction_enabled": True,
+        "updated_by": "admin-1",
+        "updated_at": payload["updated_at"],
+    }
+    assert saved["updated_by"] == "admin-1"
+    assert saved["manifest_redaction_enabled"] is True

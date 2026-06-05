@@ -893,6 +893,7 @@ class _MemoryManifestRetentionSettingsRepository:
         manifest_retention_days: int | None,
         manifest_redaction_enabled: bool,
         updated_by: str | None = None,
+        access_token: str | None = None,
     ) -> dict[str, Any]:
         if plan_tier.lower() != "museum":
             raise ValueError("SEC-005 manifest retention settings are Museum-tier only.")
@@ -2819,9 +2820,34 @@ class _SupabaseManifestRetentionSettingsRepository(_SupabaseRepositoryBase):
         manifest_retention_days: int | None,
         manifest_redaction_enabled: bool,
         updated_by: str | None = None,
+        access_token: str | None = None,
     ) -> dict[str, Any]:
         if plan_tier.lower() != "museum":
             raise ValueError("SEC-005 manifest retention settings are Museum-tier only.")
+        if access_token:
+            headers = self._client.user_scoped_headers(access_token)
+            row = self._client.rest_upsert(
+                "org_data_retention_settings",
+                payload={
+                    "org_id": org_id,
+                    "plan_tier": "museum",
+                    "manifest_retention_days": manifest_retention_days,
+                    "manifest_redaction_enabled": manifest_redaction_enabled,
+                    "updated_by": updated_by,
+                    "updated_at": _utc_now(),
+                },
+                on_conflict="org_id",
+                headers=headers,
+            )[0]
+            return {
+                "org_id": row["org_id"],
+                "plan_tier": row["plan_tier"],
+                "manifest_retention_days": row.get("manifest_retention_days"),
+                "manifest_redaction_enabled": bool(row["manifest_redaction_enabled"]),
+                "updated_by": row.get("updated_by", updated_by),
+                "created_at": row.get("created_at"),
+                "updated_at": row["updated_at"],
+            }
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
@@ -4767,6 +4793,7 @@ class ManifestRetentionSettingsRepository:
         manifest_retention_days: int | None,
         manifest_redaction_enabled: bool,
         updated_by: str | None = None,
+        access_token: str | None = None,
     ) -> dict[str, Any]:
         return self._backend.upsert(
             org_id=org_id,
@@ -4774,6 +4801,7 @@ class ManifestRetentionSettingsRepository:
             manifest_retention_days=manifest_retention_days,
             manifest_redaction_enabled=manifest_redaction_enabled,
             updated_by=updated_by,
+            access_token=access_token,
         )
 
     def get(self, org_id: str | None) -> dict[str, Any] | None:
