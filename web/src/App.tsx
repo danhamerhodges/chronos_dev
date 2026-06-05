@@ -49,8 +49,11 @@ import {
   fetchDeletionProof,
   fetchJobExport,
   fetchTransformationManifest,
+  updateManifestRetentionSettings,
   type DeliveryRequestError,
   type ExportVariant,
+  type ManifestRetentionDays,
+  type UserProfileSummary,
 } from "./lib/outputDeliveryHelpers";
 import {
   UploadResponse,
@@ -85,6 +88,21 @@ type DeliveryRetryAction =
   | { type: "proof" };
 
 type FormErrorTarget = "file" | "duration" | "persona" | "tier" | "grain" | "configuration";
+
+function manifestRetentionSelectValue(retentionDays: ManifestRetentionDays): string {
+  return retentionDays === null ? "indefinite" : String(retentionDays);
+}
+
+function parseManifestRetentionDays(value: string): ManifestRetentionDays {
+  if (value === "indefinite") {
+    return null;
+  }
+  const parsed = Number(value);
+  if (parsed === 0 || parsed === 90 || parsed === 365 || parsed === 1825) {
+    return parsed;
+  }
+  return null;
+}
 
 function isExportReadyStatus(status: JobDetailResponse["status"] | null | undefined): boolean {
   return status === "completed" || status === "partial";
@@ -139,6 +157,13 @@ export function App() {
   const [showOverrideModal, setShowOverrideModal] = useState(false);
   const [manualOverrideEra, setManualOverrideEra] = useState("");
   const [overrideReason, setOverrideReason] = useState("");
+  const [showRetentionSettingsModal, setShowRetentionSettingsModal] = useState(false);
+  const [retentionSettingsProfile, setRetentionSettingsProfile] = useState<UserProfileSummary | null>(null);
+  const [settingsRetentionDays, setSettingsRetentionDays] = useState<ManifestRetentionDays>(null);
+  const [settingsRedactionEnabled, setSettingsRedactionEnabled] = useState(false);
+  const [settingsBusy, setSettingsBusy] = useState(false);
+  const [settingsNotice, setSettingsNotice] = useState("");
+  const [settingsError, setSettingsError] = useState("");
   const [processingJob, setProcessingJob] = useState<JobDetailResponse | null>(null);
   const [jobCallouts, setJobCallouts] = useState<JobUncertaintyCalloutsResponse | null>(null);
   const [jobBusy, setJobBusy] = useState(false);
@@ -348,6 +373,10 @@ export function App() {
         costEstimate.configuration_fingerprint !== savedConfiguration.configuration_fingerprint,
     );
   const isMuseumPlan = deliveryPlanTier === "museum";
+  const canEditRetentionSettings =
+    retentionSettingsProfile?.plan_tier.toLowerCase() === "museum" &&
+    (retentionSettingsProfile.role.toLowerCase() === "admin" ||
+      retentionSettingsProfile.role.toLowerCase() === "platform_admin");
 
   function setDeliveryBusyFor(action: DeliveryActionKey, value: boolean): void {
     setDeliveryBusy((current) => ({ ...current, [action]: value }));
@@ -435,7 +464,7 @@ export function App() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (showOverrideModal || showPreviewReviewModal || showKeyboardShortcutsModal) {
+      if (showOverrideModal || showPreviewReviewModal || showKeyboardShortcutsModal || showRetentionSettingsModal) {
         return;
       }
       if (isEditableShortcutTarget(event.target)) {
@@ -482,7 +511,53 @@ export function App() {
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [showKeyboardShortcutsModal, showPreviewReviewModal, showOverrideModal]);
+  }, [showKeyboardShortcutsModal, showPreviewReviewModal, showOverrideModal, showRetentionSettingsModal]);
+
+  async function handleOpenRetentionSettings(): Promise<void> {
+    setShowRetentionSettingsModal(true);
+    setSettingsNotice("");
+    setSettingsError("");
+    setSettingsBusy(true);
+    try {
+      const accessToken = await currentAccessToken();
+      const profile = await fetchCurrentUserProfile(API_BASE_URL, accessToken);
+      setRetentionSettingsProfile(profile);
+    } catch (caught) {
+      setRetentionSettingsProfile(null);
+      setSettingsError(caught instanceof Error ? caught.message : "Unable to load retention settings.");
+    } finally {
+      setSettingsBusy(false);
+    }
+  }
+
+  async function handleSaveRetentionSettings(): Promise<void> {
+    if (!retentionSettingsProfile || !canEditRetentionSettings) {
+      setSettingsError("Retention settings require Museum admin access.");
+      return;
+    }
+    setSettingsNotice("");
+    setSettingsError("");
+    setSettingsBusy(true);
+    try {
+      const accessToken = await currentAccessToken();
+      const saved = await updateManifestRetentionSettings(
+        API_BASE_URL,
+        accessToken,
+        retentionSettingsProfile.org_id,
+        {
+          manifestRetentionDays: settingsRetentionDays,
+          manifestRedactionEnabled: settingsRedactionEnabled,
+        },
+      );
+      setSettingsRetentionDays(saved.manifest_retention_days);
+      setSettingsRedactionEnabled(saved.manifest_redaction_enabled);
+      setSettingsNotice("Retention settings saved.");
+    } catch (caught) {
+      setSettingsError(caught instanceof Error ? caught.message : "Unable to update retention settings.");
+    } finally {
+      setSettingsBusy(false);
+    }
+  }
 
   async function runUpload(resumeExisting: boolean): Promise<void> {
     if (!selectedFile) {
@@ -1133,9 +1208,14 @@ export function App() {
               Keyboard-friendly upload, configuration, launch, processing, and export flow.
             </p>
           </div>
-          <Button onClick={() => setShowKeyboardShortcutsModal(true)} type="button" variant="secondary">
-            Help & Keyboard Shortcuts
-          </Button>
+          <div style={{ display: "flex", gap: "var(--spacing-sm)", flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <Button onClick={() => void handleOpenRetentionSettings()} type="button" variant="secondary">
+              Settings
+            </Button>
+            <Button onClick={() => setShowKeyboardShortcutsModal(true)} type="button" variant="secondary">
+              Help & Keyboard Shortcuts
+            </Button>
+          </div>
         </header>
         <Card title="Packet 4B Configuration Flow">
           <p style={{ color: "var(--color-text-muted)", marginTop: 0 }}>
@@ -1647,6 +1727,82 @@ export function App() {
         reviewing={previewReviewBusy}
         launching={jobBusy}
       />
+      <Modal
+        open={showRetentionSettingsModal}
+        onClose={() => setShowRetentionSettingsModal(false)}
+        labelledBy="retention-settings-title"
+        describedBy="retention-settings-description"
+      >
+        <div style={{ display: "grid", gap: "var(--spacing-md)", maxWidth: 520 }}>
+          <div>
+            <h2 id="retention-settings-title" style={{ marginBottom: "var(--spacing-xs)" }}>
+              Settings &gt; Data Retention
+            </h2>
+            <p id="retention-settings-description" style={{ marginTop: 0, marginBottom: 0 }}>
+              Configure Museum transformation manifest retention and redaction.
+            </p>
+          </div>
+          {retentionSettingsProfile ? (
+            <div className="chronos-card-note">
+              Org {retentionSettingsProfile.org_id} / {retentionSettingsProfile.plan_tier} / {retentionSettingsProfile.role}
+            </div>
+          ) : null}
+          <label>
+            <div style={{ marginBottom: "var(--spacing-xs)" }}>Manifest retention</div>
+            <select
+              aria-label="Manifest retention window"
+              className="chronos-select"
+              disabled={!canEditRetentionSettings || settingsBusy}
+              onChange={(event) => setSettingsRetentionDays(parseManifestRetentionDays(event.target.value))}
+              value={manifestRetentionSelectValue(settingsRetentionDays)}
+            >
+              <option value={0}>0 days</option>
+              <option value={90}>90 days</option>
+              <option value={365}>1 year</option>
+              <option value={1825}>5 years</option>
+              <option value="indefinite">Indefinite</option>
+            </select>
+          </label>
+          <label style={{ display: "flex", gap: "var(--spacing-sm)", alignItems: "center" }}>
+            <input
+              aria-label="Manifest redaction"
+              checked={settingsRedactionEnabled}
+              disabled={!canEditRetentionSettings || settingsBusy}
+              onChange={(event) => setSettingsRedactionEnabled(event.target.checked)}
+              type="checkbox"
+            />
+            <span>Manifest redaction</span>
+          </label>
+          {retentionSettingsProfile && !canEditRetentionSettings ? (
+            <div className="chronos-alert-banner" role="alert">
+              Retention settings require Museum admin access.
+            </div>
+          ) : null}
+          {settingsNotice ? (
+            <div aria-live="polite" className="chronos-status-banner" role="status">
+              {settingsNotice}
+            </div>
+          ) : null}
+          {settingsError ? (
+            <div aria-live="assertive" className="chronos-alert-banner" role="alert">
+              {settingsError}
+            </div>
+          ) : null}
+          <div style={{ display: "flex", gap: "var(--spacing-sm)", justifyContent: "flex-end", flexWrap: "wrap" }}>
+            <Button onClick={() => setShowRetentionSettingsModal(false)} type="button" variant="secondary">
+              Close
+            </Button>
+            <Button
+              data-autofocus="true"
+              disabled={!canEditRetentionSettings || settingsBusy}
+              onClick={() => void handleSaveRetentionSettings()}
+              type="button"
+            >
+              {settingsBusy ? "Saving..." : "Save Retention Settings"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
       <Modal
         open={showKeyboardShortcutsModal}
         onClose={() => setShowKeyboardShortcutsModal(false)}
