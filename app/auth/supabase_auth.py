@@ -10,6 +10,16 @@ from app.config import settings
 from app.db.client import SupabaseClient
 
 
+MUSEUM_MFA_REQUIRED_ROLES = frozenset({"admin", "platform_admin"})
+GLOBAL_MFA_REQUIRED_ROLES = frozenset({"platform_admin"})
+
+
+def normalize_plan_tier(plan_tier: object) -> str:
+    if not isinstance(plan_tier, str):
+        return ""
+    return plan_tier.strip().lower()
+
+
 @dataclass(frozen=True)
 class AuthProviderConfig:
     email_password_enabled: bool = True
@@ -56,6 +66,7 @@ class SupabaseAuthService:
 
     def session_cookie_policy(self) -> dict[str, str]:
         return {
+            "domain": "host_only",
             "httponly": "required",
             "secure": "required",
             "samesite": "Strict",
@@ -76,18 +87,22 @@ class SupabaseAuthService:
             "rate_limiting": "required",
         }
 
-    def api_key_allowed_for_plan(self, plan_tier: str) -> bool:
-        return plan_tier.strip().lower() == "museum"
+    def api_key_allowed_for_plan(self, plan_tier: object) -> bool:
+        return normalize_plan_tier(plan_tier) == "museum"
 
     def mfa_policy(self) -> dict[str, str]:
         return {
             "optional_for_all_tiers": "enabled",
             "museum_admin_required": "enabled",
-            "supported_methods": "totp,sms,backup_codes",
+            "platform_admin_required": "enabled",
+            "supported_methods": "deferred_to_hosted_mfa_integration",
         }
 
-    def is_mfa_required(self, *, plan_tier: str, role: str) -> bool:
-        return plan_tier.strip().lower() == "museum" and normalize_role(role) in {"admin", "platform_admin"}
+    def is_mfa_required(self, *, plan_tier: object, role: str) -> bool:
+        normalized_role = normalize_role(role)
+        if normalized_role in GLOBAL_MFA_REQUIRED_ROLES:
+            return True
+        return normalize_plan_tier(plan_tier) == "museum" and normalized_role in MUSEUM_MFA_REQUIRED_ROLES
 
     def token_revocation_policy(self) -> dict[str, str]:
         return {

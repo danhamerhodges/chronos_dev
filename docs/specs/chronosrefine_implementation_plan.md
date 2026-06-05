@@ -479,7 +479,7 @@ This implementation plan is organized into a logical execution sequence designed
 
 **Packet 5L governance boundary repair note:** Packet 5L clarifies deferred/cross-phase ownership for `SEC-002`/`SEC-007`, `SEC-006`/`SEC-010`, `NFR-004`/`OPS-004`, and `NFR-009`/`SEC-012`. It is docs-only, does not close any requirement, and does not advance Phase 5 beyond `2/11`.
 
-**Packet 5M-A auth/access hardening preflight note:** Packet 5M-A adds local `SEC-001` and `SEC-004` auth/access hardening coverage, RBAC fail-closed normalization, SEC-001 policy readbacks, and canonical missing security test files. It is local implementation/preflight evidence only, does not record hosted API-key/MFA/IAM/audit-log proof, does not close either requirement, and does not advance Phase 5 beyond `2/11`.
+**Packet 5M-A auth/access hardening preflight note:** Packet 5M-A adds local `SEC-001` and `SEC-004` auth/access hardening coverage, RBAC fail-closed normalization, SEC-001 policy readbacks for host-only secure session-cookie requirements, and canonical missing security test files. It is local implementation/preflight evidence only, does not record hosted API-key/MFA/IAM/audit-log proof, does not close either requirement, and does not advance Phase 5 beyond `2/11`.
 
 ### Phase 6: Production Readiness & Launch
 

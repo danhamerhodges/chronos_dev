@@ -6,7 +6,9 @@ Maps to:
 
 from __future__ import annotations
 
-from app.auth.rbac import has_permission, permissions_for_role, role_permission_matrix
+import pytest
+
+from app.auth.rbac import ROLE_PERMISSIONS, has_permission, permissions_for_role, role_permission_matrix
 
 
 def test_rbac_fails_closed_for_unknown_or_empty_roles() -> None:
@@ -34,3 +36,15 @@ def test_role_permission_matrix_keeps_least_privilege_baseline() -> None:
     assert "logs:write" not in matrix["analyst"]
     assert "retention:write" in matrix["admin"]
     assert "ops:write" in matrix["platform_admin"]
+
+
+def test_role_permission_source_cannot_be_mutated_at_runtime() -> None:
+    matrix = role_permission_matrix()
+
+    with pytest.raises(TypeError):
+        matrix["member"] = frozenset({"ops:write"})  # type: ignore[index]
+
+    with pytest.raises(TypeError):
+        ROLE_PERMISSIONS["member"] = frozenset({"ops:write"})  # type: ignore[index]
+
+    assert has_permission("member", "ops:write") is False

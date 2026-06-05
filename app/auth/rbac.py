@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
@@ -17,7 +18,7 @@ MEMBER = Role(name="member")
 PLATFORM_ADMIN = Role(name="platform_admin")
 
 
-ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
+ROLE_PERMISSIONS: Mapping[str, frozenset[str]] = MappingProxyType({
     PLATFORM_ADMIN.name: frozenset({
         "jobs:read",
         "jobs:write",
@@ -58,7 +59,7 @@ ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
         "billing:read",
         "users:read",
     }),
-}
+})
 
 
 def normalize_role(role: str | None) -> str:
@@ -77,8 +78,8 @@ def permissions_for_role(role: str | None) -> frozenset[str]:
     return ROLE_PERMISSIONS.get(normalize_role(role), frozenset())
 
 
-def role_permission_matrix() -> MappingProxyType[str, frozenset[str]]:
-    return MappingProxyType(ROLE_PERMISSIONS)
+def role_permission_matrix() -> Mapping[str, frozenset[str]]:
+    return ROLE_PERMISSIONS
 
 
 def has_permission(role: str, permission: str) -> bool:

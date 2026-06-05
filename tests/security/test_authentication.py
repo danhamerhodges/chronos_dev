@@ -86,5 +86,14 @@ def test_museum_api_key_policy_is_declared_but_plan_gated() -> None:
         "rate_limiting": "required",
     }
     assert service.api_key_allowed_for_plan("museum") is True
+    assert service.api_key_allowed_for_plan(" Museum ") is True
+    assert service.api_key_allowed_for_plan("MUSEUM") is True
     assert service.api_key_allowed_for_plan("pro") is False
     assert service.api_key_allowed_for_plan("hobbyist") is False
+
+
+def test_api_key_plan_gate_fails_closed_for_missing_or_non_string_tiers() -> None:
+    service = SupabaseAuthService()
+
+    assert service.api_key_allowed_for_plan(None) is False
+    assert service.api_key_allowed_for_plan(123) is False

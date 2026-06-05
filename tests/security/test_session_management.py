@@ -6,6 +6,7 @@ Maps to:
 from __future__ import annotations
 
 from app.auth.supabase_auth import SupabaseAuthService
+from app.config import settings
 
 
 def test_session_policy_matches_sec001_token_lifetime_contract() -> None:
@@ -14,16 +15,21 @@ def test_session_policy_matches_sec001_token_lifetime_contract() -> None:
     assert policy["rotation"] == "enabled"
     assert policy["short_lived_access_tokens"] == "enabled"
     assert policy["refresh_token_required"] == "enabled"
-    assert policy["access_token_ttl_minutes"] == "60"
+    assert policy["access_token_ttl_minutes"] == str(settings.auth_session_ttl_minutes)
     assert policy["refresh_token_rolling_days"] == "7"
 
 
 def test_secure_cookie_flags_are_required() -> None:
     assert SupabaseAuthService().session_cookie_policy() == {
+        "domain": "host_only",
         "httponly": "required",
         "secure": "required",
         "samesite": "Strict",
     }
+
+
+def test_session_cookie_policy_is_preflight_only_until_auth_flow_evidence_exists() -> None:
+    assert not hasattr(SupabaseAuthService(), "set_session_cookie")
 
 
 def test_password_and_lockout_policies_match_sec001_contract() -> None:
@@ -34,11 +40,12 @@ def test_password_and_lockout_policies_match_sec001_contract() -> None:
         "complexity_rules": "required",
         "weak_password_screening": "offline_or_k_anonymity",
     }
-    assert service.lockout_policy() == {
+    lockout_policy = service.lockout_policy()
+    assert lockout_policy == {
         "failed_attempts_threshold": "configurable",
         "lockout_window": "configurable",
-        "max_failed_attempts": "5",
-        "lockout_window_minutes": "15",
+        "max_failed_attempts": str(settings.auth_max_failed_attempts),
+        "lockout_window_minutes": str(settings.auth_lockout_minutes),
         "reset_on_success": "enabled",
     }
 
