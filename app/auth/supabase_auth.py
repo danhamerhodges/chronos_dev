@@ -1,11 +1,14 @@
-"""Supabase Auth integration scaffolding for SEC-013."""
+"""Supabase Auth integration scaffolding for SEC-001 and SEC-013."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
 
+from app.auth.rbac import normalize_role
+from app.config import settings
 from app.db.client import SupabaseClient
+
 
 @dataclass(frozen=True)
 class AuthProviderConfig:
@@ -38,14 +41,72 @@ class SupabaseAuthService:
             "rotation": "enabled",
             "short_lived_access_tokens": "enabled",
             "refresh_token_required": "enabled",
+            "access_token_ttl_minutes": str(settings.auth_session_ttl_minutes),
+            "refresh_token_rolling_days": "7",
         }
 
     def lockout_policy(self) -> dict[str, str]:
         return {
             "failed_attempts_threshold": "configurable",
             "lockout_window": "configurable",
+            "max_failed_attempts": str(settings.auth_max_failed_attempts),
+            "lockout_window_minutes": str(settings.auth_lockout_minutes),
             "reset_on_success": "enabled",
         }
+
+    def session_cookie_policy(self) -> dict[str, str]:
+        return {
+            "httponly": "required",
+            "secure": "required",
+            "samesite": "Strict",
+        }
+
+    def password_policy(self) -> dict[str, str]:
+        return {
+            "minimum_length": "12",
+            "complexity_rules": "required",
+            "weak_password_screening": "offline_or_k_anonymity",
+        }
+
+    def api_key_policy(self) -> dict[str, str]:
+        return {
+            "museum_tier_only": "required",
+            "revocation": "required",
+            "expiration": "required",
+            "rate_limiting": "required",
+        }
+
+    def api_key_allowed_for_plan(self, plan_tier: str) -> bool:
+        return plan_tier.strip().lower() == "museum"
+
+    def mfa_policy(self) -> dict[str, str]:
+        return {
+            "optional_for_all_tiers": "enabled",
+            "museum_admin_required": "enabled",
+            "supported_methods": "totp,sms,backup_codes",
+        }
+
+    def is_mfa_required(self, *, plan_tier: str, role: str) -> bool:
+        return plan_tier.strip().lower() == "museum" and normalize_role(role) in {"admin", "platform_admin"}
+
+    def token_revocation_policy(self) -> dict[str, str]:
+        return {
+            "immediate_logout": "required",
+            "revoked_token_rejection": "required",
+            "propagation_p95_seconds": "5",
+        }
+
+    def auth_audit_events(self) -> tuple[str, ...]:
+        return (
+            "login",
+            "logout",
+            "failed_attempt",
+            "mfa_enrollment",
+            "password_reset",
+            "token_refresh",
+            "account_lockout",
+            "admin_action",
+        )
 
     def profile_management_capabilities(self) -> list[str]:
         return [

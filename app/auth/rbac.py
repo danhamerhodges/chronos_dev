@@ -1,8 +1,9 @@
-"""Role-based access control model for SEC-013."""
+"""Role-based access control model for SEC-001 and SEC-013."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
 
 
 @dataclass(frozen=True)
@@ -16,8 +17,8 @@ MEMBER = Role(name="member")
 PLATFORM_ADMIN = Role(name="platform_admin")
 
 
-ROLE_PERMISSIONS: dict[str, set[str]] = {
-    PLATFORM_ADMIN.name: {
+ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
+    PLATFORM_ADMIN.name: frozenset({
         "jobs:read",
         "jobs:write",
         "billing:read",
@@ -30,8 +31,8 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "compliance:write",
         "ops:read",
         "ops:write",
-    },
-    ADMIN.name: {
+    }),
+    ADMIN.name: frozenset({
         "jobs:read",
         "jobs:write",
         "billing:read",
@@ -43,22 +44,42 @@ ROLE_PERMISSIONS: dict[str, set[str]] = {
         "retention:write",
         "compliance:write",
         "ops:read",
-    },
-    ANALYST.name: {
+    }),
+    ANALYST.name: frozenset({
         "jobs:read",
         "jobs:write",
         "billing:read",
         "users:read",
         "logs:read",
-    },
-    MEMBER.name: {
+    }),
+    MEMBER.name: frozenset({
         "jobs:read",
         "jobs:write",
         "billing:read",
         "users:read",
-    },
+    }),
 }
 
 
+def normalize_role(role: str | None) -> str:
+    if role is None:
+        return ""
+    return role.strip().lower()
+
+
+def normalize_permission(permission: str | None) -> str:
+    if permission is None:
+        return ""
+    return permission.strip().lower()
+
+
+def permissions_for_role(role: str | None) -> frozenset[str]:
+    return ROLE_PERMISSIONS.get(normalize_role(role), frozenset())
+
+
+def role_permission_matrix() -> MappingProxyType[str, frozenset[str]]:
+    return MappingProxyType(ROLE_PERMISSIONS)
+
+
 def has_permission(role: str, permission: str) -> bool:
-    return permission in ROLE_PERMISSIONS.get(role, set())
+    return normalize_permission(permission) in permissions_for_role(role)
