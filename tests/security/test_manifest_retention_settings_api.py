@@ -20,6 +20,8 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def reset_state() -> None:
     reset_phase2_store()
+    response = client.post("/v1/testing/reset-rate-limits", headers=fake_auth_header("retention-settings-reset"))
+    assert response.status_code == 200
 
 
 @pytest.mark.parametrize(
@@ -69,6 +71,28 @@ def test_platform_admin_can_update_manifest_retention_settings() -> None:
     payload = response.json()
     assert payload["retention_class"] == "365d"
     assert payload["updated_by"] == "platform-admin"
+
+
+def test_museum_admin_can_read_current_manifest_retention_settings() -> None:
+    ManifestRetentionSettingsRepository().upsert(
+        org_id="museum-org",
+        plan_tier="museum",
+        manifest_retention_days=90,
+        manifest_redaction_enabled=True,
+        updated_by="previous-admin",
+    )
+
+    response = client.get(
+        "/v1/orgs/museum-org/settings/retention",
+        headers=fake_auth_header("museum-admin", role="admin", tier="museum", org_id="museum-org"),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["org_id"] == "museum-org"
+    assert payload["manifest_retention_days"] == 90
+    assert payload["manifest_redaction_enabled"] is True
+    assert payload["retention_class"] == "90d"
 
 
 def test_non_admin_cannot_update_manifest_retention_settings() -> None:
