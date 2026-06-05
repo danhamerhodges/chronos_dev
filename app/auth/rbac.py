@@ -62,19 +62,19 @@ ROLE_PERMISSIONS: Mapping[str, frozenset[str]] = MappingProxyType({
 })
 
 
-def normalize_role(role: str | None) -> str:
-    if role is None:
+def normalize_role(role: object | None) -> str:
+    if not isinstance(role, str):
         return ""
     return role.strip().lower()
 
 
-def normalize_permission(permission: str | None) -> str:
-    if permission is None:
+def normalize_permission(permission: object | None) -> str:
+    if not isinstance(permission, str):
         return ""
     return permission.strip().lower()
 
 
-def permissions_for_role(role: str | None) -> frozenset[str]:
+def permissions_for_role(role: object | None) -> frozenset[str]:
     return ROLE_PERMISSIONS.get(normalize_role(role), frozenset())
 
 
@@ -82,5 +82,5 @@ def role_permission_matrix() -> Mapping[str, frozenset[str]]:
     return ROLE_PERMISSIONS
 
 
-def has_permission(role: str, permission: str) -> bool:
+def has_permission(role: object, permission: object) -> bool:
     return normalize_permission(permission) in permissions_for_role(role)

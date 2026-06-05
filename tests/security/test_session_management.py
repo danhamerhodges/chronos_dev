@@ -105,6 +105,24 @@ def test_auth_policy_settings_validator_fails_closed_for_missing_or_malformed_co
             )
         )
 
+    with pytest.raises(ValueError, match="auth_session_ttl_minutes must be an integer"):
+        service.validate_auth_policy_settings(
+            SimpleNamespace(
+                auth_session_ttl_minutes=True,
+                auth_max_failed_attempts=5,
+                auth_lockout_minutes=15,
+            )
+        )
+
+    with pytest.raises(ValueError, match="auth_max_failed_attempts must be an integer"):
+        service.validate_auth_policy_settings(
+            SimpleNamespace(
+                auth_session_ttl_minutes=60,
+                auth_max_failed_attempts=False,
+                auth_lockout_minutes=15,
+            )
+        )
+
 
 def test_auth_policy_settings_validator_fails_closed_for_unsafe_config_bounds() -> None:
     service = SupabaseAuthService()

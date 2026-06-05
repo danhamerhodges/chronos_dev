@@ -41,6 +41,8 @@ def validated_security_int(
     if not hasattr(config, name):
         raise ValueError(f"{name} must be configured")
     value = getattr(config, name)
+    if isinstance(value, bool):
+        raise ValueError(f"{name} must be an integer")
     try:
         parsed = int(value)
     except (TypeError, ValueError):

@@ -17,6 +17,14 @@ def test_rbac_fails_closed_for_unknown_or_empty_roles() -> None:
     assert permissions_for_role("unknown") == frozenset()
 
 
+def test_rbac_fails_closed_for_non_string_inputs() -> None:
+    assert has_permission(123, "jobs:read") is False
+    assert has_permission({"role": "admin"}, "jobs:read") is False
+    assert has_permission("admin", None) is False
+    assert has_permission("admin", {"permission": "jobs:read"}) is False
+    assert permissions_for_role(123) == frozenset()
+
+
 def test_rbac_normalizes_roles_and_permissions() -> None:
     assert has_permission(" Admin ", " Retention:Write ") is True
     assert has_permission(" PLATFORM_ADMIN ", " OPS:WRITE ") is True
