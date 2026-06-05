@@ -6,7 +6,21 @@ export type DeliveryRequestError = Error & {
 
 export type UserProfileSummary = {
   user_id: string;
+  role: string;
   plan_tier: string;
+  org_id: string;
+};
+
+export type ManifestRetentionDays = 0 | 90 | 365 | 1825 | null;
+
+export type ManifestRetentionSettingsResponse = {
+  org_id: string;
+  plan_tier: string;
+  manifest_retention_days: ManifestRetentionDays;
+  manifest_redaction_enabled: boolean;
+  retention_class: string;
+  updated_by?: string | null;
+  updated_at: string;
 };
 
 export type JobExportResponse = {
@@ -84,6 +98,50 @@ export async function fetchCurrentUserProfile(
     await throwDeliveryError(response, "Unable to load delivery settings.");
   }
   return (await response.json()) as UserProfileSummary;
+}
+
+export async function fetchManifestRetentionSettings(
+  apiBaseUrl: string,
+  accessToken: string,
+  orgId: string,
+  fetchFn: typeof fetch = globalThis.fetch.bind(globalThis),
+): Promise<ManifestRetentionSettingsResponse> {
+  const response = await fetchFn(apiUrl(apiBaseUrl, `/v1/orgs/${encodeURIComponent(orgId)}/settings/retention`), {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+  if (!response.ok) {
+    await throwDeliveryError(response, "Unable to load retention settings.");
+  }
+  return (await response.json()) as ManifestRetentionSettingsResponse;
+}
+
+export async function updateManifestRetentionSettings(
+  apiBaseUrl: string,
+  accessToken: string,
+  orgId: string,
+  payload: {
+    manifestRetentionDays: ManifestRetentionDays;
+    manifestRedactionEnabled: boolean;
+  },
+  fetchFn: typeof fetch = globalThis.fetch.bind(globalThis),
+): Promise<ManifestRetentionSettingsResponse> {
+  const response = await fetchFn(apiUrl(apiBaseUrl, `/v1/orgs/${encodeURIComponent(orgId)}/settings/retention`), {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      manifest_retention_days: payload.manifestRetentionDays,
+      manifest_redaction_enabled: payload.manifestRedactionEnabled,
+    }),
+  });
+  if (!response.ok) {
+    await throwDeliveryError(response, "Unable to update retention settings.");
+  }
+  return (await response.json()) as ManifestRetentionSettingsResponse;
 }
 
 export async function fetchJobExport(

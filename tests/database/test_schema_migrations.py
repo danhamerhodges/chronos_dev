@@ -36,6 +36,7 @@ def test_expected_migrations_present() -> None:
         "0025_phase5_nfr006_closeout.sql",
         "0026_phase5_sec003_data_classification.sql",
         "0027_phase5_sec005_manifest_retention.sql",
+        "0028_phase5_sec005_retention_settings_rls.sql",
     ]
 
 
@@ -81,6 +82,21 @@ def test_sec005_manifest_retention_migration_is_backend_only_and_backfill_safe()
     assert "ADD COLUMN IF NOT EXISTS retention_delete_attempted_at TIMESTAMPTZ" in sql
     assert "'0d', '7d', '90d', '365d', '1825d', 'indefinite', 'v0-backfill'" in sql
     assert "retention_delete_status IN ('pending', 'deleted', 'failed')" in sql
+
+
+def test_sec005_retention_settings_rls_allows_same_org_museum_admin_writes() -> None:
+    root = Path(__file__).resolve().parents[2]
+    sql = (root / "supabase" / "migrations" / "0028_phase5_sec005_retention_settings_rls.sql").read_text(encoding="utf-8")
+
+    assert "GRANT SELECT, INSERT, UPDATE ON TABLE public.org_data_retention_settings TO authenticated" in sql
+    assert "CREATE POLICY org_data_retention_settings_same_org_admin_read" in sql
+    assert "CREATE POLICY org_data_retention_settings_same_org_admin_insert" in sql
+    assert "CREATE POLICY org_data_retention_settings_same_org_admin_update" in sql
+    assert "public.user_profiles.id = auth.uid()" in sql
+    assert "public.user_profiles.org_id = public.org_data_retention_settings.org_id" in sql
+    assert "public.user_profiles.plan_tier = 'museum'" in sql
+    assert "public.user_profiles.role IN ('admin', 'platform_admin')" in sql
+    assert "plan_tier = 'museum'" in sql
 
 
 def test_runtime_ops_migration_covers_gpu_leases_and_incidents() -> None:

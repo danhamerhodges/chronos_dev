@@ -26,6 +26,7 @@ from app.api.problem_details import (
     request_validation_exception_handler,
     ProblemException,
 )
+from app.api.retention_settings import router as retention_settings_router
 from app.api.uploads import router as uploads_router
 from app.api.users import router as users_router
 from app.api.version import router as version_router
@@ -83,6 +84,7 @@ def create_app() -> FastAPI:
     app.include_router(users_router, tags=["users"])
     app.include_router(webhooks_router, tags=["webhooks"])
     app.include_router(logs_router, tags=["security"])
+    app.include_router(retention_settings_router, tags=["security"])
 
     if settings.test_auth_override:
         from app.api.testing import router as testing_router

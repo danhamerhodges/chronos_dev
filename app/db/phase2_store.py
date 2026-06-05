@@ -893,6 +893,7 @@ class _MemoryManifestRetentionSettingsRepository:
         manifest_retention_days: int | None,
         manifest_redaction_enabled: bool,
         updated_by: str | None = None,
+        access_token: str | None = None,
     ) -> dict[str, Any]:
         if plan_tier.lower() != "museum":
             raise ValueError("SEC-005 manifest retention settings are Museum-tier only.")
@@ -908,7 +909,7 @@ class _MemoryManifestRetentionSettingsRepository:
         _STORE.manifest_retention_settings[org_id] = record
         return dict(record)
 
-    def get(self, org_id: str | None) -> dict[str, Any] | None:
+    def get(self, org_id: str | None, *, access_token: str | None = None) -> dict[str, Any] | None:
         if not org_id:
             return None
         record = _STORE.manifest_retention_settings.get(org_id)
@@ -2819,32 +2820,51 @@ class _SupabaseManifestRetentionSettingsRepository(_SupabaseRepositoryBase):
         manifest_retention_days: int | None,
         manifest_redaction_enabled: bool,
         updated_by: str | None = None,
+        access_token: str | None = None,
     ) -> dict[str, Any]:
         if plan_tier.lower() != "museum":
             raise ValueError("SEC-005 manifest retention settings are Museum-tier only.")
-        with self._connect() as conn, conn.cursor() as cur:
-            cur.execute(
-                """
-                insert into public.org_data_retention_settings (
-                    org_id, plan_tier, manifest_retention_days, manifest_redaction_enabled,
-                    updated_by, updated_at
-                )
-                values (%s, 'museum', %s, %s, %s, now())
-                on conflict (org_id) do update
-                set manifest_retention_days = excluded.manifest_retention_days,
-                    manifest_redaction_enabled = excluded.manifest_redaction_enabled,
-                    updated_by = excluded.updated_by,
-                    updated_at = now()
-                returning *
-                """,
-                (org_id, manifest_retention_days, manifest_redaction_enabled, updated_by),
-            )
-            row = cur.fetchone()
-        return dict(row)
+        if not access_token:
+            raise ValueError("User-scoped access token is required for retention settings writes.")
+        headers = self._client.user_scoped_headers(access_token)
+        row = self._client.rest_upsert(
+            "org_data_retention_settings",
+            payload={
+                "org_id": org_id,
+                "plan_tier": "museum",
+                "manifest_retention_days": manifest_retention_days,
+                "manifest_redaction_enabled": manifest_redaction_enabled,
+                "updated_by": updated_by,
+                "updated_at": _utc_now(),
+            },
+            on_conflict="org_id",
+            headers=headers,
+        )[0]
+        return {
+            "org_id": row["org_id"],
+            "plan_tier": row["plan_tier"],
+            "manifest_retention_days": row.get("manifest_retention_days"),
+            "manifest_redaction_enabled": bool(row["manifest_redaction_enabled"]),
+            "updated_by": row.get("updated_by", updated_by),
+            "created_at": row.get("created_at"),
+            "updated_at": row["updated_at"],
+        }
 
-    def get(self, org_id: str | None) -> dict[str, Any] | None:
+    def get(self, org_id: str | None, *, access_token: str | None = None) -> dict[str, Any] | None:
         if not org_id:
             return None
+        if access_token:
+            rows = self._client.rest_select(
+                "org_data_retention_settings",
+                params={
+                    "select": "org_id,plan_tier,manifest_retention_days,manifest_redaction_enabled,updated_by,created_at,updated_at",
+                    "org_id": f"eq.{org_id}",
+                    "plan_tier": "eq.museum",
+                    "limit": "1",
+                },
+                headers=self._client.user_scoped_headers(access_token),
+            )
+            return dict(rows[0]) if rows else None
         with self._connect() as conn, conn.cursor() as cur:
             cur.execute(
                 """
@@ -4767,6 +4787,7 @@ class ManifestRetentionSettingsRepository:
         manifest_retention_days: int | None,
         manifest_redaction_enabled: bool,
         updated_by: str | None = None,
+        access_token: str | None = None,
     ) -> dict[str, Any]:
         return self._backend.upsert(
             org_id=org_id,
@@ -4774,10 +4795,11 @@ class ManifestRetentionSettingsRepository:
             manifest_retention_days=manifest_retention_days,
             manifest_redaction_enabled=manifest_redaction_enabled,
             updated_by=updated_by,
+            access_token=access_token,
         )
 
-    def get(self, org_id: str | None) -> dict[str, Any] | None:
-        return self._backend.get(org_id)
+    def get(self, org_id: str | None, *, access_token: str | None = None) -> dict[str, Any] | None:
+        return self._backend.get(org_id, access_token=access_token)
 
 
 class ComplianceRepository:
