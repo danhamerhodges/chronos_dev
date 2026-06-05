@@ -1111,6 +1111,43 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetail"
+  /v1/orgs/{org_id}/settings/retention:
+    patch:
+      tags: [security]
+      summary: Update Museum transformation-manifest retention settings
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: org_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManifestRetentionSettingsUpdateRequest"
+      responses:
+        "200":
+          description: Manifest retention settings updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManifestRetentionSettingsResponse"
+        "400":
+          description: Invalid retention setting value
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "403":
+          description: Missing retention write permission, wrong organization, or non-Museum tier
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
   /v1/user/delete_logs:
     post:
       tags: [security]
@@ -1795,6 +1832,39 @@ components:
           items:
             type: string
         updated_by:
+          type: string
+    ManifestRetentionSettingsUpdateRequest:
+      type: object
+      required: [manifest_retention_days, manifest_redaction_enabled]
+      properties:
+        manifest_retention_days:
+          type: integer
+          nullable: true
+          enum: [0, 90, 365, 1825, null]
+        manifest_redaction_enabled:
+          type: boolean
+    ManifestRetentionSettingsResponse:
+      type: object
+      required: [org_id, plan_tier, manifest_retention_days, manifest_redaction_enabled, retention_class, updated_at]
+      properties:
+        org_id:
+          type: string
+        plan_tier:
+          type: string
+          enum: [museum]
+        manifest_retention_days:
+          type: integer
+          nullable: true
+          enum: [0, 90, 365, 1825, null]
+        manifest_redaction_enabled:
+          type: boolean
+        retention_class:
+          type: string
+          enum: [0d, 90d, 365d, 1825d, indefinite]
+        updated_by:
+          type: string
+          nullable: true
+        updated_at:
           type: string
     DeleteLogsRequest:
       type: object
