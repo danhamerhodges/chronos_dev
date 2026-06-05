@@ -1112,6 +1112,42 @@ paths:
               schema:
                 $ref: "#/components/schemas/ProblemDetail"
   /v1/orgs/{org_id}/settings/retention:
+    get:
+      tags: [security]
+      summary: Read Museum transformation-manifest retention settings
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: org_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Manifest retention settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManifestRetentionSettingsResponse"
+        "401":
+          description: Missing or invalid bearer token
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "403":
+          description: Missing retention write permission, wrong organization, or non-Museum tier
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
     patch:
       tags: [security]
       summary: Update Museum transformation-manifest retention settings
@@ -1142,8 +1178,20 @@ paths:
             application/problem+json:
               schema:
                 $ref: "#/components/schemas/ProblemDetail"
+        "401":
+          description: Missing or invalid bearer token
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
         "403":
           description: Missing retention write permission, wrong organization, or non-Museum tier
+          content:
+            application/problem+json:
+              schema:
+                $ref: "#/components/schemas/ProblemDetail"
+        "429":
+          description: Rate limit exceeded
           content:
             application/problem+json:
               schema:

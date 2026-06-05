@@ -12,7 +12,7 @@ Status: Packet 5K-F implements the missing `DoD-SEC-005-10` retention settings A
 
 Packet 5K-F adds the missing configuration surface for Museum transformation manifest retention:
 
-1. API: `PATCH /v1/orgs/{org_id}/settings/retention`
+1. API: `GET /v1/orgs/{org_id}/settings/retention` readback plus `PATCH /v1/orgs/{org_id}/settings/retention` updates
 2. Web UI: top-level `Settings` action with `Settings > Data Retention` modal
 3. Persistence: user-scoped REST write path for `org_data_retention_settings` when the API supplies an end-user JWT
 4. RLS: migration `0028_phase5_sec005_retention_settings_rls.sql` grants authenticated same-org Museum admin/platform-admin access for select/insert/update
