@@ -14,6 +14,12 @@ from app.api.problem_details import ProblemException
 from app.auth.supabase_auth import SupabaseAuthService
 
 
+PREFLIGHT_POLICY_METADATA = {
+    "policy_stage": "local_preflight_metadata",
+    "runtime_enforcement": "deferred_to_hosted_auth_integration",
+}
+
+
 def test_authentication_requires_bearer_token() -> None:
     with pytest.raises(ProblemException) as exc_info:
         dependencies.get_current_user(authorization=None)
@@ -84,6 +90,7 @@ def test_museum_api_key_policy_is_declared_but_plan_gated() -> None:
         "revocation": "required",
         "expiration": "required",
         "rate_limiting": "required",
+        **PREFLIGHT_POLICY_METADATA,
     }
     assert service.api_key_allowed_for_plan("museum") is True
     assert service.api_key_allowed_for_plan(" Museum ") is True

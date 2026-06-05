@@ -12,12 +12,20 @@ from app.db.client import SupabaseClient
 
 MUSEUM_MFA_REQUIRED_ROLES = frozenset({"admin", "platform_admin"})
 GLOBAL_MFA_REQUIRED_ROLES = frozenset({"platform_admin"})
+PREFLIGHT_POLICY_METADATA = {
+    "policy_stage": "local_preflight_metadata",
+    "runtime_enforcement": "deferred_to_hosted_auth_integration",
+}
 
 
 def normalize_plan_tier(plan_tier: object) -> str:
     if not isinstance(plan_tier, str):
         return ""
     return plan_tier.strip().lower()
+
+
+def preflight_policy(policy: dict[str, str]) -> dict[str, str]:
+    return {**policy, **PREFLIGHT_POLICY_METADATA}
 
 
 @dataclass(frozen=True)
@@ -47,56 +55,68 @@ class SupabaseAuthService:
         }
 
     def session_policy(self) -> dict[str, str]:
-        return {
-            "rotation": "enabled",
-            "short_lived_access_tokens": "enabled",
-            "refresh_token_required": "enabled",
-            "access_token_ttl_minutes": str(settings.auth_session_ttl_minutes),
-            "refresh_token_rolling_days": "7",
-        }
+        return preflight_policy(
+            {
+                "rotation": "enabled",
+                "short_lived_access_tokens": "enabled",
+                "refresh_token_required": "enabled",
+                "access_token_ttl_minutes": str(settings.auth_session_ttl_minutes),
+                "refresh_token_rolling_days": "7",
+            }
+        )
 
     def lockout_policy(self) -> dict[str, str]:
-        return {
-            "failed_attempts_threshold": "configurable",
-            "lockout_window": "configurable",
-            "max_failed_attempts": str(settings.auth_max_failed_attempts),
-            "lockout_window_minutes": str(settings.auth_lockout_minutes),
-            "reset_on_success": "enabled",
-        }
+        return preflight_policy(
+            {
+                "failed_attempts_threshold": "configurable",
+                "lockout_window": "configurable",
+                "max_failed_attempts": str(settings.auth_max_failed_attempts),
+                "lockout_window_minutes": str(settings.auth_lockout_minutes),
+                "reset_on_success": "enabled",
+            }
+        )
 
     def session_cookie_policy(self) -> dict[str, str]:
-        return {
-            "domain": "host_only",
-            "httponly": "required",
-            "secure": "required",
-            "samesite": "Strict",
-        }
+        return preflight_policy(
+            {
+                "domain": "host_only",
+                "httponly": "required",
+                "secure": "required",
+                "samesite": "Strict",
+            }
+        )
 
     def password_policy(self) -> dict[str, str]:
-        return {
-            "minimum_length": "12",
-            "complexity_rules": "required",
-            "weak_password_screening": "offline_or_k_anonymity",
-        }
+        return preflight_policy(
+            {
+                "minimum_length": "12",
+                "complexity_rules": "required",
+                "weak_password_screening": "offline_or_k_anonymity",
+            }
+        )
 
     def api_key_policy(self) -> dict[str, str]:
-        return {
-            "museum_tier_only": "required",
-            "revocation": "required",
-            "expiration": "required",
-            "rate_limiting": "required",
-        }
+        return preflight_policy(
+            {
+                "museum_tier_only": "required",
+                "revocation": "required",
+                "expiration": "required",
+                "rate_limiting": "required",
+            }
+        )
 
     def api_key_allowed_for_plan(self, plan_tier: object) -> bool:
         return normalize_plan_tier(plan_tier) == "museum"
 
     def mfa_policy(self) -> dict[str, str]:
-        return {
-            "optional_for_all_tiers": "enabled",
-            "museum_admin_required": "enabled",
-            "platform_admin_required": "enabled",
-            "supported_methods": "deferred_to_hosted_mfa_integration",
-        }
+        return preflight_policy(
+            {
+                "optional_for_all_tiers": "enabled",
+                "museum_admin_required": "enabled",
+                "platform_admin_required": "enabled",
+                "supported_methods": "deferred_to_hosted_mfa_integration",
+            }
+        )
 
     def is_mfa_required(self, *, plan_tier: object, role: str) -> bool:
         normalized_role = normalize_role(role)
@@ -105,11 +125,13 @@ class SupabaseAuthService:
         return normalize_plan_tier(plan_tier) == "museum" and normalized_role in MUSEUM_MFA_REQUIRED_ROLES
 
     def token_revocation_policy(self) -> dict[str, str]:
-        return {
-            "immediate_logout": "required",
-            "revoked_token_rejection": "required",
-            "propagation_p95_seconds": "5",
-        }
+        return preflight_policy(
+            {
+                "immediate_logout": "required",
+                "revoked_token_rejection": "required",
+                "propagation_p95_seconds": "5",
+            }
+        )
 
     def auth_audit_events(self) -> tuple[str, ...]:
         return (

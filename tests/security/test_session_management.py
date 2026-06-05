@@ -9,6 +9,12 @@ from app.auth.supabase_auth import SupabaseAuthService
 from app.config import settings
 
 
+PREFLIGHT_POLICY_METADATA = {
+    "policy_stage": "local_preflight_metadata",
+    "runtime_enforcement": "deferred_to_hosted_auth_integration",
+}
+
+
 def test_session_policy_matches_sec001_token_lifetime_contract() -> None:
     policy = SupabaseAuthService().session_policy()
 
@@ -25,6 +31,7 @@ def test_secure_cookie_flags_are_required() -> None:
         "httponly": "required",
         "secure": "required",
         "samesite": "Strict",
+        **PREFLIGHT_POLICY_METADATA,
     }
 
 
@@ -39,6 +46,7 @@ def test_password_and_lockout_policies_match_sec001_contract() -> None:
         "minimum_length": "12",
         "complexity_rules": "required",
         "weak_password_screening": "offline_or_k_anonymity",
+        **PREFLIGHT_POLICY_METADATA,
     }
     lockout_policy = service.lockout_policy()
     assert lockout_policy == {
@@ -47,6 +55,7 @@ def test_password_and_lockout_policies_match_sec001_contract() -> None:
         "max_failed_attempts": str(settings.auth_max_failed_attempts),
         "lockout_window_minutes": str(settings.auth_lockout_minutes),
         "reset_on_success": "enabled",
+        **PREFLIGHT_POLICY_METADATA,
     }
 
 
@@ -57,6 +66,7 @@ def test_token_revocation_and_auth_audit_event_contracts_are_declared() -> None:
         "immediate_logout": "required",
         "revoked_token_rejection": "required",
         "propagation_p95_seconds": "5",
+        **PREFLIGHT_POLICY_METADATA,
     }
     assert service.auth_audit_events() == (
         "login",

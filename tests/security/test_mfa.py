@@ -8,6 +8,12 @@ from __future__ import annotations
 from app.auth.supabase_auth import SupabaseAuthService
 
 
+PREFLIGHT_POLICY_METADATA = {
+    "policy_stage": "local_preflight_metadata",
+    "runtime_enforcement": "deferred_to_hosted_auth_integration",
+}
+
+
 def test_mfa_policy_requires_museum_admins() -> None:
     service = SupabaseAuthService()
 
@@ -16,6 +22,7 @@ def test_mfa_policy_requires_museum_admins() -> None:
         "museum_admin_required": "enabled",
         "platform_admin_required": "enabled",
         "supported_methods": "deferred_to_hosted_mfa_integration",
+        **PREFLIGHT_POLICY_METADATA,
     }
     assert service.is_mfa_required(plan_tier="museum", role="admin") is True
     assert service.is_mfa_required(plan_tier=" Museum ", role="admin") is True
