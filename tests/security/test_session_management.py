@@ -27,6 +27,8 @@ def test_session_policy_matches_sec001_token_lifetime_contract() -> None:
     assert policy["refresh_token_required"] == "enabled"
     assert policy["access_token_ttl_minutes"] == str(settings.auth_session_ttl_minutes)
     assert policy["refresh_token_rolling_days"] == "7"
+    assert policy["runtime_config_status"] == "valid"
+    assert policy["runtime_config_issues"] == "none"
 
 
 def test_secure_cookie_flags_are_required() -> None:
@@ -59,6 +61,8 @@ def test_password_and_lockout_policies_match_sec001_contract() -> None:
         "max_failed_attempts": str(settings.auth_max_failed_attempts),
         "lockout_window_minutes": str(settings.auth_lockout_minutes),
         "reset_on_success": "enabled",
+        "runtime_config_status": "valid",
+        "runtime_config_issues": "none",
         **PREFLIGHT_POLICY_METADATA,
     }
 
@@ -85,9 +89,32 @@ def test_session_and_lockout_readbacks_reflect_valid_stricter_config() -> None:
     )
 
     assert service.session_policy(stricter_config)["access_token_ttl_minutes"] == "30"
+    assert service.session_policy(stricter_config)["runtime_config_status"] == "valid"
     lockout_policy = service.lockout_policy(stricter_config)
     assert lockout_policy["max_failed_attempts"] == "3"
     assert lockout_policy["lockout_window_minutes"] == "20"
+    assert lockout_policy["runtime_config_status"] == "valid"
+
+
+def test_session_and_lockout_readbacks_report_invalid_config_without_raising() -> None:
+    service = SupabaseAuthService()
+    invalid_config = SimpleNamespace(
+        auth_session_ttl_minutes=61,
+        auth_max_failed_attempts=False,
+        auth_lockout_minutes=14,
+    )
+
+    session_policy = service.session_policy(invalid_config)
+    assert session_policy["access_token_ttl_minutes"] == "invalid"
+    assert session_policy["runtime_config_status"] == "invalid"
+    assert "auth_session_ttl_minutes must be at most 60" in session_policy["runtime_config_issues"]
+    assert "auth_max_failed_attempts must be an integer" in session_policy["runtime_config_issues"]
+    assert "auth_lockout_minutes must be at least 15" in session_policy["runtime_config_issues"]
+
+    lockout_policy = service.lockout_policy(invalid_config)
+    assert lockout_policy["max_failed_attempts"] == "invalid"
+    assert lockout_policy["lockout_window_minutes"] == "invalid"
+    assert lockout_policy["runtime_config_status"] == "invalid"
 
 
 def test_auth_policy_settings_validator_fails_closed_for_missing_or_malformed_config() -> None:
@@ -119,6 +146,24 @@ def test_auth_policy_settings_validator_fails_closed_for_missing_or_malformed_co
             SimpleNamespace(
                 auth_session_ttl_minutes=60,
                 auth_max_failed_attempts=False,
+                auth_lockout_minutes=15,
+            )
+        )
+
+    with pytest.raises(ValueError, match="auth_session_ttl_minutes must be an integer"):
+        service.validate_auth_policy_settings(
+            SimpleNamespace(
+                auth_session_ttl_minutes=1.0,
+                auth_max_failed_attempts=5,
+                auth_lockout_minutes=15,
+            )
+        )
+
+    with pytest.raises(ValueError, match="auth_max_failed_attempts must be an integer"):
+        service.validate_auth_policy_settings(
+            SimpleNamespace(
+                auth_session_ttl_minutes=60,
+                auth_max_failed_attempts=5.0,
                 auth_lockout_minutes=15,
             )
         )

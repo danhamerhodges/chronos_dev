@@ -32,6 +32,15 @@ def test_mfa_policy_requires_museum_admins() -> None:
     assert service.is_mfa_required(plan_tier=None, role="platform_admin") is True
 
 
+def test_mfa_policy_normalizes_identity_provider_role_aliases() -> None:
+    service = SupabaseAuthService()
+
+    assert service.is_mfa_required(plan_tier="pro", role="platform-admin") is True
+    assert service.is_mfa_required(plan_tier="pro", role="Platform Admin") is True
+    assert service.is_mfa_required(plan_tier="museum", role="tenant_admin") is True
+    assert service.is_mfa_required(plan_tier="museum", role="museum_admin") is True
+
+
 def test_mfa_policy_remains_optional_for_non_museum_or_non_admin_users() -> None:
     service = SupabaseAuthService()
 
